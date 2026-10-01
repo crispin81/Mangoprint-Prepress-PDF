@@ -64,22 +64,6 @@
 
       <aside id="sidebar">
         <div class="panel">
-          <div class="panel-header">
-            <h2>Eyedropper</h2>
-            <label class="toggle-row inline">
-              <input type="checkbox" id="eyedropToggle" checked />
-              On
-            </label>
-          </div>
-          <ul id="inkReadout"><li class="hint">Hover over the page to read ink values.</li></ul>
-          <p class="hint">
-            Ink percentages at the cursor, read from the actual separations
-            (so overprint is taken into account). Click to hold a reading;
-            click again to release.
-          </p>
-        </div>
-
-        <div class="panel">
           <h2>Overprint Preview</h2>
           <label class="toggle-row">
             <input type="checkbox" id="overprintToggle" />
@@ -102,24 +86,13 @@
               <button id="selectNoneSep" class="link-btn">None</button>
             </div>
           </div>
-          <ul id="separationsList"></ul>
+          <ul id="separationsList"><li class="hint">Open a PDF to see its separations.</li></ul>
           <p class="hint">
-            Toggle plates to inspect trapping — e.g. check whether black
-            text is set to overprint (K only, colors underneath still
-            present) versus knockout (a white gap in the other plates).
+            Hover over the page to read ink at the cursor; click to hold a
+            reading, click again to release. Untick plates to inspect
+            trapping — e.g. whether black text overprints (colours still
+            underneath) or knocks out (a white gap in the other plates).
           </p>
-        </div>
-
-        <div class="panel">
-          <h2>Mode</h2>
-          <label class="toggle-row">
-            <input type="radio" name="mode" id="modeOverprint" checked />
-            Overprint Preview
-          </label>
-          <label class="toggle-row">
-            <input type="radio" name="mode" id="modeSeparations" />
-            Separations
-          </label>
         </div>
 
         <div class="panel">

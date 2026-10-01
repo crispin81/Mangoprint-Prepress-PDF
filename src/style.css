@@ -543,58 +543,37 @@ input[type="radio"] {
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-/* --- eyedropper --- */
+/* --- eyedropper (values shown in the Separations list) --- */
 
-.toggle-row.inline {
-  font-size: 11px;
-  padding: 0;
-  gap: 5px;
+#imgWrap:not(.empty) {
+  cursor: crosshair;
 }
 
-#inkReadout {
-  list-style: none;
-  margin: 0 0 6px;
-  padding: 0;
+#separationsList .ink-value {
+  min-width: 36px;
+  text-align: right;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
-#inkReadout li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 0;
-  font-size: 12px;
+#separationsList.held .ink-value {
+  color: var(--accent);
 }
 
-#inkReadout .swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  flex-shrink: 0;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-#inkReadout .ink-name {
-  flex: 1;
-}
-
-#inkReadout .ink-value {
-  font-weight: 600;
-}
-
-#inkReadout li.ink-total {
+#separationsList li.ink-total {
   border-top: 1px solid var(--border);
   margin-top: 4px;
   padding-top: 5px;
   color: var(--muted);
 }
 
-#inkReadout.held .ink-value {
-  color: var(--accent);
+#separationsList li.ink-total:hover {
+  background: none;
 }
 
-#imgWrap.eyedrop {
-  cursor: crosshair;
+#separationsList .ink-name {
+  flex: 1;
+  padding-left: 18px;
 }
 
 /* --- page boxes --- */

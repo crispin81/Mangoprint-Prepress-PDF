@@ -22,8 +22,6 @@ const els = {
   separationsList: document.getElementById("separationsList"),
   selectAllSep: document.getElementById("selectAllSep"),
   selectNoneSep: document.getElementById("selectNoneSep"),
-  modeOverprint: document.getElementById("modeOverprint"),
-  modeSeparations: document.getElementById("modeSeparations"),
   boxOverlay: document.getElementById("boxOverlay"),
   pageBoxes: document.getElementById("pageBoxes"),
   pageRotation: document.getElementById("pageRotation"),
@@ -78,7 +76,6 @@ const state = {
   edited: false, // geometry changed since open → Export enabled
   page: 1,
   pageCount: 1,
-  mode: "overprint", // "overprint" | "separations"
   simulateOverprint: false,
   separationNames: [],
   activeSeparations: new Set(),
@@ -88,7 +85,7 @@ const state = {
 };
 
 // Eyedropper request state (see the eyedropper section below).
-const eyedrop = { inFlight: false, pending: null, held: false };
+const eyedrop = { inFlight: false, pending: null, held: false, inside: false };
 
 const MM_PER_PT = 25.4 / 72;
 // The PDF stores geometry in points; everything the user sees or types is mm.
@@ -143,9 +140,8 @@ async function openPdf() {
     els.fileName.title = `${source}\nClick to open a different PDF`;
     updatePageControls();
     updateRasterDpi();
-    if (state.mode === "separations") {
-      await loadSeparationsList();
-    }
+    state.separationNames = [];
+    loadSeparationsList(); // in the background; the page shows straight away
     await loadPageBoxes();
     view.zoom = "fit";
     await showPage({ reloadDoc: true });
@@ -202,22 +198,34 @@ async function exportPdf() {
 
 function updatePageControls() {
   // A held eyedropper reading belongs to the previous page/file.
-  if (eyedrop.held) {
-    eyedrop.held = false;
-    showInkMessage("Hover over the page to read ink values.");
-  }
+  eyedrop.held = false;
+  clearInks();
   els.pageLabel.textContent = state.path ? `Page ${state.page} / ${state.pageCount}` : "–";
   els.prevPage.disabled = !state.path || state.page <= 1;
   els.nextPage.disabled = !state.path || state.page >= state.pageCount;
 }
 
+// Plate list for the current page (runs Ghostscript's tiffsep once per
+// page; the eyedropper reads the same cached plates).
 async function loadSeparationsList() {
   if (!state.path) return;
-  const names = await invoke("list_separations", {
-    path: state.path,
-    page: state.page,
-    dpi: SAMPLE_DPI,
-  });
+  const forPage = state.page;
+  const forPath = state.path;
+  if (!state.separationNames.length) {
+    els.separationsList.innerHTML = '<li class="hint">Reading separations…</li>';
+  }
+  let names;
+  try {
+    names = await invoke("list_separations", { path: forPath, page: forPage, dpi: SAMPLE_DPI });
+  } catch (err) {
+    els.separationsList.innerHTML = "";
+    const li = document.createElement("li");
+    li.className = "hint";
+    li.textContent = String(err);
+    els.separationsList.appendChild(li);
+    return;
+  }
+  if (forPage !== state.page || forPath !== state.path) return; // user moved on
   state.separationNames = names;
   if (state.activeSeparations.size === 0) {
     state.activeSeparations = new Set(names);
@@ -253,10 +261,23 @@ function renderSeparationsList() {
     label.textContent = name;
     label.style.flex = "1";
 
-    li.append(checkbox, swatch, label);
+    // Eyedropper reading for this plate.
+    const value = document.createElement("span");
+    value.className = "ink-value";
+    value.dataset.plate = name;
+
+    li.append(checkbox, swatch, label, value);
     els.separationsList.appendChild(li);
   }
+
+  const total = document.createElement("li");
+  total.className = "ink-total";
+  total.innerHTML = '<span class="ink-name">Total ink</span><span class="ink-value" data-total="1"></span>';
+  els.separationsList.appendChild(total);
 }
+
+// True when every plate is ticked (the normal, full-colour view).
+const allPlatesOn = () => state.separationNames.every((n) => state.activeSeparations.has(n));
 
 // --- page view ---
 //
@@ -285,7 +306,8 @@ const view = {
   timer: null,
 };
 
-const isVectorMode = () => state.mode === "overprint" && !state.simulateOverprint;
+// Vector view unless overprint is being simulated or a plate is switched off.
+const isVectorMode = () => !state.simulateOverprint && allPlatesOn();
 
 async function loadPdfjs() {
   if (!view.lib) {
@@ -415,13 +437,13 @@ function rasterDpi() {
 async function renderRaster() {
   if (!state.path || isVectorMode()) return;
   const dpi = rasterDpi();
-  const key = `${state.path}|${state.page}|${dpi}|${state.mode}|${state.simulateOverprint}|${[...state.activeSeparations].sort()}`;
+  const key = `${state.path}|${state.page}|${dpi}|${state.simulateOverprint}|${[...state.activeSeparations].sort()}`;
   if (key === state.rasterKey) return;
   const token = ++state.renderToken;
   setLoading(true);
   try {
     let dataUri;
-    if (state.mode === "overprint") {
+    if (allPlatesOn()) {
       dataUri = await invoke("render_overprint", { path: state.path, page: state.page, dpi, simulate: true });
     } else {
       dataUri = await invoke("render_separation_composite", {
@@ -502,7 +524,7 @@ async function goToPage(delta) {
   state.page = next;
   updatePageControls();
   updateRasterDpi();
-  if (state.mode === "separations") await loadSeparationsList();
+  loadSeparationsList();
   await loadPageBoxes();
   await showPage();
 }
@@ -596,7 +618,7 @@ async function afterBoxEdit() {
   // Editing a box (especially MediaBox) or the rotation can change the
   // page's rendered dimensions/orientation, so refresh whatever's
   // currently on screen.
-  if (state.mode === "separations") await loadSeparationsList();
+  loadSeparationsList();
   await showPage({ reloadDoc: true });
 }
 
@@ -729,50 +751,27 @@ els.winClose.addEventListener("click", () => appWindow.close());
 
 
 // --- eyedropper ---
-// Hovering the preview asks the backend for ink % at that point (read
-// from the tiffsep plates). Only one request is in flight at a time; the
+// Hovering the page fills in each plate's ink % (and the total) in the
+// Separations list, read from Ghostscript's tiffsep plates so overprint
+// is taken into account. Only one request is in flight at a time; the
 // latest pointer position is sent once it returns.
 
-const inkReadout = document.getElementById("inkReadout");
-const eyedropToggle = document.getElementById("eyedropToggle");
-const imgWrap = document.getElementById("imgWrap");
-
-function setEyedropCursor() {
-  imgWrap.classList.toggle("eyedrop", eyedropToggle.checked);
-}
-
-function showInkMessage(text) {
-  inkReadout.classList.remove("held");
-  inkReadout.innerHTML = "";
-  const li = document.createElement("li");
-  li.className = "hint";
-  li.textContent = text;
-  inkReadout.appendChild(li);
+function clearInks() {
+  els.separationsList.classList.remove("held");
+  for (const el of els.separationsList.querySelectorAll(".ink-value")) el.textContent = "";
 }
 
 function showInks(samples) {
-  inkReadout.innerHTML = "";
-  inkReadout.classList.toggle("held", eyedrop.held);
+  if (!eyedrop.held && !eyedrop.inside) return; // pointer has left the page
+  els.separationsList.classList.toggle("held", eyedrop.held);
   let total = 0;
   for (const { name, percent } of samples) {
     total += percent;
-    const li = document.createElement("li");
-    const sw = document.createElement("span");
-    sw.className = "swatch";
-    sw.style.background = SWATCHES[name] || spotSwatch(name);
-    const n = document.createElement("span");
-    n.className = "ink-name";
-    n.textContent = name;
-    const v = document.createElement("span");
-    v.className = "ink-value";
-    v.textContent = `${Math.round(percent)}%`;
-    li.append(sw, n, v);
-    inkReadout.appendChild(li);
+    const el = [...els.separationsList.querySelectorAll(".ink-value[data-plate]")].find((e) => e.dataset.plate === name);
+    if (el) el.textContent = `${Math.round(percent)}%`;
   }
-  const t = document.createElement("li");
-  t.className = "ink-total";
-  t.innerHTML = `<span class="ink-name">Total ink</span><span class="ink-value">${Math.round(total)}%</span>`;
-  inkReadout.appendChild(t);
+  const t = els.separationsList.querySelector(".ink-value[data-total]");
+  if (t) t.textContent = `${Math.round(total)}%`;
 }
 
 async function sampleAt(x, y) {
@@ -785,7 +784,7 @@ async function sampleAt(x, y) {
     const samples = await invoke("sample_inks", { path: state.path, page: state.page, dpi: SAMPLE_DPI, x, y });
     if (eyedrop.pending === null) showInks(samples); // skip if a newer point is queued
   } catch (err) {
-    showInkMessage(String(err));
+    console.error(err);
   } finally {
     eyedrop.inFlight = false;
     if (eyedrop.pending) {
@@ -802,24 +801,23 @@ function pointerFraction(ev) {
 }
 
 els.imgWrap.addEventListener("mousemove", (ev) => {
-  if (!eyedropToggle.checked || !state.path || eyedrop.held) return;
-  if (eyedrop.inFlight === false && inkReadout.children.length <= 1) showInkMessage("Reading separations…");
+  eyedrop.inside = true;
+  if (!state.path || eyedrop.held || !state.separationNames.length) return;
   sampleAt(...pointerFraction(ev));
+});
+
+els.imgWrap.addEventListener("mouseleave", () => {
+  eyedrop.inside = false;
+  eyedrop.pending = null;
+  if (!eyedrop.held) clearInks();
 });
 
 els.imgWrap.addEventListener("click", (ev) => {
-  if (!eyedropToggle.checked || !state.path) return;
+  if (!state.path || !state.separationNames.length) return;
   eyedrop.held = !eyedrop.held;
-  inkReadout.classList.toggle("held", eyedrop.held);
+  els.separationsList.classList.toggle("held", eyedrop.held);
   sampleAt(...pointerFraction(ev));
 });
-
-eyedropToggle.addEventListener("change", () => {
-  eyedrop.held = false;
-  setEyedropCursor();
-  showInkMessage(eyedropToggle.checked ? "Hover over the page to read ink values." : "Eyedropper is off.");
-});
-setEyedropCursor();
 
 els.emptyOpenBtn.addEventListener("click", openPdf);
 els.fileName.addEventListener("click", openPdf);
@@ -844,18 +842,6 @@ els.selectNoneSep.addEventListener("click", () => {
   renderCurrent();
 });
 
-els.modeOverprint.addEventListener("change", () => {
-  if (!els.modeOverprint.checked) return;
-  state.mode = "overprint";
-  renderCurrent();
-});
-
-els.modeSeparations.addEventListener("change", async () => {
-  if (!els.modeSeparations.checked) return;
-  state.mode = "separations";
-  await loadSeparationsList();
-  await renderCurrent();
-});
 
 // --- zoom & scrolling ---
 
