@@ -33,6 +33,13 @@
       <button id="prevPage" disabled>‹</button>
       <span id="pageLabel" class="muted">–</span>
       <button id="nextPage" disabled>›</button>
+      <div class="zoom-controls">
+        <button id="zoomOut" disabled title="Zoom out (Ctrl −)">−</button>
+        <span id="zoomLabel" class="muted">–</span>
+        <button id="zoomIn" disabled title="Zoom in (Ctrl +)">+</button>
+        <button id="zoomFit" disabled title="Fit page to window (Ctrl 0)">Fit</button>
+        <button id="zoomActual" disabled title="Actual size (Ctrl 1)">1:1</button>
+      </div>
       <span class="dpi-label" title="Effective resolution of the placed raster images on this page. Vector art and text have no DPI and aren't counted.">
         Raster DPI of PDF
         <span id="rasterDpi" class="dpi-value">–</span>
@@ -48,7 +55,8 @@
           <p class="hint">Choose a print-ready PDF to check</p>
         </div>
         <div id="imgWrap" class="empty">
-          <img id="preview" alt="Rendered page preview" />
+          <div id="vectorLayer"></div>
+          <img id="preview" class="hidden" alt="" />
           <svg id="boxOverlay" preserveAspectRatio="none"></svg>
           <div id="loadingOverlay" class="hidden">Rendering…</div>
         </div>
@@ -78,10 +86,11 @@
             Simulate overprinting
           </label>
           <p class="hint">
-            Mirrors Acrobat's Output Preview "Simulate Overprinting". Off
-            shows the naive on-screen composite (overprinted objects knock
-            out what's beneath). On shows what will actually happen on an
-            overprint-aware output device.
+            Off: the page is drawn exactly as the PDF describes it — vectors
+            and text as vectors (sharp at any zoom), images at their own
+            pixels. On: shows what an overprint-aware press will produce;
+            ink mixing has to be calculated per pixel, so this view (and
+            Separations) is rendered by Ghostscript at screen resolution.
           </p>
         </div>
 

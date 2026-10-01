@@ -10,5 +10,8 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.1.0"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^6.3.289"
   }
 }

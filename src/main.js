@@ -33,6 +33,14 @@ const els = {
   winMin: document.getElementById("winMin"),
   winMax: document.getElementById("winMax"),
   winClose: document.getElementById("winClose"),
+  viewport: document.getElementById("viewport"),
+  imgWrap: document.getElementById("imgWrap"),
+  vectorLayer: document.getElementById("vectorLayer"),
+  zoomOut: document.getElementById("zoomOut"),
+  zoomIn: document.getElementById("zoomIn"),
+  zoomFit: document.getElementById("zoomFit"),
+  zoomActual: document.getElementById("zoomActual"),
+  zoomLabel: document.getElementById("zoomLabel"),
 };
 
 const ROTATION_OPTIONS = [0, 90, 180, 270];
@@ -72,7 +80,6 @@ const state = {
   edited: false, // geometry changed since open → Export enabled
   page: 1,
   pageCount: 1,
-  dpi: 300, // on-screen preview resolution (the PDF itself is never rasterised)
   mode: "overprint", // "overprint" | "separations"
   simulateOverprint: false,
   separationNames: [],
@@ -142,7 +149,8 @@ async function openPdf() {
       await loadSeparationsList();
     }
     await loadPageBoxes();
-    await renderCurrent();
+    view.zoom = "fit";
+    await showPage({ reloadDoc: true });
   } catch (err) {
     alert(`Could not open PDF:\n${err}`);
   } finally {
@@ -210,7 +218,7 @@ async function loadSeparationsList() {
   const names = await invoke("list_separations", {
     path: state.path,
     page: state.page,
-    dpi: state.dpi,
+    dpi: SAMPLE_DPI,
   });
   state.separationNames = names;
   if (state.activeSeparations.size === 0) {
@@ -252,36 +260,242 @@ function renderSeparationsList() {
   }
 }
 
-async function renderCurrent() {
-  if (!state.path) return;
+// --- page view ---
+//
+// Normal view is drawn by pdf.js straight from the PDF: vector paths and
+// text are drawn as vectors at the screen's real resolution for the
+// current zoom (only the visible area, so it stays sharp at any zoom),
+// and images are drawn from their own pixels. Nothing is pre-rasterised.
+//
+// Overprint simulation and Separations can't be shown that way — mixing
+// inks is a per-pixel calculation (the browser has no CMYK), just as in
+// Acrobat — so those views come from Ghostscript at screen resolution.
+
+// Ghostscript resolution used by the eyedropper and the separations list.
+const SAMPLE_DPI = 300;
+const RASTER_DPI_STEPS = [72, 100, 150, 200, 300, 400, 600];
+const ZOOM_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64];
+const CSS_PX_PER_PT = 96 / 72; // 100% zoom = real size on a standard display
+
+const view = {
+  lib: null, // pdf.js module
+  doc: null,
+  page: null,
+  zoom: "fit", // "fit" | factor (1 = 100%)
+  scale: 1, // CSS px per PDF point, resolved from zoom
+  renderTask: null,
+  timer: null,
+};
+
+const isVectorMode = () => state.mode === "overprint" && !state.simulateOverprint;
+
+async function loadPdfjs() {
+  if (!view.lib) {
+    view.lib = await import("./vendor/pdfjs/pdf.min.mjs");
+    view.lib.GlobalWorkerOptions.workerSrc = new URL("vendor/pdfjs/pdf.worker.min.mjs", location.href).href;
+  }
+  return view.lib;
+}
+
+// (Re)loads the working copy into pdf.js — on open and after every edit.
+async function loadVectorDoc() {
+  const lib = await loadPdfjs();
+  if (view.doc) {
+    view.doc.destroy();
+    view.doc = null;
+    view.page = null;
+  }
+  const buf = await invoke("read_pdf", { path: state.path });
+  const url = (p) => new URL(p, location.href).href;
+  view.doc = await lib.getDocument({
+    data: new Uint8Array(buf),
+    cMapUrl: url("vendor/pdfjs/cmaps/"),
+    cMapPacked: true,
+    standardFontDataUrl: url("vendor/pdfjs/standard_fonts/"),
+    wasmUrl: url("vendor/pdfjs/wasm/"),
+    iccUrl: url("vendor/pdfjs/iccs/"),
+    isEvalSupported: false,
+    enableXfa: false,
+  }).promise;
+}
+
+async function loadVectorPage() {
+  view.page = await view.doc.getPage(state.page);
+  // pdf.js shows the CropBox by default; show the whole MediaBox instead so
+  // bleed is visible and the view lines up with Ghostscript and the box
+  // overlay (both MediaBox based).
+  const media = state.pageBoxes && state.pageBoxes.media.rect;
+  if (media && view.page._pageInfo) view.page._pageInfo.view = [...media];
+}
+
+// Displayed page size in PDF points, after /Rotate.
+function pageSizePt() {
+  const vp = view.page.getViewport({ scale: 1 });
+  return [vp.width, vp.height];
+}
+
+function zoomPercent() {
+  return Math.round((view.scale / CSS_PX_PER_PT) * 100);
+}
+
+function applyLayout() {
+  if (!view.page) return;
+  const [w, h] = pageSizePt();
+  if (view.zoom === "fit") {
+    const pad = 48; // #viewport padding, both sides
+    view.scale = Math.max(0.02, Math.min((els.viewport.clientWidth - pad) / w, (els.viewport.clientHeight - pad) / h));
+  } else {
+    view.scale = view.zoom * CSS_PX_PER_PT;
+  }
+  els.imgWrap.style.width = `${w * view.scale}px`;
+  els.imgWrap.style.height = `${h * view.scale}px`;
+  els.zoomLabel.textContent = `${zoomPercent()}%`;
+  for (const b of [els.zoomIn, els.zoomOut, els.zoomFit, els.zoomActual]) b.disabled = false;
+}
+
+// Draws the visible part of the page (plus a margin, so small scrolls
+// don't show blank edges) at device resolution into a fresh canvas, then
+// swaps it in — so there's never a blank or half-drawn frame.
+async function renderVector() {
+  if (!view.page || !isVectorMode()) return;
+  if (view.renderTask) {
+    view.renderTask.cancel();
+    view.renderTask = null;
+  }
+  const dpr = window.devicePixelRatio || 1;
+  const wrap = els.imgWrap.getBoundingClientRect();
+  const port = els.viewport.getBoundingClientRect();
+  const mx = port.width * 0.25;
+  const my = port.height * 0.25;
+  const x0 = Math.floor(Math.max(0, port.left - wrap.left - mx));
+  const y0 = Math.floor(Math.max(0, port.top - wrap.top - my));
+  const x1 = Math.ceil(Math.min(wrap.width, port.right - wrap.left + mx));
+  const y1 = Math.ceil(Math.min(wrap.height, port.bottom - wrap.top + my));
+  if (x1 <= x0 || y1 <= y0) return;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil((x1 - x0) * dpr);
+  canvas.height = Math.ceil((y1 - y0) * dpr);
+  canvas.style.left = `${x0}px`;
+  canvas.style.top = `${y0}px`;
+  canvas.style.width = `${x1 - x0}px`;
+  canvas.style.height = `${y1 - y0}px`;
+
+  const task = view.page.render({
+    canvasContext: canvas.getContext("2d"),
+    viewport: view.page.getViewport({ scale: view.scale * dpr }),
+    transform: [1, 0, 0, 1, -x0 * dpr, -y0 * dpr],
+    background: "white",
+  });
+  view.renderTask = task;
+  try {
+    await task.promise;
+  } catch (err) {
+    if (err && err.name === "RenderingCancelledException") return;
+    console.error(err);
+    return;
+  }
+  if (view.renderTask === task) view.renderTask = null;
+  els.vectorLayer.replaceChildren(canvas);
+}
+
+function scheduleRender(delay = 60) {
+  clearTimeout(view.timer);
+  view.timer = setTimeout(() => {
+    if (isVectorMode()) renderVector();
+    else renderRaster();
+  }, delay);
+}
+
+// Ghostscript resolution for the current zoom: the screen's resolution,
+// rounded up to a step so small zoom changes reuse the same render.
+function rasterDpi() {
+  const needed = view.scale * 72 * (window.devicePixelRatio || 1);
+  return RASTER_DPI_STEPS.find((d) => d >= needed) || RASTER_DPI_STEPS[RASTER_DPI_STEPS.length - 1];
+}
+
+async function renderRaster() {
+  if (!state.path || isVectorMode()) return;
+  const dpi = rasterDpi();
+  const key = `${state.path}|${state.page}|${dpi}|${state.mode}|${state.simulateOverprint}|${[...state.activeSeparations].sort()}`;
+  if (key === state.rasterKey) return;
   const token = ++state.renderToken;
   setLoading(true);
   try {
     let dataUri;
     if (state.mode === "overprint") {
-      dataUri = await invoke("render_overprint", {
-        path: state.path,
-        page: state.page,
-        dpi: state.dpi,
-        simulate: state.simulateOverprint,
-      });
+      dataUri = await invoke("render_overprint", { path: state.path, page: state.page, dpi, simulate: true });
     } else {
       dataUri = await invoke("render_separation_composite", {
         path: state.path,
         page: state.page,
-        dpi: state.dpi,
+        dpi,
         active: [...state.activeSeparations],
       });
     }
     if (token !== state.renderToken) return; // a newer render superseded this one
     els.preview.src = dataUri;
-    document.getElementById("imgWrap").classList.remove("empty");
-    document.getElementById("emptyState").classList.add("hidden");
+    state.rasterKey = key;
   } catch (err) {
     if (token === state.renderToken) alert(`Render failed:\n${err}`);
   } finally {
     if (token === state.renderToken) setLoading(false);
   }
+}
+
+async function renderCurrent() {
+  if (!state.path || !view.page) return;
+  els.imgWrap.classList.remove("empty");
+  document.getElementById("emptyState").classList.add("hidden");
+  const vector = isVectorMode();
+  els.vectorLayer.classList.toggle("hidden", !vector);
+  els.preview.classList.toggle("hidden", vector);
+  if (vector) {
+    state.renderToken++; // abandon any Ghostscript render still in flight
+    setLoading(false);
+    await renderVector();
+  } else {
+    await renderRaster();
+  }
+}
+
+// Page content changed (new file, page, or an edit): reload and redraw.
+async function showPage({ reloadDoc = false } = {}) {
+  state.rasterKey = null;
+  els.vectorLayer.replaceChildren();
+  if (reloadDoc || !view.doc) await loadVectorDoc();
+  await loadVectorPage();
+  applyLayout();
+  await renderCurrent();
+}
+
+function setZoom(zoom, anchor) {
+  if (!view.page) return;
+  // Keep the point under `anchor` (client coords; default: viewport
+  // centre) in place while zooming.
+  const port = els.viewport.getBoundingClientRect();
+  const ax = anchor ? anchor[0] : port.left + port.width / 2;
+  const ay = anchor ? anchor[1] : port.top + port.height / 2;
+  const before = els.imgWrap.getBoundingClientRect();
+  const fx = (ax - before.left) / before.width;
+  const fy = (ay - before.top) / before.height;
+
+  view.zoom = zoom;
+  applyLayout();
+
+  const after = els.imgWrap.getBoundingClientRect();
+  els.viewport.scrollLeft += after.left + fx * after.width - ax;
+  els.viewport.scrollTop += after.top + fy * after.height - ay;
+  scheduleRender(isVectorMode() ? 60 : 250);
+}
+
+function stepZoom(dir, anchor) {
+  const cur = view.scale / CSS_PX_PER_PT;
+  const next =
+    dir > 0
+      ? ZOOM_STEPS.find((z) => z > cur * 1.01) || ZOOM_STEPS[ZOOM_STEPS.length - 1]
+      : [...ZOOM_STEPS].reverse().find((z) => z < cur * 0.99) || ZOOM_STEPS[0];
+  setZoom(next, anchor);
 }
 
 async function goToPage(delta) {
@@ -292,7 +506,7 @@ async function goToPage(delta) {
   updateRasterDpi();
   if (state.mode === "separations") await loadSeparationsList();
   await loadPageBoxes();
-  await renderCurrent();
+  await showPage();
 }
 
 // --- page boxes (MediaBox / CropBox / TrimBox / ArtBox / BleedBox) ---
@@ -385,7 +599,7 @@ async function afterBoxEdit() {
   // page's rendered dimensions/orientation, so refresh whatever's
   // currently on screen.
   if (state.mode === "separations") await loadSeparationsList();
-  await renderCurrent();
+  await showPage({ reloadDoc: true });
 }
 
 function renderPageBoxesPanel() {
@@ -578,7 +792,7 @@ async function sampleAt(x, y) {
   }
   eyedrop.inFlight = true;
   try {
-    const samples = await invoke("sample_inks", { path: state.path, page: state.page, dpi: state.dpi, x, y });
+    const samples = await invoke("sample_inks", { path: state.path, page: state.page, dpi: SAMPLE_DPI, x, y });
     if (eyedrop.pending === null) showInks(samples); // skip if a newer point is queued
   } catch (err) {
     showInkMessage(String(err));
@@ -593,17 +807,17 @@ async function sampleAt(x, y) {
 }
 
 function pointerFraction(ev) {
-  const r = els.preview.getBoundingClientRect();
+  const r = els.imgWrap.getBoundingClientRect();
   return [(ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height];
 }
 
-els.preview.addEventListener("mousemove", (ev) => {
+els.imgWrap.addEventListener("mousemove", (ev) => {
   if (!eyedropToggle.checked || !state.path || eyedrop.held) return;
   if (eyedrop.inFlight === false && inkReadout.children.length <= 1) showInkMessage("Reading separations…");
   sampleAt(...pointerFraction(ev));
 });
 
-els.preview.addEventListener("click", (ev) => {
+els.imgWrap.addEventListener("click", (ev) => {
   if (!eyedropToggle.checked || !state.path) return;
   eyedrop.held = !eyedrop.held;
   inkReadout.classList.toggle("held", eyedrop.held);
@@ -652,6 +866,46 @@ els.modeSeparations.addEventListener("change", async () => {
   await loadSeparationsList();
   await renderCurrent();
 });
+
+// --- zoom & scrolling ---
+
+els.zoomIn.addEventListener("click", () => stepZoom(1));
+els.zoomOut.addEventListener("click", () => stepZoom(-1));
+els.zoomFit.addEventListener("click", () => setZoom("fit"));
+els.zoomActual.addEventListener("click", () => setZoom(1));
+els.zoomLabel.addEventListener("dblclick", () => setZoom("fit"));
+
+// Ctrl + mouse wheel / trackpad pinch zooms around the cursor.
+els.viewport.addEventListener(
+  "wheel",
+  (ev) => {
+    if (!ev.ctrlKey || !view.page) return;
+    ev.preventDefault();
+    stepZoom(ev.deltaY < 0 ? 1 : -1, [ev.clientX, ev.clientY]);
+  },
+  { passive: false },
+);
+
+window.addEventListener("keydown", (ev) => {
+  if (!ev.ctrlKey || !view.page) return;
+  if (ev.key === "=" || ev.key === "+") stepZoom(1);
+  else if (ev.key === "-") stepZoom(-1);
+  else if (ev.key === "0") setZoom("fit");
+  else if (ev.key === "1") setZoom(1);
+  else return;
+  ev.preventDefault();
+});
+
+// The vector canvas only covers the visible area, so redraw after scrolling.
+els.viewport.addEventListener("scroll", () => {
+  if (isVectorMode()) scheduleRender(80);
+});
+
+new ResizeObserver(() => {
+  if (!view.page) return;
+  if (view.zoom === "fit") applyLayout();
+  scheduleRender(isVectorMode() ? 80 : 250);
+}).observe(els.viewport);
 
 checkGhostscript();
 renderPageBoxesPanel();

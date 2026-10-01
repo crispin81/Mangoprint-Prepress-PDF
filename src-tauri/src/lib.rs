@@ -99,6 +99,15 @@ fn create_working_copy(path: String, working: tauri::State<WorkingCopy>) -> Resu
     Ok(dest.to_string_lossy().into_owned())
 }
 
+/// Raw PDF bytes for the in-app vector renderer (pdf.js). Returned as a
+/// binary IPC response so the frontend gets an ArrayBuffer, not JSON.
+#[tauri::command]
+fn read_pdf(path: String) -> Result<tauri::ipc::Response, String> {
+    std::fs::read(&path)
+        .map(tauri::ipc::Response::new)
+        .map_err(|e| format!("Could not read the PDF: {e}"))
+}
+
 /// Writes the edited working copy out to `dest`.
 #[tauri::command]
 fn export_pdf(from: String, dest: String) -> Result<(), String> {
@@ -337,6 +346,7 @@ pub fn run() {
             check_ghostscript,
             open_pdf,
             create_working_copy,
+            read_pdf,
             export_pdf,
             render_overprint,
             list_separations,

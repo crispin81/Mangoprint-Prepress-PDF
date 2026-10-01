@@ -324,22 +324,50 @@ main {
   flex: 1;
   overflow: auto;
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
   padding: 24px;
   background: var(--bg-deep);
 }
 
+/* Sized explicitly (page size × zoom) by main.js. Auto margins centre it
+   while keeping every edge reachable by scrolling when zoomed in. */
 #imgWrap {
   position: relative;
-  border-radius: 2px;
+  flex-shrink: 0;
+  margin: auto;
+  background: white;
   box-shadow: 0 6px 28px rgba(0, 0, 0, 0.6);
 }
 
+/* Vector view: pdf.js draws only the visible part of the page, at the
+   screen's real resolution, into a canvas positioned over that area. */
+#vectorLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+#vectorLayer canvas {
+  position: absolute;
+}
+
+/* Ghostscript (overprint simulation / separations) render. */
 #preview {
-  display: block;
-  max-width: 100%;
-  background: white;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#zoomLabel {
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Before a PDF is loaded: hide the (src-less) preview image and show a
@@ -565,8 +593,7 @@ input[type="radio"] {
   color: var(--accent);
 }
 
-#imgWrap.eyedrop #preview,
-#imgWrap.eyedrop #boxOverlay {
+#imgWrap.eyedrop {
   cursor: crosshair;
 }
 
