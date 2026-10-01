@@ -53,9 +53,9 @@
   --field-border: #33343e;
   --border: #2a2b33;
   --text: #e8e8ec;
-  --text-soft: #b7b8c2;
-  --muted: #8a8b96;
-  --faint: #6c6d78;
+  --text-soft: #cbccd4;
+  --muted: #a5a6b0;
+  --faint: #8a8b96;
   --accent: #ffcc33;
   --accent-bg: #4a3f1a;
   --accent-text: #ffe08a;
@@ -293,7 +293,7 @@ code {
 
 .oss-note {
   font-size: 11px;
-  color: #8a8b96;
+  color: #a5a6b0;
 }
 
 .site-link {
@@ -310,7 +310,7 @@ code {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #b7b8c2;
+  color: #cbccd4;
   text-decoration: none;
   font-size: 12px;
   cursor: pointer;
@@ -392,7 +392,7 @@ select {
   appearance: none;
   -webkit-appearance: none;
   background: var(--field)
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%238a8b96' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a5a6b0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
     no-repeat right 6px center;
   color: var(--text);
   border: 1px solid var(--field-border);
