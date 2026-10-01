@@ -3,6 +3,7 @@ mod gs;
 mod imageres;
 mod overprint;
 mod pagebox;
+mod spotcolor;
 
 use base64::Engine;
 use image::{GrayImage, RgbImage};
@@ -153,14 +154,23 @@ fn render_separation_composite(
     page: u32,
     dpi: u32,
     active: Vec<String>,
+    // Spot name -> "#rrggbb" display colour (from spot_swatches); spots
+    // without one are shown as a neutral darkening.
+    spot_colours: Option<HashMap<String, String>>,
     cache: tauri::State<SepCache>,
 ) -> Result<String, String> {
+    let spot_colours = spot_colours.unwrap_or_default();
+    let parse_hex = |h: &str| -> Option<[f32; 3]> {
+        let h = h.strip_prefix('#')?;
+        let v = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok().map(|b| b as f32 / 255.0);
+        Some([v(0)?, v(2)?, v(4)?])
+    };
     let dir_path = cache_dir(&cache, cache_key(&path, page, dpi))?;
     let plates = gs::ensure_separations(Path::new(&path), page, dpi, &dir_path)?;
     let active_set: std::collections::HashSet<&str> = active.iter().map(|s| s.as_str()).collect();
 
     let mut process: HashMap<&str, GrayImage> = HashMap::new();
-    let mut spots: Vec<GrayImage> = Vec::new();
+    let mut spots: Vec<(GrayImage, [f32; 3])> = Vec::new();
     let mut dims: Option<(u32, u32)> = None;
 
     for (name, tif_path) in &plates {
@@ -175,7 +185,11 @@ fn render_separation_composite(
             "Cyan" | "Magenta" | "Yellow" | "Black" => {
                 process.insert(name.as_str(), img);
             }
-            _ => spots.push(img),
+            _ => {
+                // Default: neutral grey at 80% darkening.
+                let colour = spot_colours.get(name).and_then(|h| parse_hex(h)).unwrap_or([0.2, 0.2, 0.2]);
+                spots.push((img, colour));
+            }
         }
     }
 
@@ -207,12 +221,12 @@ fn render_separation_composite(
             let mut g = 255.0 * (1.0 - m) * (1.0 - k);
             let mut b = 255.0 * (1.0 - ye) * (1.0 - k);
 
-            for spot in &spots {
+            // Each spot multiplies in its own colour, scaled by its tint.
+            for (spot, [sr, sg, sb]) in &spots {
                 let s = 1.0 - (spot.get_pixel(x, y).0[0] as f32 / 255.0);
-                let factor = 1.0 - 0.8 * s;
-                r *= factor;
-                g *= factor;
-                b *= factor;
+                r *= 1.0 - s * (1.0 - sr);
+                g *= 1.0 - s * (1.0 - sg);
+                b *= 1.0 - s * (1.0 - sb);
             }
 
             out.put_pixel(x, y, image::Rgb([r.round() as u8, g.round() as u8, b.round() as u8]));
@@ -293,6 +307,12 @@ fn clear_plates(plates: &PlateCache) {
 #[tauri::command]
 fn check_overprint(path: String) -> Result<Vec<overprint::OverprintHit>, String> {
     overprint::check_overprint(Path::new(&path))
+}
+
+/// Spot colour name → "#rrggbb" swatch at 100% tint.
+#[tauri::command]
+fn spot_swatches(path: String) -> Result<std::collections::BTreeMap<String, String>, String> {
+    spotcolor::spot_swatches(Path::new(&path))
 }
 
 /// Spot colour names used anywhere in the PDF.
@@ -453,6 +473,7 @@ pub fn run() {
             page_image_dpi,
             check_rgb,
             spot_colours,
+            spot_swatches,
             check_overprint,
             convert_pdf,
             sample_inks,

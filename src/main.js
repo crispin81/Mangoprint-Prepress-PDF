@@ -56,6 +56,31 @@ const SWATCHES = {
   Black: "#231F20",
 };
 
+// Swatch colour for a plate: process inks fixed, spot inks from the PDF's
+// own definition of the spot (falls back to a made-up colour if the PDF's
+// definition can't be read).
+function plateColour(name) {
+  return SWATCHES[name] || (state.spotSwatches && state.spotSwatches[name]) || spotSwatch(name);
+}
+
+async function loadSpotSwatches() {
+  const forPath = state.path;
+  state.spotSwatches = {};
+  try {
+    const found = await invoke("spot_swatches", { path: forPath });
+    if (forPath !== state.path) return;
+    state.spotSwatches = found;
+    // Recolour any swatches already on screen.
+    for (const li of els.separationsList.querySelectorAll("li")) {
+      const name = li.querySelector(".ink-value[data-plate]")?.dataset.plate;
+      const sw = li.querySelector(".swatch");
+      if (name && sw) sw.style.background = plateColour(name);
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 function spotSwatch(name) {
   // Deterministic-but-arbitrary hue from the name so distinct spot plates
   // get visually distinct (not color-accurate) swatches.
@@ -175,6 +200,7 @@ async function openPdf() {
     updatePageControls();
     updateRasterDpi();
     state.separationNames = [];
+    loadSpotSwatches(); // real spot colours for the swatches
     loadSeparationsList(); // in the background; the page shows straight away
     await loadPageBoxes();
     view.zoom = "fit";
@@ -292,7 +318,7 @@ function renderSeparationsList() {
 
     const swatch = document.createElement("span");
     swatch.className = "swatch";
-    swatch.style.background = SWATCHES[name] || spotSwatch(name);
+    swatch.style.background = plateColour(name);
 
     const label = document.createElement("label");
     label.htmlFor = id;
@@ -601,7 +627,7 @@ function rasterDpi() {
 async function renderRaster() {
   if (!state.path || isVectorMode()) return;
   const dpi = rasterDpi();
-  const key = `${state.path}|${state.page}|${dpi}|${state.simulateOverprint}|${[...state.activeSeparations].sort()}`;
+  const key = `${state.path}|${state.page}|${dpi}|${state.simulateOverprint}|${[...state.activeSeparations].sort()}|${Object.keys(state.spotSwatches || {}).length}`;
   if (key === state.rasterKey) return;
   const token = ++state.renderToken;
   setLoading(true);
@@ -615,6 +641,7 @@ async function renderRaster() {
         page: state.page,
         dpi,
         active: [...state.activeSeparations],
+        spotColours: state.spotSwatches || {},
       });
     }
     if (token !== state.renderToken) return; // a newer render superseded this one
@@ -1291,6 +1318,7 @@ async function runConversion(kind) {
     state.activeSeparations = new Set();
     await loadPageBoxes();
     updateRasterDpi();
+    loadSpotSwatches();
     loadSeparationsList();
     setEdited(true);
     await showPage({ reloadDoc: true });
