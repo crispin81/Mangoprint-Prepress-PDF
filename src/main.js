@@ -236,6 +236,7 @@ function updatePageControls() {
   els.pageLabel.textContent = state.path ? `Page ${state.page} / ${state.pageCount}` : "–";
   els.prevPage.disabled = !state.path || state.page <= 1;
   els.nextPage.disabled = !state.path || state.page >= state.pageCount;
+  markCurrentThumb();
 }
 
 // Plate list for the current page (runs Ghostscript's tiffsep once per
@@ -378,6 +379,7 @@ async function loadVectorDoc() {
   });
   view.doc = await view.loadingTask.promise;
   if (progress.active) setProgress(80, "Drawing page…");
+  buildThumbs();
 }
 
 async function loadVectorPage() {
@@ -387,6 +389,80 @@ async function loadVectorPage() {
   // overlay (both MediaBox based).
   const media = state.pageBoxes && state.pageBoxes.media.rect;
   if (media && view.page._pageInfo) view.page._pageInfo.view = [...media];
+}
+
+// --- page thumbnails (left strip, like Acrobat's Page Thumbnails) ---
+// Rebuilt whenever the document is (re)loaded, e.g. after a rotation.
+// Thumbnails render lazily as they scroll into view.
+
+const THUMB_SIZE = 120; // CSS px, longest side
+
+function buildThumbs() {
+  const box = document.getElementById("thumbs");
+  const scroll = box.scrollTop;
+  if (view.thumbObserver) view.thumbObserver.disconnect();
+  box.replaceChildren();
+  box.classList.toggle("hidden", !view.doc);
+  if (!view.doc) return;
+  const doc = view.doc;
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        observer.unobserve(e.target);
+        renderThumb(doc, e.target).catch((err) => console.error(err));
+      }
+    },
+    { root: box, rootMargin: "300px" },
+  );
+  view.thumbObserver = observer;
+
+  for (let n = 1; n <= doc.numPages; n++) {
+    const item = document.createElement("div");
+    item.className = "thumb";
+    item.dataset.page = String(n);
+    item.innerHTML =
+      '<div class="thumb__img"></div>' +
+      '<div class="thumb__bar">' +
+      '<button type="button" class="thumb__rot" data-dir="-1" title="Rotate page anticlockwise">↺</button>' +
+      `<span>${n}</span>` +
+      '<button type="button" class="thumb__rot" data-dir="1" title="Rotate page clockwise">↻</button>' +
+      "</div>";
+    item.addEventListener("click", (ev) => {
+      const rot = ev.target.closest(".thumb__rot");
+      if (rot) rotatePageBy(n, Number(rot.dataset.dir) * 90);
+      else goToPageNumber(n);
+    });
+    box.appendChild(item);
+    observer.observe(item);
+  }
+  box.scrollTop = scroll;
+  markCurrentThumb();
+}
+
+async function renderThumb(doc, item) {
+  const page = await doc.getPage(Number(item.dataset.page));
+  if (doc !== view.doc) return; // document reloaded meanwhile
+  const base = page.getViewport({ scale: 1 });
+  const scale = THUMB_SIZE / Math.max(base.width, base.height);
+  const dpr = window.devicePixelRatio || 1;
+  const viewport = page.getViewport({ scale: scale * dpr });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  canvas.style.width = `${viewport.width / dpr}px`;
+  canvas.style.height = `${viewport.height / dpr}px`;
+  await page.render({ canvasContext: canvas.getContext("2d"), viewport, background: "white" }).promise;
+  item.querySelector(".thumb__img").replaceChildren(canvas);
+}
+
+function markCurrentThumb() {
+  const box = document.getElementById("thumbs");
+  for (const el of box.querySelectorAll(".thumb")) {
+    const current = Number(el.dataset.page) === state.page;
+    el.classList.toggle("current", current);
+    if (current) el.scrollIntoView({ block: "nearest" });
+  }
 }
 
 // --- text layer ---
@@ -606,6 +682,10 @@ function stepZoom(dir, anchor) {
   setZoom(next, anchor);
 }
 
+async function goToPageNumber(n) {
+  if (n !== state.page) await goToPage(n - state.page);
+}
+
 async function goToPage(delta) {
   const next = state.page + delta;
   if (next < 1 || next > state.pageCount) return;
@@ -656,6 +736,20 @@ function renderRotationPanel() {
     if (deg === current) btn.classList.add("active");
     btn.addEventListener("click", () => setRotation(deg));
     container.appendChild(btn);
+  }
+}
+
+// Rotates any page (from its thumbnail) by +/-90 degrees.
+async function rotatePageBy(n, delta) {
+  if (!state.path || !view.doc) return;
+  try {
+    const page = await view.doc.getPage(n);
+    const degrees = (((page.rotate + delta) % 360) + 360) % 360;
+    const boxes = await invoke("set_page_rotation", { path: state.path, page: n, degrees });
+    if (n === state.page) state.pageBoxes = boxes;
+    await afterBoxEdit();
+  } catch (err) {
+    alert(`Could not rotate page ${n}:\n${err}`);
   }
 }
 

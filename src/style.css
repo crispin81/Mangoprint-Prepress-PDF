@@ -408,11 +408,85 @@ main {
   position: relative;
 }
 
+/* --- page thumbnails --- */
+
+.thumbs {
+  width: 150px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 12px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.thumb {
+  width: 128px;
+  cursor: pointer;
+}
+
+.thumb__img {
+  height: 128px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid transparent;
+  border-radius: 4px;
+}
+
+.thumb:hover .thumb__img {
+  border-color: var(--border);
+}
+
+.thumb.current .thumb__img {
+  border-color: var(--accent);
+}
+
+.thumb__img canvas {
+  display: block;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.thumb__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.thumb.current .thumb__bar span {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.thumb__rot {
+  background: none;
+  border: none;
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  opacity: 0;
+}
+
+.thumb:hover .thumb__rot {
+  opacity: 1;
+}
+
+.thumb__rot:hover {
+  color: var(--accent);
+}
+
 /* Loading progress, centred over the page area (not the sidebar). */
 .progress {
   position: absolute;
   z-index: 5;
-  left: 0;
+  left: 150px;
   right: 280px;
   top: 50%;
   transform: translateY(-50%);
