@@ -1,7 +1,6 @@
-//! Overprint check: finds objects painted with overprint switched on in a
-//! colour other than black. Black (K only, or grey) overprinting is normal
-//! practice; anything else (white, CMYK colours, RGB, spots) overprinting is
-//! usually a mistake that changes or hides colours on press.
+//! White overprint check: finds white objects (no ink in CMYK, grey or
+//! spot tints, RGB white, or a spot named "White") painted with overprint
+//! switched on. On press, overprinted white simply disappears.
 
 use crate::colorcheck::{deref, find_named};
 use lopdf::content::Content;
@@ -33,7 +32,22 @@ enum Colour {
 }
 
 impl Colour {
-    /// Black ink only (any tint of K, or grey). Not a problem to overprint.
+    /// White: no ink at all, RGB white, or a white spot colour.
+    fn is_white(&self) -> bool {
+        match self {
+            Colour::Cmyk(v) => v.iter().all(|c| *c < 0.005),
+            Colour::Gray(g) => *g > 0.995,
+            Colour::Rgb(v) => v.iter().all(|c| *c > 0.995),
+            Colour::Named(inks) => {
+                inks.iter().all(|(_, t)| *t < 0.005)
+                    || inks.iter().any(|(n, t)| *t > 0.005 && n.to_lowercase().contains("white"))
+            }
+            Colour::Unknown => false,
+        }
+    }
+
+    /// Black ink only (any tint of K, or grey).
+    #[cfg(test)]
     fn is_black(&self) -> bool {
         match self {
             Colour::Cmyk([c, m, y, k]) => *c < 0.005 && *m < 0.005 && *y < 0.005 && *k > 0.005,
@@ -186,7 +200,7 @@ impl Default for State {
 }
 
 fn record(out: &mut BTreeSet<OverprintHit>, page: u32, colour: &Colour, kind: &str) {
-    if colour.is_black() {
+    if !colour.is_white() {
         return;
     }
     if let Some(desc) = colour.describe() {
@@ -293,7 +307,7 @@ fn walk(
     }
 }
 
-/// Every non-black colour set to overprint, per page (deduplicated).
+/// Every white object set to overprint, per page (deduplicated).
 pub fn check_overprint(path: &Path) -> Result<Vec<OverprintHit>, String> {
     let doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
     let mut out = BTreeSet::new();
@@ -327,5 +341,17 @@ mod tests {
         assert!(Colour::Gray(0.0).is_black());
         assert!(!Colour::Gray(1.0).is_black());
         assert!(!Colour::Rgb([0.0, 0.0, 0.0]).is_black());
+    }
+
+    #[test]
+    fn white_rules() {
+        assert!(Colour::Cmyk([0.0; 4]).is_white());
+        assert!(Colour::Gray(1.0).is_white());
+        assert!(Colour::Rgb([1.0; 3]).is_white());
+        assert!(Colour::Named(vec![("PANTONE 186 C".into(), 0.0)]).is_white());
+        assert!(Colour::Named(vec![("White".into(), 1.0)]).is_white());
+        assert!(!Colour::Named(vec![("PANTONE 186 C".into(), 1.0)]).is_white());
+        assert!(!Colour::Cmyk([1.0, 0.0, 0.0, 0.0]).is_white());
+        assert!(!Colour::Rgb([1.0, 0.0, 0.0]).is_white());
     }
 }

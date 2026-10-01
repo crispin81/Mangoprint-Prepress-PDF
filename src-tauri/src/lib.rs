@@ -289,7 +289,7 @@ fn clear_plates(plates: &PlateCache) {
     }
 }
 
-/// Non-black colours set to overprint (empty when there are none).
+/// White objects set to overprint (empty when there are none).
 #[tauri::command]
 fn check_overprint(path: String) -> Result<Vec<overprint::OverprintHit>, String> {
     overprint::check_overprint(Path::new(&path))
