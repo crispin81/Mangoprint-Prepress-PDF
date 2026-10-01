@@ -69,7 +69,8 @@ const state = {
   path: null,
   page: 1,
   pageCount: 1,
-  dpi: 300,
+  dpiMode: "auto", // "auto" | fixed number as a string
+  dpi: 300, // resolved DPI actually used for rendering
   mode: "overprint", // "overprint" | "separations"
   simulateOverprint: false,
   separationNames: [],
@@ -120,6 +121,7 @@ async function openPdf() {
     els.fileName.textContent = baseName(path);
     els.fileName.title = path;
     updatePageControls();
+    await resolveDpi();
     if (state.mode === "separations") {
       await loadSeparationsList();
     }
@@ -130,6 +132,34 @@ async function openPdf() {
   } finally {
     setLoading(false);
   }
+}
+
+const AUTO_DPI_FALLBACK = 300;
+const AUTO_DPI_MIN = 72;
+const AUTO_DPI_MAX = 600;
+
+// In Auto mode, match the page's highest effective image resolution.
+async function resolveDpi() {
+  const autoOpt = document.getElementById("dpiAutoOption");
+  if (state.dpiMode !== "auto") {
+    state.dpi = Number(state.dpiMode);
+    autoOpt.textContent = "Auto (match PDF)";
+    return;
+  }
+  let found = null;
+  if (state.path) {
+    try {
+      found = await invoke("page_image_dpi", { path: state.path, page: state.page });
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  state.dpi = found ? Math.min(AUTO_DPI_MAX, Math.max(AUTO_DPI_MIN, found)) : AUTO_DPI_FALLBACK;
+  autoOpt.textContent = !state.path
+    ? "Auto (match PDF)"
+    : found
+      ? `Auto – ${state.dpi} (images ${found} ppi)`
+      : `Auto – ${state.dpi} (no images)`;
 }
 
 function updatePageControls() {
@@ -220,6 +250,7 @@ async function goToPage(delta) {
   if (next < 1 || next > state.pageCount) return;
   state.page = next;
   updatePageControls();
+  await resolveDpi();
   if (state.mode === "separations") await loadSeparationsList();
   await loadPageBoxes();
   await renderCurrent();
@@ -458,7 +489,8 @@ els.prevPage.addEventListener("click", () => goToPage(-1));
 els.nextPage.addEventListener("click", () => goToPage(1));
 
 els.dpiSelect.addEventListener("change", async () => {
-  state.dpi = Number(els.dpiSelect.value);
+  state.dpiMode = els.dpiSelect.value;
+  await resolveDpi();
   if (state.mode === "separations") await loadSeparationsList();
   await renderCurrent();
 });

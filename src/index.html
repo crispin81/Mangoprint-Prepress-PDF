@@ -35,10 +35,11 @@
       <button id="nextPage" disabled>›</button>
       <label class="dpi-label">
         Preview DPI
-        <select id="dpiSelect">
+        <select id="dpiSelect" title="Auto renders at the highest effective image resolution on the page (capped at 600; 300 if the page has no images)">
+          <option value="auto" id="dpiAutoOption" selected>Auto (match PDF)</option>
           <option value="72">72 (fast)</option>
           <option value="150">150</option>
-          <option value="300" selected>300</option>
+          <option value="300">300</option>
         </select>
       </label>
     </header>

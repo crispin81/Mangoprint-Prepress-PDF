@@ -1,4 +1,5 @@
 mod gs;
+mod imageres;
 mod pagebox;
 
 use base64::Engine;
@@ -174,6 +175,13 @@ fn render_separation_composite(
     png_to_data_uri(&out_path)
 }
 
+/// Highest effective resolution of the raster images on a page, rounded to
+/// whole PPI; `None` for pages with no images. Drives "Auto" preview DPI.
+#[tauri::command]
+fn page_image_dpi(path: String, page: u32) -> Result<Option<u32>, String> {
+    Ok(imageres::max_image_ppi(Path::new(&path), page)?.map(|p| p.round() as u32))
+}
+
 #[tauri::command]
 fn get_page_boxes(path: String, page: u32) -> Result<pagebox::PageBoxes, String> {
     pagebox::get_page_boxes(Path::new(&path), page)
@@ -227,6 +235,7 @@ pub fn run() {
             render_overprint,
             list_separations,
             render_separation_composite,
+            page_image_dpi,
             get_page_boxes,
             set_page_box,
             reset_page_box,
