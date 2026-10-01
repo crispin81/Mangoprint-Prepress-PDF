@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "mangoprint-prepress-pdf"
 version = "0.1.0"
 description = "Mangoprint Prepress PDF: overprint, separations and page box/rotation checker for print-ready PDFs"

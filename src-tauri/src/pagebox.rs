@@ -322,7 +322,10 @@ mod tests {
             let tmp = tempfile::tempdir().unwrap();
             let p = tmp.path().join("t.pdf");
             std::fs::copy(src, &p).unwrap();
-            let res = get_page_boxes(&p, 1).and_then(|b| set_page_box(&p, 1, "TrimBox", b.trim.rect));
+            let res = get_page_boxes(&p, 1)
+                .and_then(|b| set_page_box(&p, 1, "TrimBox", b.trim.rect))
+                .and_then(|_| set_rotation(&p, 1, 90))
+                .and_then(|_| set_rotation(&p, 1, 0));
             println!("{src}: {:?}", res.map(|b| b.trim.rect));
             if let Ok(out) = std::env::var("MP_TEST_OUT") {
                 let name = Path::new(src).file_name().unwrap();
