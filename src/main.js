@@ -69,7 +69,7 @@ const state = {
   path: null,
   page: 1,
   pageCount: 1,
-  dpi: 150,
+  dpi: 300,
   mode: "overprint", // "overprint" | "separations"
   simulateOverprint: false,
   separationNames: [],
