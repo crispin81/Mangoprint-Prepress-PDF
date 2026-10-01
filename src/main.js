@@ -177,6 +177,7 @@ async function openPdf() {
     await loadPageBoxes();
     view.zoom = "fit";
     await showPage({ reloadDoc: true });
+    enableFixes();
   } catch (err) {
     alert(`Could not open PDF:\n${err}`);
   } finally {
@@ -969,6 +970,92 @@ els.selectNoneSep.addEventListener("click", () => {
   renderCurrent();
 });
 
+
+// --- colour & fonts fixes ---
+
+const fixBtns = ["checkRgbBtn", "convertRgbBtn", "convertSpotsBtn", "outlineBtn"].map((id) => document.getElementById(id));
+const rgbResult = document.getElementById("rgbResult");
+
+function enableFixes() {
+  for (const b of fixBtns) b.disabled = !state.path;
+  document.getElementById("convertRgbBtn").disabled = true; // until a check finds RGB
+  rgbResult.innerHTML = "";
+}
+
+function showRgbResult(pages) {
+  rgbResult.innerHTML = "";
+  const li = (cls, text) => {
+    const el = document.createElement("li");
+    el.className = cls;
+    el.textContent = text;
+    rgbResult.appendChild(el);
+  };
+  if (!pages.length) {
+    li("ok", "✓ No RGB found");
+    document.getElementById("convertRgbBtn").disabled = true;
+    return;
+  }
+  for (const p of pages) {
+    const parts = [];
+    if (p.text) parts.push(`${p.text} text`);
+    if (p.vector) parts.push(`${p.vector} vector`);
+    if (p.images) parts.push(`${p.images} image${p.images > 1 ? "s" : ""}`);
+    if (p.shadings) parts.push(`${p.shadings} gradient${p.shadings > 1 ? "s" : ""}`);
+    li("warn", `Page ${p.page}: RGB ${parts.join(", ")}`);
+  }
+  document.getElementById("convertRgbBtn").disabled = false;
+}
+
+async function checkRgb() {
+  if (!state.path) return;
+  rgbResult.innerHTML = '<li class="hint">Checking…</li>';
+  try {
+    showRgbResult(await invoke("check_rgb", { path: state.path }));
+  } catch (err) {
+    rgbResult.innerHTML = "";
+    alert(`RGB check failed:\n${err}`);
+  }
+}
+
+const CONVERSIONS = {
+  rgb: { label: "Converting RGB to CMYK…", done: "RGB converted to CMYK" },
+  spots: { label: "Converting spot colours to CMYK…", done: "Spot colours converted to CMYK" },
+  outlines: { label: "Converting text to outlines…", done: "Text converted to outlines" },
+};
+
+async function runConversion(kind) {
+  if (!state.path) return;
+  for (const b of fixBtns) b.disabled = true;
+  setProgress(30, CONVERSIONS[kind].label);
+  try {
+    await invoke("convert_pdf", { path: state.path, kind });
+    setProgress(60, "Reloading…");
+    state.separationNames = [];
+    state.activeSeparations = new Set();
+    await loadPageBoxes();
+    updateRasterDpi();
+    loadSeparationsList();
+    setEdited(true);
+    await showPage({ reloadDoc: true });
+    enableFixes();
+    // Re-check so the result reflects the converted file.
+    await checkRgb();
+    const note = document.createElement("li");
+    note.className = "ok";
+    note.textContent = `✓ ${CONVERSIONS[kind].done}`;
+    rgbResult.prepend(note);
+  } catch (err) {
+    enableFixes();
+    alert(`Conversion failed:\n${err}`);
+  } finally {
+    hideProgress();
+  }
+}
+
+document.getElementById("checkRgbBtn").addEventListener("click", checkRgb);
+document.getElementById("convertRgbBtn").addEventListener("click", () => runConversion("rgb"));
+document.getElementById("convertSpotsBtn").addEventListener("click", () => runConversion("spots"));
+document.getElementById("outlineBtn").addEventListener("click", () => runConversion("outlines"));
 
 // --- tutorial link & footer (same as RapidCulling) ---
 

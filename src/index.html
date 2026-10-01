@@ -104,6 +104,27 @@
         </div>
 
         <div class="panel">
+          <h2>Colour &amp; Fonts</h2>
+          <div class="fix-row">
+            <button id="checkRgbBtn" disabled>Check for RGB</button>
+            <button id="convertRgbBtn" disabled>Convert RGB to CMYK</button>
+          </div>
+          <ul id="rgbResult" class="fix-result"></ul>
+          <div class="fix-row">
+            <button id="convertSpotsBtn" disabled>Convert spot colours to CMYK</button>
+          </div>
+          <div class="fix-row">
+            <button id="outlineBtn" disabled>Convert text to outlines</button>
+          </div>
+          <p class="hint">
+            These rewrite the working copy (use Export PDF to save it). Images
+            keep full resolution and existing CMYK values, overprint and page
+            boxes are kept. Converting spot colours also converts any RGB,
+            because both go through the same CMYK conversion.
+          </p>
+        </div>
+
+        <div class="panel">
           <div class="panel-header">
             <h2>Page Rotation</h2>
             <span id="rotationCurrent" class="muted"></span>

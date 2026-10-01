@@ -130,8 +130,6 @@ fn ps_escape(path: &Path) -> String {
         .replace(')', "\\)")
 }
 
-/// Ghostscript treats `%` in -sOutputFile as a printf-style page-number
-/// placeholder; a literal `%` must be doubled.
 /// Prepress wants the CMYK numbers that are actually in the file. By
 /// default Ghostscript colour-manages ICC-based CMYK (embedded profiles)
 /// into its own default CMYK profile, which shifts values — e.g. 100 K
@@ -140,6 +138,8 @@ fn ps_escape(path: &Path) -> String {
 /// passed through untouched. RGB content still has to be converted.
 const PRESERVE_CMYK: &str = "-dOverrideICC=true";
 
+/// Ghostscript treats `%` in -sOutputFile as a printf-style page-number
+/// placeholder; a literal `%` must be doubled.
 fn output_file_arg(path: &Path) -> String {
     format!("-sOutputFile={}", path.to_string_lossy().replace('%', "%%"))
 }
@@ -313,6 +313,67 @@ pub fn ensure_separations(
         }
     }
     render_separations(pdf_path, page, dpi, out_dir)
+}
+
+/// Whole-document fixes, done by re-writing the PDF through Ghostscript's
+/// pdfwrite device.
+#[derive(Clone, Copy, Debug)]
+pub enum Conversion {
+    /// All text becomes vector outlines (no fonts left in the file).
+    Outlines,
+    /// RGB objects become CMYK. Spot colours and existing CMYK are kept.
+    RgbToCmyk,
+    /// Spot (Separation/DeviceN) colours become CMYK via their own
+    /// alternate colour. This goes through the same CMYK conversion, so any
+    /// RGB is converted too.
+    SpotsToCmyk,
+}
+
+/// Rewrites `input` to `output` applying `conv`. Images are kept at full
+/// resolution (no downsampling, JPEGs passed through untouched), embedded
+/// CMYK values are preserved, and overprint settings and page boxes carry
+/// over.
+pub fn convert_pdf(input: &Path, output: &Path, conv: Conversion) -> Result<(), String> {
+    let mut args: Vec<&str> = vec![
+        "-q",
+        "-dBATCH",
+        "-dNOPAUSE",
+        "-dSAFER",
+        "-sDEVICE=pdfwrite",
+        PRESERVE_CMYK,
+        "-dPreserveOverprintSettings=true",
+        "-dPassThroughJPEGImages=true",
+        "-dPassThroughJPXImages=true",
+        "-dDownsampleColorImages=false",
+        "-dDownsampleGrayImages=false",
+        "-dDownsampleMonoImages=false",
+        "-dAutoFilterColorImages=false",
+        "-dAutoFilterGrayImages=false",
+        "-dColorImageFilter=/FlateEncode",
+        "-dGrayImageFilter=/FlateEncode",
+    ];
+    match conv {
+        Conversion::Outlines => args.extend(["-dNoOutputFonts", "-sColorConversionStrategy=LeaveColorUnchanged"]),
+        Conversion::RgbToCmyk => args.extend(["-sColorConversionStrategy=CMYK", "-dProcessColorModel=/DeviceCMYK"]),
+        Conversion::SpotsToCmyk => args.extend([
+            "-sColorConversionStrategy=CMYK",
+            "-dProcessColorModel=/DeviceCMYK",
+            "-dPreserveSeparation=false",
+            "-dPreserveDeviceN=false",
+        ]),
+    }
+    let out_arg = output_file_arg(output);
+    let status = gs_command()?
+        .args(&args)
+        .arg(&out_arg)
+        .arg(input)
+        .output()
+        .map_err(|e| format!("Failed to run Ghostscript: {e}"))?;
+    if !status.status.success() || !output.exists() {
+        let stderr = String::from_utf8_lossy(&status.stderr);
+        return Err(format!("Ghostscript could not convert the PDF:\n{stderr}"));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

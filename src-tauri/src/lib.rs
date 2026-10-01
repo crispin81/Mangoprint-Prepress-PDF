@@ -1,3 +1,4 @@
+mod colorcheck;
 mod gs;
 mod imageres;
 mod pagebox;
@@ -287,6 +288,37 @@ fn clear_plates(plates: &PlateCache) {
     }
 }
 
+/// Pages that contain RGB objects (empty when the file is RGB-free).
+#[tauri::command]
+fn check_rgb(path: String) -> Result<Vec<colorcheck::PageRgb>, String> {
+    colorcheck::check_rgb(Path::new(&path))
+}
+
+/// Applies a whole-document fix ("outlines", "rgb", "spots") to the working
+/// copy in place, via a temp file so a failed conversion leaves it intact.
+#[tauri::command]
+fn convert_pdf(
+    path: String,
+    kind: String,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+) -> Result<(), String> {
+    let conv = match kind.as_str() {
+        "outlines" => gs::Conversion::Outlines,
+        "rgb" => gs::Conversion::RgbToCmyk,
+        "spots" => gs::Conversion::SpotsToCmyk,
+        other => return Err(format!("Unknown conversion '{other}'")),
+    };
+    let src = Path::new(&path);
+    let tmp = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
+    let out = tmp.path().join("converted.pdf");
+    gs::convert_pdf(src, &out, conv)?;
+    std::fs::copy(&out, src).map_err(|e| format!("Could not update the working copy: {e}"))?;
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
+    Ok(())
+}
+
 #[tauri::command]
 fn get_page_boxes(path: String, page: u32) -> Result<pagebox::PageBoxes, String> {
     pagebox::get_page_boxes(Path::new(&path), page)
@@ -353,6 +385,8 @@ pub fn run() {
             list_separations,
             render_separation_composite,
             page_image_dpi,
+            check_rgb,
+            convert_pdf,
             sample_inks,
             get_page_boxes,
             set_page_box,
