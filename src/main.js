@@ -1047,7 +1047,21 @@ els.winClose.addEventListener("click", () => appWindow.close());
 // is taken into account. Only one request is in flight at a time; the
 // latest pointer position is sent once it returns.
 
+// Gold padlock that follows the cursor while a reading is held (locked).
+const lockBadge = document.getElementById("lockBadge");
+
+function moveLockBadge(ev) {
+  lockBadge.style.left = `${ev.clientX + 14}px`;
+  lockBadge.style.top = `${ev.clientY + 12}px`;
+}
+
+function showLockBadge(show, ev) {
+  if (show && ev) moveLockBadge(ev);
+  lockBadge.classList.toggle("hidden", !show);
+}
+
 function clearInks() {
+  showLockBadge(false);
   els.separationsList.classList.remove("held");
   for (const el of els.separationsList.querySelectorAll(".ink-value")) el.textContent = "";
 }
@@ -1093,6 +1107,7 @@ function pointerFraction(ev) {
 
 els.imgWrap.addEventListener("mousemove", (ev) => {
   eyedrop.inside = true;
+  if (eyedrop.held) showLockBadge(true, ev);
   if (!state.path || eyedrop.held || !state.separationNames.length) return;
   sampleAt(...pointerFraction(ev));
 });
@@ -1100,6 +1115,7 @@ els.imgWrap.addEventListener("mousemove", (ev) => {
 els.imgWrap.addEventListener("mouseleave", () => {
   eyedrop.inside = false;
   eyedrop.pending = null;
+  showLockBadge(false); // reappears when the cursor comes back over the page
   if (!eyedrop.held) clearInks();
 });
 
@@ -1110,6 +1126,7 @@ els.imgWrap.addEventListener("click", (ev) => {
   if (!state.path || !state.separationNames.length) return;
   eyedrop.held = !eyedrop.held;
   els.separationsList.classList.toggle("held", eyedrop.held);
+  showLockBadge(eyedrop.held, ev);
   sampleAt(...pointerFraction(ev));
 });
 
