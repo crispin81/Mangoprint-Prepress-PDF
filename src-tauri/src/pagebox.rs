@@ -19,7 +19,7 @@
 
 use lopdf::{Document, Object, ObjectId};
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// The five standard PDF page boxes, in the order Acrobat's Output Preview
 /// panel lists them (largest/outermost to smallest/innermost).
@@ -234,19 +234,6 @@ fn validate_box_name(name: &str) -> Result<(), String> {
     }
 }
 
-/// Copies the file to `<path>.bak` the first time it's about to be
-/// mutated (no-op if a backup already exists), so a botched edit can
-/// always be undone by hand.
-fn backup_once(path: &Path) -> Result<(), String> {
-    let mut bak_name = path.as_os_str().to_owned();
-    bak_name.push(".bak");
-    let bak = PathBuf::from(bak_name);
-    if !bak.exists() {
-        std::fs::copy(path, &bak).map_err(|e| format!("Could not create a safety backup at {}: {e}", bak.display()))?;
-    }
-    Ok(())
-}
-
 /// Writes `rect` directly onto the page's own dictionary under `name`,
 /// making it explicit on this page (standard behavior — this is also
 /// what Acrobat's "Crop Pages" dialog does under the hood).
@@ -255,7 +242,6 @@ pub fn set_page_box(path: &Path, page: u32, name: &str, rect: [f64; 4]) -> Resul
     if !(rect[2] > rect[0] && rect[3] > rect[1]) {
         return Err("Box width and height must be positive (x1 > x0 and y1 > y0).".into());
     }
-    backup_once(path)?;
 
     let mut doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
     let page_id = page_id_for(&doc, page)?;
@@ -283,7 +269,6 @@ pub fn set_rotation(path: &Path, page: u32, degrees: i32) -> Result<PageBoxes, S
     if normalized % 90 != 0 {
         return Err("Rotation must be a multiple of 90 degrees.".into());
     }
-    backup_once(path)?;
 
     let mut doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
     let page_id = page_id_for(&doc, page)?;
@@ -310,7 +295,6 @@ pub fn reset_page_box(path: &Path, page: u32, name: &str) -> Result<PageBoxes, S
                 .into(),
         );
     }
-    backup_once(path)?;
 
     let mut doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
     let page_id = page_id_for(&doc, page)?;

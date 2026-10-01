@@ -253,6 +253,28 @@ button:disabled {
   filter: brightness(1.08);
 }
 
+.btn-primary:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.file-link {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 0;
+  font-size: 12px;
+}
+
+.file-link:hover:not(:disabled) {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.file-link:disabled {
+  cursor: default;
+}
+
 .dpi-label {
   font-size: 11px;
   color: var(--muted);
@@ -318,6 +340,35 @@ main {
   display: block;
   max-width: 100%;
   background: white;
+}
+
+/* Before a PDF is loaded: hide the (src-less) preview image and show a
+   centred Open PDF prompt instead of the browser's broken-image icon. */
+#viewport {
+  position: relative;
+}
+
+#imgWrap.empty {
+  display: none;
+}
+
+#emptyState {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+#emptyState .hint {
+  margin: 0;
+}
+
+.dpi-value {
+  color: var(--text);
+  font-weight: 600;
 }
 
 #boxOverlay {

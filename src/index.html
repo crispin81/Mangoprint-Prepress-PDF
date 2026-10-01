@@ -27,28 +27,27 @@
     </div>
 
     <header id="toolbar">
-      <button id="openBtn" class="btn-primary">Open PDF…</button>
-      <span id="fileName" class="muted">No file open</span>
+      <button id="exportBtn" class="btn-primary" disabled title="Save a copy of the PDF with your page box / rotation changes">Export PDF…</button>
+      <button id="fileName" class="file-link" disabled title="Open a different PDF">No file open</button>
       <div class="spacer"></div>
       <button id="prevPage" disabled>‹</button>
       <span id="pageLabel" class="muted">–</span>
       <button id="nextPage" disabled>›</button>
-      <label class="dpi-label">
-        Preview DPI
-        <select id="dpiSelect" title="Auto renders at the highest effective image resolution on the page (capped at 600; 300 if the page has no images)">
-          <option value="auto" id="dpiAutoOption" selected>Auto (match PDF)</option>
-          <option value="72">72 (fast)</option>
-          <option value="150">150</option>
-          <option value="300">300</option>
-        </select>
-      </label>
+      <span class="dpi-label" title="Effective resolution of the placed raster images on this page. Vector art and text have no DPI and aren't counted.">
+        Raster DPI of PDF
+        <span id="rasterDpi" class="dpi-value">–</span>
+      </span>
     </header>
 
     <div id="gsWarning" class="banner hidden"></div>
 
     <main>
       <section id="viewport">
-        <div id="imgWrap">
+        <div id="emptyState">
+          <button id="emptyOpenBtn" class="btn-primary">Open PDF…</button>
+          <p class="hint">Choose a print-ready PDF to check</p>
+        </div>
+        <div id="imgWrap" class="empty">
           <img id="preview" alt="Rendered page preview" />
           <svg id="boxOverlay" preserveAspectRatio="none"></svg>
           <div id="loadingOverlay" class="hidden">Rendering…</div>
@@ -122,8 +121,8 @@
           <div id="pageBoxes"></div>
           <p class="hint">
             Coordinates are in the page's own unrotated space (1 pt = 1⁄72 in
-            = 0.3528 mm). Edits apply immediately and are saved to the file
-            (a one-time <code>.bak</code> backup is made on first edit).
+            = 0.3528 mm). Edits apply to a working copy; your original file
+            is untouched until you use Export PDF.
           </p>
         </div>
       </aside>

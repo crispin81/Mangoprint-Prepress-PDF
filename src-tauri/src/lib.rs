@@ -48,6 +48,11 @@ fn cache_dir(cache: &SepCache, key: String) -> Result<PathBuf, String> {
     Ok(p)
 }
 
+/// The temp folder holding the working copy of the currently open PDF.
+/// Geometry edits go to this copy; the original file is never touched
+/// until the user exports. Replacing it drops (deletes) the previous copy.
+struct WorkingCopy(Mutex<Option<TempDir>>);
+
 fn png_to_data_uri(png_path: &Path) -> Result<String, String> {
     let bytes = std::fs::read(png_path).map_err(|e| format!("Could not read rendered PNG: {e}"))?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
@@ -68,6 +73,30 @@ fn open_pdf(path: String) -> Result<u32, String> {
         Ok(n) => Ok(n),
         Err(gs_err) => pagebox::page_count(p).map_err(|_| gs_err),
     }
+}
+
+/// Copies `path` into a fresh temp folder (keeping its file name) and
+/// returns the copy's path, which the UI then uses for everything.
+#[tauri::command]
+fn create_working_copy(path: String, working: tauri::State<WorkingCopy>) -> Result<String, String> {
+    let src = Path::new(&path);
+    let name = src.file_name().ok_or("Invalid file path")?;
+    let tmp = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
+    let dest = tmp.path().join(name);
+    std::fs::copy(src, &dest).map_err(|e| format!("Could not copy the PDF: {e}"))?;
+    *working.0.lock().map_err(|_| "Working copy lock was poisoned".to_string())? = Some(tmp);
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+/// Writes the edited working copy out to `dest`.
+#[tauri::command]
+fn export_pdf(from: String, dest: String) -> Result<(), String> {
+    if Path::new(&from) == Path::new(&dest) {
+        return Ok(());
+    }
+    std::fs::copy(&from, &dest)
+        .map(|_| ())
+        .map_err(|e| format!("Could not save the PDF to {dest}: {e}"))
 }
 
 #[tauri::command]
@@ -175,11 +204,11 @@ fn render_separation_composite(
     png_to_data_uri(&out_path)
 }
 
-/// Highest effective resolution of the raster images on a page, rounded to
-/// whole PPI; `None` for pages with no images. Drives "Auto" preview DPI.
+/// [lowest, highest] effective resolution of the raster images on a page,
+/// rounded to whole PPI; `None` for pages with no raster images.
 #[tauri::command]
-fn page_image_dpi(path: String, page: u32) -> Result<Option<u32>, String> {
-    Ok(imageres::max_image_ppi(Path::new(&path), page)?.map(|p| p.round() as u32))
+fn page_image_dpi(path: String, page: u32) -> Result<Option<[u32; 2]>, String> {
+    Ok(imageres::image_ppi_range(Path::new(&path), page)?.map(|(lo, hi)| [lo.round() as u32, hi.round() as u32]))
 }
 
 #[tauri::command]
@@ -229,9 +258,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(SepCache(Mutex::new(HashMap::new())))
+        .manage(WorkingCopy(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             check_ghostscript,
             open_pdf,
+            create_working_copy,
+            export_pdf,
             render_overprint,
             list_separations,
             render_separation_composite,

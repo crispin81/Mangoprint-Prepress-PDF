@@ -2,18 +2,19 @@
 // `window.__TAURI__` object, enabled by `app.withGlobalTauri` in
 // tauri.conf.json. The dialog plugin adds `window.__TAURI__.dialog`.
 const { invoke } = window.__TAURI__.core;
-const { open } = window.__TAURI__.dialog;
+const { open, save, ask } = window.__TAURI__.dialog;
 const { getCurrentWindow } = window.__TAURI__.window;
 
 const appWindow = getCurrentWindow();
 
 const els = {
-  openBtn: document.getElementById("openBtn"),
+  exportBtn: document.getElementById("exportBtn"),
+  emptyOpenBtn: document.getElementById("emptyOpenBtn"),
   fileName: document.getElementById("fileName"),
   prevPage: document.getElementById("prevPage"),
   nextPage: document.getElementById("nextPage"),
   pageLabel: document.getElementById("pageLabel"),
-  dpiSelect: document.getElementById("dpiSelect"),
+  rasterDpi: document.getElementById("rasterDpi"),
   gsWarning: document.getElementById("gsWarning"),
   preview: document.getElementById("preview"),
   loadingOverlay: document.getElementById("loadingOverlay"),
@@ -66,11 +67,12 @@ function baseName(path) {
 }
 
 const state = {
-  path: null,
+  path: null, // working copy in a temp folder — all rendering and edits use this
+  sourcePath: null, // the file the user opened (never modified)
+  edited: false, // geometry changed since open → Export enabled
   page: 1,
   pageCount: 1,
-  dpiMode: "auto", // "auto" | fixed number as a string
-  dpi: 300, // resolved DPI actually used for rendering
+  dpi: 300, // on-screen preview resolution (the PDF itself is never rasterised)
   mode: "overprint", // "overprint" | "separations"
   simulateOverprint: false,
   separationNames: [],
@@ -103,25 +105,36 @@ async function checkGhostscript() {
 }
 
 async function openPdf() {
+  if (state.edited) {
+    const discard = await ask("You have page changes that haven't been exported. Open another PDF and discard them?", {
+      title: "Unexported changes",
+      kind: "warning",
+    });
+    if (!discard) return;
+  }
   const selected = await open({
     multiple: false,
     filters: [{ name: "PDF", extensions: ["pdf", "PDF"] }],
   });
   if (!selected) return;
 
-  const path = Array.isArray(selected) ? selected[0] : selected;
+  const source = Array.isArray(selected) ? selected[0] : selected;
   setLoading(true);
   try {
+    const path = await invoke("create_working_copy", { path: source });
     const pageCount = await invoke("open_pdf", { path });
     state.path = path;
+    state.sourcePath = source;
+    setEdited(false);
+    els.fileName.disabled = false;
     state.page = 1;
     state.pageCount = pageCount;
     state.separationNames = [];
     state.activeSeparations = new Set();
-    els.fileName.textContent = baseName(path);
-    els.fileName.title = path;
+    els.fileName.textContent = baseName(source);
+    els.fileName.title = `${source}\nClick to open a different PDF`;
     updatePageControls();
-    await resolveDpi();
+    updateRasterDpi();
     if (state.mode === "separations") {
       await loadSeparationsList();
     }
@@ -134,32 +147,47 @@ async function openPdf() {
   }
 }
 
-const AUTO_DPI_FALLBACK = 300;
-const AUTO_DPI_MIN = 72;
-const AUTO_DPI_MAX = 600;
-
-// In Auto mode, match the page's highest effective image resolution.
-async function resolveDpi() {
-  const autoOpt = document.getElementById("dpiAutoOption");
-  if (state.dpiMode !== "auto") {
-    state.dpi = Number(state.dpiMode);
-    autoOpt.textContent = "Auto (match PDF)";
+// Shows the effective resolution of the raster images on the current page.
+async function updateRasterDpi() {
+  if (!state.path) {
+    els.rasterDpi.textContent = "–";
     return;
   }
-  let found = null;
-  if (state.path) {
-    try {
-      found = await invoke("page_image_dpi", { path: state.path, page: state.page });
-    } catch (err) {
-      console.error(err);
-    }
+  let range = null;
+  try {
+    range = await invoke("page_image_dpi", { path: state.path, page: state.page });
+  } catch (err) {
+    console.error(err);
+    els.rasterDpi.textContent = "?";
+    return;
   }
-  state.dpi = found ? Math.min(AUTO_DPI_MAX, Math.max(AUTO_DPI_MIN, found)) : AUTO_DPI_FALLBACK;
-  autoOpt.textContent = !state.path
-    ? "Auto (match PDF)"
-    : found
-      ? `Auto – ${state.dpi} (images ${found} ppi)`
-      : `Auto – ${state.dpi} (no images)`;
+  if (!range) {
+    els.rasterDpi.textContent = "no raster images";
+    return;
+  }
+  const [lo, hi] = range;
+  els.rasterDpi.textContent = lo === hi ? `${lo}` : `${lo}–${hi}`;
+}
+
+function setEdited(edited) {
+  state.edited = edited;
+  els.exportBtn.disabled = !edited;
+}
+
+async function exportPdf() {
+  if (!state.path || !state.edited) return;
+  const suggested = state.sourcePath.replace(/(\.pdf)?$/i, "_edited.pdf");
+  const dest = await save({
+    defaultPath: suggested,
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
+  });
+  if (!dest) return;
+  try {
+    await invoke("export_pdf", { from: state.path, dest });
+    setEdited(false);
+  } catch (err) {
+    alert(`Export failed:\n${err}`);
+  }
 }
 
 function updatePageControls() {
@@ -238,6 +266,8 @@ async function renderCurrent() {
     }
     if (token !== state.renderToken) return; // a newer render superseded this one
     els.preview.src = dataUri;
+    document.getElementById("imgWrap").classList.remove("empty");
+    document.getElementById("emptyState").classList.add("hidden");
   } catch (err) {
     if (token === state.renderToken) alert(`Render failed:\n${err}`);
   } finally {
@@ -250,7 +280,7 @@ async function goToPage(delta) {
   if (next < 1 || next > state.pageCount) return;
   state.page = next;
   updatePageControls();
-  await resolveDpi();
+  updateRasterDpi();
   if (state.mode === "separations") await loadSeparationsList();
   await loadPageBoxes();
   await renderCurrent();
@@ -338,6 +368,7 @@ async function resetBox(def) {
 }
 
 async function afterBoxEdit() {
+  setEdited(true);
   renderPageBoxesPanel();
   renderRotationPanel();
   drawBoxOverlay();
@@ -484,16 +515,11 @@ function setUnit(unit) {
 els.unitMm.addEventListener("click", () => setUnit("mm"));
 els.unitPt.addEventListener("click", () => setUnit("pt"));
 
-els.openBtn.addEventListener("click", openPdf);
+els.emptyOpenBtn.addEventListener("click", openPdf);
+els.fileName.addEventListener("click", openPdf);
+els.exportBtn.addEventListener("click", exportPdf);
 els.prevPage.addEventListener("click", () => goToPage(-1));
 els.nextPage.addEventListener("click", () => goToPage(1));
-
-els.dpiSelect.addEventListener("change", async () => {
-  state.dpiMode = els.dpiSelect.value;
-  await resolveDpi();
-  if (state.mode === "separations") await loadSeparationsList();
-  await renderCurrent();
-});
 
 els.overprintToggle.addEventListener("change", () => {
   state.simulateOverprint = els.overprintToggle.checked;

@@ -1,6 +1,7 @@
-//! Effective image resolution on a page, used by the "Auto (match PDF)"
-//! preview DPI. A PDF has no DPI of its own — only its placed raster images
-//! do — so we walk the page's content stream, track the transformation
+//! Effective resolution of the raster images on a page, shown in the
+//! toolbar as "Raster DPI of PDF". A PDF has no DPI of its own — only its
+//! placed raster images do (vector art and text are resolution-independent
+//! and aren't counted) — so we walk the page's content stream, track the transformation
 //! matrix, and for every image XObject work out pixels ÷ placed size in
 //! inches. Form XObjects are followed (with their /Matrix and /Resources).
 
@@ -53,7 +54,10 @@ fn find_xobject<'a>(doc: &'a Document, resources: &[&'a Dictionary], name: &[u8]
     None
 }
 
-fn walk(doc: &Document, content: &[u8], resources: &[&Dictionary], start: Matrix, depth: u32, best: &mut Option<f64>) {
+/// Lowest and highest effective PPI seen so far.
+type Range = Option<(f64, f64)>;
+
+fn walk(doc: &Document, content: &[u8], resources: &[&Dictionary], start: Matrix, depth: u32, best: &mut Range) {
     let Ok(ops) = Content::decode(content) else { return };
     let mut ctm = start;
     let mut stack: Vec<Matrix> = Vec::new();
@@ -82,7 +86,7 @@ fn walk(doc: &Document, content: &[u8], resources: &[&Dictionary], start: Matrix
                         continue; // ignore tiny images/masks — they skew the result
                     }
                     let ppi = (w / (placed_w / 72.0)).min(h / (placed_h / 72.0));
-                    *best = Some(best.map_or(ppi, |b| b.max(ppi)));
+                    *best = Some(best.map_or((ppi, ppi), |(lo, hi)| (lo.min(ppi), hi.max(ppi))));
                 } else if subtype == b"Form" && depth < MAX_FORM_DEPTH {
                     let form_m = stream
                         .dict
@@ -106,9 +110,9 @@ fn walk(doc: &Document, content: &[u8], resources: &[&Dictionary], start: Matrix
     }
 }
 
-/// Highest effective image resolution (pixels per inch) placed on `page`,
-/// or `None` if the page has no raster images (vector/text only).
-pub fn max_image_ppi(path: &Path, page: u32) -> Result<Option<f64>, String> {
+/// Lowest and highest effective image resolution (pixels per inch) placed
+/// on `page`, or `None` if the page has no raster images (vector/text only).
+pub fn image_ppi_range(path: &Path, page: u32) -> Result<Range, String> {
     let doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
     let page_id = *doc
         .get_pages()
@@ -141,7 +145,7 @@ mod tests {
     fn real_pdf_if_given() {
         let Ok(p) = std::env::var("MP_TEST_PDF") else { return };
         for page in 1..=3 {
-            println!("page {page}: {:?}", max_image_ppi(Path::new(&p), page));
+            println!("page {page}: {:?}", image_ppi_range(Path::new(&p), page));
         }
     }
 }
