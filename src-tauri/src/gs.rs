@@ -83,11 +83,20 @@ const INSTALL_HINT: &str = "Install it with Homebrew (`brew install ghostscript`
 const INSTALL_HINT: &str =
     "Install it with your package manager, e.g. `sudo apt install ghostscript` or `sudo dnf install ghostscript`.";
 
-/// Locates Ghostscript once per run and caches the result.
+/// A copy of Ghostscript shipped alongside the app (portable build):
+/// `<app folder>/ghostscript/bin/<gs binary>`. Preferred over any system
+/// install so the app always runs the version it was tested with.
+fn find_bundled() -> Option<PathBuf> {
+    let dir = std::env::current_exe().ok()?.parent()?.join("ghostscript").join("bin");
+    PATH_NAMES.iter().map(|n| dir.join(n)).find(|p| p.is_file())
+}
+
+/// Locates Ghostscript once per run and caches the result: bundled copy
+/// first, then PATH, then the usual install locations.
 fn gs_binary() -> Result<&'static Path, String> {
     static FOUND: OnceLock<Option<PathBuf>> = OnceLock::new();
     FOUND
-        .get_or_init(|| find_on_path(PATH_NAMES).or_else(find_platform_specific))
+        .get_or_init(|| find_bundled().or_else(|| find_on_path(PATH_NAMES)).or_else(find_platform_specific))
         .as_deref()
         .ok_or_else(|| format!("Ghostscript was not found. {INSTALL_HINT}"))
 }
@@ -197,7 +206,9 @@ pub fn render_overprint_png(
             &format!("-r{dpi}"),
             &format!("-dFirstPage={page}"),
             &format!("-dLastPage={page}"),
-            &format!("-dSimulateOverprint={}", if simulate { "true" } else { "false" }),
+            // Ghostscript 10 replaced -dSimulateOverprint (now silently
+            // ignored) with the string option -sOverprint.
+            if simulate { "-sOverprint=simulate" } else { "-sOverprint=disable" },
             &output_file_arg(out_png),
         ])
         .arg(pdf_path)
