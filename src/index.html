@@ -27,31 +27,36 @@
     </div>
 
     <header id="toolbar">
-      <div id="videoLink" class="video-link hidden">
-        <a id="videoLinkCta" class="video-link__cta" href="#" title="Watch the tutorial video on YouTube">▶ New user? Watch this first!</a>
-        <button type="button" id="videoLinkClose" class="video-link__close" title="Dismiss">×</button>
+      <div class="toolbar__left">
+        <div id="videoLink" class="video-link hidden">
+          <a id="videoLinkCta" class="video-link__cta" href="#" title="Watch the tutorial video on YouTube">▶ New user? Watch this first!</a>
+          <button type="button" id="videoLinkClose" class="video-link__close" title="Dismiss">×</button>
+        </div>
+        <button id="exportBtn" class="btn-primary" disabled title="Save a copy of the PDF with your edits">Export PDF…</button>
+        <button id="fileName" class="file-link" disabled title="Open a different PDF">No file open</button>
       </div>
-      <button id="exportBtn" class="btn-primary" disabled title="Save a copy of the PDF with your page box / rotation changes">Export PDF…</button>
-      <button id="fileName" class="file-link" disabled title="Open a different PDF">No file open</button>
-      <div class="spacer"></div>
-      <button id="prevPage" disabled>‹</button>
-      <span id="pageLabel" class="muted">–</span>
-      <button id="nextPage" disabled>›</button>
-      <button id="textModeBtn" disabled title="Select text: live text can be highlighted; outlined text can't">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px"><path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1" /><path d="M7 22h1a4 4 0 0 0 4-4v-1" /><path d="M7 2h1a4 4 0 0 1 4 4v1" /></svg>
-        Select text
-      </button>
-      <div class="zoom-controls">
-        <button id="zoomOut" disabled title="Zoom out (Ctrl −)">−</button>
-        <span id="zoomLabel" class="muted">–</span>
-        <button id="zoomIn" disabled title="Zoom in (Ctrl +)">+</button>
-        <button id="zoomFit" disabled title="Fit page to window (Ctrl 0)">Fit</button>
-        <button id="zoomActual" disabled title="Actual size (Ctrl 1)">1:1</button>
+      <div class="toolbar__centre">
+        <button id="prevPage" disabled>‹</button>
+        <span id="pageLabel" class="muted">–</span>
+        <button id="nextPage" disabled>›</button>
+        <div class="zoom-controls">
+          <button id="zoomOut" disabled title="Zoom out (Ctrl −)">−</button>
+          <span id="zoomLabel" class="muted">–</span>
+          <button id="zoomIn" disabled title="Zoom in (Ctrl +)">+</button>
+          <button id="zoomFit" disabled title="Fit page to window (Ctrl 0)">Fit</button>
+          <button id="zoomActual" disabled title="Actual size (Ctrl 1)">1:1</button>
+        </div>
       </div>
-      <span class="dpi-label" title="Effective resolution of the placed raster images on this page. Vector art and text have no DPI and aren't counted.">
-        Raster DPI of PDF
-        <span id="rasterDpi" class="dpi-value">–</span>
-      </span>
+      <div class="toolbar__right">
+        <button id="textModeBtn" disabled title="Select text: live text can be highlighted; outlined text can't">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px"><path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1" /><path d="M7 22h1a4 4 0 0 0 4-4v-1" /><path d="M7 2h1a4 4 0 0 1 4 4v1" /></svg>
+          Select text
+        </button>
+        <span class="dpi-label" title="Effective resolution of the placed raster images on this page. Vector art and text have no DPI and aren't counted.">
+          Raster DPI of PDF
+          <span id="rasterDpi" class="dpi-value">–</span>
+        </span>
+      </div>
     </header>
 
     <div id="gsWarning" class="banner hidden"></div>

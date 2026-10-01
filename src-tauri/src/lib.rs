@@ -288,6 +288,12 @@ fn clear_plates(plates: &PlateCache) {
     }
 }
 
+/// Spot colour names used anywhere in the PDF.
+#[tauri::command]
+fn spot_colours(path: String) -> Result<Vec<String>, String> {
+    colorcheck::spot_names(Path::new(&path))
+}
+
 /// Pages that contain RGB objects (empty when the file is RGB-free).
 #[tauri::command]
 fn check_rgb(path: String) -> Result<Vec<colorcheck::PageRgb>, String> {
@@ -439,6 +445,7 @@ pub fn run() {
             render_separation_composite,
             page_image_dpi,
             check_rgb,
+            spot_colours,
             convert_pdf,
             sample_inks,
             get_page_boxes,

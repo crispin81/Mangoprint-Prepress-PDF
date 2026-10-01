@@ -176,6 +176,66 @@ fn walk(doc: &Document, content: &[u8], resources: &[&Dictionary], depth: u32, o
     }
 }
 
+/// Collects spot colour names from a colour space array:
+/// `[/Separation /Name …]` or `[/DeviceN [/Name1 /Name2 …] …]`.
+fn collect_spots(doc: &Document, obj: &Object, depth: u32, out: &mut std::collections::BTreeSet<String>) {
+    if depth > 12 {
+        return;
+    }
+    match obj {
+        Object::Array(arr) => {
+            let family = arr.first().and_then(|o| o.as_name().ok());
+            let mut add = |n: &[u8]| {
+                let name = String::from_utf8_lossy(n).into_owned();
+                // Process inks and the special All/None colorants aren't spots.
+                if !matches!(name.as_str(), "Cyan" | "Magenta" | "Yellow" | "Black" | "All" | "None") {
+                    out.insert(name);
+                }
+            };
+            match family {
+                Some(b"Separation") => {
+                    if let Some(Ok(n)) = arr.get(1).map(|o| deref(doc, o).as_name()) {
+                        add(n);
+                    }
+                }
+                Some(b"DeviceN") => {
+                    if let Some(Object::Array(names)) = arr.get(1).map(|o| deref(doc, o)) {
+                        for n in names.iter().filter_map(|o| o.as_name().ok()) {
+                            add(n);
+                        }
+                    }
+                }
+                _ => {}
+            }
+            for o in arr {
+                collect_spots(doc, o, depth + 1, out);
+            }
+        }
+        Object::Dictionary(d) => {
+            for (_, v) in d.iter() {
+                collect_spots(doc, v, depth + 1, out);
+            }
+        }
+        Object::Stream(s) => {
+            for (_, v) in s.dict.iter() {
+                collect_spots(doc, v, depth + 1, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Every spot colour (Separation/DeviceN colorant) defined anywhere in the
+/// file, sorted. Empty when the PDF has no spot colours.
+pub fn spot_names(path: &Path) -> Result<Vec<String>, String> {
+    let doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
+    let mut found = std::collections::BTreeSet::new();
+    for obj in doc.objects.values() {
+        collect_spots(&doc, obj, 0, &mut found);
+    }
+    Ok(found.into_iter().collect())
+}
+
 /// Pages that use RGB, with a count of each kind of RGB object.
 pub fn check_rgb(path: &Path) -> Result<Vec<PageRgb>, String> {
     let doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
@@ -203,5 +263,6 @@ mod tests {
     fn check_rgb_file() {
         let Ok(p) = std::env::var("MP_TEST_PDF") else { return };
         println!("{:?}", check_rgb(Path::new(&p)));
+        println!("spots: {:?}", spot_names(Path::new(&p)));
     }
 }

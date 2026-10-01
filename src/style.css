@@ -203,8 +203,11 @@ code {
 
 /* --- toolbar --- */
 
+/* Three columns: file actions left, page + zoom centred, tools right.
+   The equal 1fr side columns keep the middle truly centred. */
 #toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
@@ -212,8 +215,23 @@ code {
   border-bottom: 1px solid var(--border);
 }
 
-.spacer {
-  flex: 1;
+.toolbar__left,
+.toolbar__centre,
+.toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.toolbar__right {
+  justify-content: flex-end;
+}
+
+.toolbar__left .file-link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* --- "New user?" tutorial link and footer (same as RapidCulling) --- */

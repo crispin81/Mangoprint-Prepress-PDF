@@ -1148,6 +1148,28 @@ function enableFixes() {
   for (const b of fixBtns) b.disabled = !state.path;
   document.getElementById("convertRgbBtn").disabled = true; // until a check finds RGB
   rgbResult.innerHTML = "";
+  updateSpotButton();
+}
+
+// Greys out "Convert spot colours" when the PDF defines no spot colours.
+async function updateSpotButton() {
+  const btn = document.getElementById("convertSpotsBtn");
+  if (!state.path) return;
+  btn.disabled = true;
+  btn.title = "Checking for spot colours…";
+  try {
+    const spots = await invoke("spot_colours", { path: state.path });
+    btn.disabled = spots.length === 0;
+    btn.title = spots.length ? `Spot colours in this PDF: ${spots.join(", ")}` : "No spot colours in this PDF";
+    btn.textContent = spots.length
+      ? `Convert ${spots.length} spot colour${spots.length > 1 ? "s" : ""} to CMYK`
+      : "No spot colours to convert";
+  } catch (err) {
+    console.error(err);
+    btn.disabled = false;
+    btn.title = "";
+    btn.textContent = "Convert spot colours to CMYK";
+  }
 }
 
 function showRgbResult(pages) {
