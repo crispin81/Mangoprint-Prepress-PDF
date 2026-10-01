@@ -82,6 +82,7 @@ const state = {
   renderToken: 0,
   pageBoxes: null,
   boxVisible: new Set(["trim", "bleed"]),
+  textMode: true, // Select text on by default; the eyedropper still reads on hover
   applyAll: true, // page box / rotation edits apply to every page by default
   boxPreview: {}, // key → displayed norm rect while a box is being typed in (unsaved)
 };
@@ -505,10 +506,6 @@ function setTextMode(on) {
   document.getElementById("textModeBtn").classList.toggle("active", on);
   els.imgWrap.classList.toggle("text-mode", on);
   if (!on) window.getSelection()?.removeAllRanges();
-  if (on) {
-    eyedrop.held = false;
-    clearInks();
-  }
 }
 
 // Displayed page size in PDF points, after /Rotate.
@@ -1096,7 +1093,6 @@ function pointerFraction(ev) {
 
 els.imgWrap.addEventListener("mousemove", (ev) => {
   eyedrop.inside = true;
-  if (state.textMode) return;
   if (!state.path || eyedrop.held || !state.separationNames.length) return;
   sampleAt(...pointerFraction(ev));
 });
@@ -1108,7 +1104,9 @@ els.imgWrap.addEventListener("mouseleave", () => {
 });
 
 els.imgWrap.addEventListener("click", (ev) => {
-  if (state.textMode) return;
+  // In Select text mode a click on text (or finishing a selection) is for
+  // the text, not for holding an ink reading.
+  if (state.textMode && (ev.target.closest("#textLayer span") || String(window.getSelection() || "").trim())) return;
   if (!state.path || !state.separationNames.length) return;
   eyedrop.held = !eyedrop.held;
   els.separationsList.classList.toggle("held", eyedrop.held);
@@ -1291,12 +1289,51 @@ function openExternal(url) {
 }
 
 document.getElementById("textModeBtn").addEventListener("click", () => setTextMode(!state.textMode));
+els.imgWrap.classList.toggle("text-mode", state.textMode);
 window.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape" && state.textMode) setTextMode(false);
 });
 
 document.getElementById("scopeAll").addEventListener("click", () => setApplyScope(true));
 document.getElementById("scopePage").addEventListener("click", () => setApplyScope(false));
+
+// --- page navigation: Page Up/Down, Home/End, and the mouse wheel ---
+// The wheel scrolls within a page as normal; once you hit the bottom (or
+// top) of the page, the next wheel turn moves to the next (or previous)
+// page, like Acrobat's single-page view.
+
+let wheelPageLock = 0;
+els.viewport.addEventListener(
+  "wheel",
+  (ev) => {
+    if (ev.ctrlKey || !view.page || state.pageCount < 2 || Math.abs(ev.deltaY) < Math.abs(ev.deltaX)) return;
+    const v = els.viewport;
+    const atTop = v.scrollTop <= 0;
+    const atBottom = v.scrollTop + v.clientHeight >= v.scrollHeight - 1;
+    const down = ev.deltaY > 0;
+    if ((down && !atBottom) || (!down && !atTop)) return;
+    if ((down && state.page >= state.pageCount) || (!down && state.page <= 1)) return;
+    ev.preventDefault();
+    const now = Date.now();
+    if (now < wheelPageLock) return;
+    wheelPageLock = now + 400; // one page per flick, not dozens
+    goToPage(down ? 1 : -1).then(() => {
+      v.scrollTop = down ? 0 : v.scrollHeight;
+    });
+  },
+  { passive: false },
+);
+
+window.addEventListener("keydown", (ev) => {
+  if (!view.page || ev.ctrlKey || ev.altKey) return;
+  if (ev.target.closest && ev.target.closest("input, textarea, select")) return;
+  if (ev.key === "PageDown") goToPage(1);
+  else if (ev.key === "PageUp") goToPage(-1);
+  else if (ev.key === "Home") goToPageNumber(1);
+  else if (ev.key === "End") goToPageNumber(state.pageCount);
+  else return;
+  ev.preventDefault();
+});
 
 // --- zoom & scrolling ---
 

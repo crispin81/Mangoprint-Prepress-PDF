@@ -46,12 +46,13 @@
           <button id="zoomFit" disabled title="Fit page to window (Ctrl 0)">Fit</button>
           <button id="zoomActual" disabled title="Actual size (Ctrl 1)">1:1</button>
         </div>
-      </div>
-      <div class="toolbar__right">
-        <button id="textModeBtn" disabled title="Select text: live text can be highlighted; outlined text can't">
+        <button id="textModeBtn" class="active" disabled title="Select text: live text can be highlighted; outlined text can't">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px"><path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1" /><path d="M7 22h1a4 4 0 0 0 4-4v-1" /><path d="M7 2h1a4 4 0 0 1 4 4v1" /></svg>
           Select text
         </button>
+      </div>
+      <div class="toolbar__right">
+
         <span class="dpi-label" title="Effective resolution of the placed raster images on this page. Vector art and text have no DPI and aren't counted.">
           Raster DPI of PDF
           <span id="rasterDpi" class="dpi-value">–</span>

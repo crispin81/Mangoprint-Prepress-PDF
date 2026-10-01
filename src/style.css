@@ -154,7 +154,7 @@ code {
 }
 
 .titlebar__title-mango {
-  font-style: italic;
+  font-style: normal;
 }
 
 .titlebar__title-print {
@@ -1143,10 +1143,6 @@ input[type="radio"] {
 
 #imgWrap:not(.text-mode) .textLayer {
   pointer-events: none;
-}
-
-#imgWrap.text-mode {
-  cursor: default;
 }
 
 #textModeBtn.active {
