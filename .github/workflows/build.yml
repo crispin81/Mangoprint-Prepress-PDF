@@ -42,6 +42,10 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: bash .github/scripts/build-ghostscript-linux.sh
 
+      - name: build bundled Ghostscript (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: bash .github/scripts/build-ghostscript-macos.sh
+
       - name: install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
