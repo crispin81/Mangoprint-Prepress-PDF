@@ -130,7 +130,7 @@ pub fn scan_page(path: &Path, page: u32) -> Result<Scan, String> {
         .get_pages()
         .get(&page)
         .ok_or_else(|| format!("Page {page} does not exist in this PDF."))?;
-    let content = doc.get_page_content(page_id).map_err(|e| format!("Could not read page content: {e}"))?;
+    let content = doc.get_page_content(page_id);
 
     let (own, inherited) = doc.get_page_resources(page_id).map_err(|e| format!("Could not read page resources: {e}"))?;
     let mut resources: Vec<&Dictionary> = own.into_iter().collect();

@@ -82,6 +82,7 @@ const state = {
   renderToken: 0,
   pageBoxes: null,
   boxVisible: new Set(["trim", "bleed"]),
+  boxPreview: {}, // key → displayed norm rect while a box is being typed in (unsaved)
 };
 
 // Eyedropper request state (see the eyedropper section below).
@@ -667,6 +668,7 @@ async function afterBoxEdit() {
 }
 
 function renderPageBoxesPanel() {
+  state.boxPreview = {};
   const container = els.pageBoxes;
   container.innerHTML = "";
   if (!state.pageBoxes) {
@@ -716,16 +718,17 @@ function renderPageBoxesPanel() {
     const ins = boxInsets(info);
     const size = document.createElement("div");
     size.className = "box-size";
-    size.textContent = `${fmtMm(W - ins.left - ins.right)} × ${fmtMm(H - ins.top - ins.bottom)} mm`;
+    // First text node = finished size (updated live while typing).
+    size.append(`${fmtMm(W - ins.left - ins.right)} × ${fmtMm(H - ins.top - ins.bottom)} mm`);
 
     // How far the bleed extends past the trim, per side.
     if (def.key === "bleed" && state.pageBoxes.trim) {
       const t = boxInsets(state.pageBoxes.trim);
       const amounts = INSET_SIDES.map((s) => toMm(t[s] - ins[s]));
       const same = amounts.every((a) => Math.abs(a - amounts[0]) < 0.005);
-      size.textContent += same
+      size.append(same
         ? `  ·  ${amounts[0].toFixed(2)} mm bleed each side`
-        : `  ·  bleed T ${amounts[0].toFixed(2)} / B ${amounts[1].toFixed(2)} / L ${amounts[2].toFixed(2)} / R ${amounts[3].toFixed(2)} mm`;
+        : `  ·  bleed T ${amounts[0].toFixed(2)} / B ${amounts[1].toFixed(2)} / L ${amounts[2].toFixed(2)} / R ${amounts[3].toFixed(2)} mm`);
     }
 
     const fields = document.createElement("div");
@@ -742,6 +745,23 @@ function renderPageBoxesPanel() {
       label.appendChild(input);
       fields.appendChild(label);
       inputs[side] = input;
+    }
+
+    // Move the box's line on the preview live while typing (not saved
+    // until Apply).
+    const preview = () => {
+      const v = {};
+      for (const side of INSET_SIDES) v[side] = fromMm(Number.parseFloat(inputs[side].value));
+      if (Object.values(v).some((x) => !Number.isFinite(x)) || v.left + v.right >= W || v.top + v.bottom >= H) return;
+      state.boxPreview[def.key] = [v.left / W, v.top / H, (W - v.left - v.right) / W, (H - v.top - v.bottom) / H];
+      size.firstChild.textContent = `${fmtMm(W - v.left - v.right)} × ${fmtMm(H - v.top - v.bottom)} mm`;
+      drawBoxOverlay();
+    };
+    for (const input of Object.values(inputs)) {
+      input.addEventListener("input", preview);
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") applyBox(def, inputs);
+      });
     }
 
     const actions = document.createElement("div");
@@ -777,7 +797,9 @@ function drawBoxOverlay() {
     if (!state.boxVisible.has(def.key)) continue;
     const info = state.pageBoxes[def.key];
     if (!info) continue;
-    const [x, y, w, h] = info.norm;
+    // While a box is being typed in, show the unsaved position dashed.
+    const pending = state.boxPreview[def.key];
+    const [x, y, w, h] = pending || info.norm;
 
     const rect = document.createElementNS(SVG_NS, "rect");
     rect.setAttribute("x", x);
@@ -786,7 +808,8 @@ function drawBoxOverlay() {
     rect.setAttribute("height", h);
     rect.setAttribute("stroke", def.color);
     rect.setAttribute("stroke-width", "2");
-    if (def.dash !== "0") rect.setAttribute("stroke-dasharray", def.dash);
+    if (pending) rect.setAttribute("stroke-dasharray", "6,4");
+    else if (def.dash !== "0") rect.setAttribute("stroke-dasharray", def.dash);
 
     const titleEl = document.createElementNS(SVG_NS, "title");
     const [bx0, by0, bx1, by1] = info.rect;

@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "mangoprint-prepress-pdf"
 version = "0.1.0"
 description = "Mangoprint Prepress PDF: overprint, separations and page box/rotation checker for print-ready PDFs"
@@ -20,7 +20,7 @@ serde_json = "1"
 image = { version = "0.25", default-features = false, features = ["tiff", "png"] }
 base64 = "0.22"
 tempfile = "3"
-lopdf = "0.34"
+lopdf = "0.45"
 
 [profile.release]
 panic = "abort"

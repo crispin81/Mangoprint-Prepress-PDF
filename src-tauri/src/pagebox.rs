@@ -308,3 +308,26 @@ pub fn reset_page_box(path: &Path, page: u32, name: &str) -> Result<PageBoxes, S
 
     get_page_boxes(path, page)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Manual check against real files: `MP_TEST_PDFS="a.pdf;b.pdf" cargo test edit_roundtrip -- --nocapture`.
+    /// Each file is copied, its TrimBox rewritten, and the result re-read.
+    #[test]
+    fn edit_roundtrip() {
+        let Ok(list) = std::env::var("MP_TEST_PDFS") else { return };
+        for src in list.split(';').filter(|s| !s.is_empty()) {
+            let tmp = tempfile::tempdir().unwrap();
+            let p = tmp.path().join("t.pdf");
+            std::fs::copy(src, &p).unwrap();
+            let res = get_page_boxes(&p, 1).and_then(|b| set_page_box(&p, 1, "TrimBox", b.trim.rect));
+            println!("{src}: {:?}", res.map(|b| b.trim.rect));
+            if let Ok(out) = std::env::var("MP_TEST_OUT") {
+                let name = Path::new(src).file_name().unwrap();
+                std::fs::copy(&p, Path::new(&out).join(name)).unwrap();
+            }
+        }
+    }
+}
