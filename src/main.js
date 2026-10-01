@@ -1344,8 +1344,8 @@ document.getElementById("outlineBtn").addEventListener("click", () => runConvers
 
 // --- tutorial link & footer (same as RapidCulling) ---
 
-// TODO before launch: set the Mangoprint Prepress PDF tutorial video URL.
-const TUTORIAL_VIDEO_URL = "";
+// Tutorial video for the "New user? Watch this first!" button.
+const TUTORIAL_VIDEO_URL = "https://youtu.be/T5qqebtV9_g";
 const TUTORIAL_DISMISSED_KEY = "mangoprint.tutorialDismissed";
 const COFFEE_URL = "https://buymeacoffee.com/chriscorkphotography";
 const SITE_URL = "https://mangoprint.co.uk";
