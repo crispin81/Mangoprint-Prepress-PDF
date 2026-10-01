@@ -1303,6 +1303,26 @@ function openExternal(url) {
     ev.preventDefault();
     openExternal(SITE_URL);
   });
+
+  // About dialog: opened from the footer; closes on ×, Esc or a click outside.
+  const about = document.getElementById("aboutDialog");
+  const showAbout = (show) => about.classList.toggle("hidden", !show);
+  document.getElementById("aboutLink").addEventListener("click", (ev) => {
+    ev.preventDefault();
+    showAbout(true);
+  });
+  document.getElementById("aboutClose").addEventListener("click", () => showAbout(false));
+  about.addEventListener("click", (ev) => {
+    if (ev.target === about) showAbout(false);
+    const link = ev.target.closest("a[data-url]");
+    if (link) {
+      ev.preventDefault();
+      openExternal(link.dataset.url);
+    }
+  });
+  window.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && !about.classList.contains("hidden")) showAbout(false);
+  });
 }
 
 document.getElementById("textModeBtn").addEventListener("click", () => setTextMode(!state.textMode));

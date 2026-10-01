@@ -173,13 +173,48 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="#ffcc33" stroke="#14151a" stroke-width="1.5" stroke-linejoin="round"><rect x="4" y="11" width="16" height="11" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" fill="none" stroke="#ffcc33" stroke-width="2.5" stroke-linecap="round" /></svg>
     </div>
 
+    <div id="aboutDialog" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+      <div class="about">
+        <button type="button" id="aboutClose" class="about__close" title="Close">×</button>
+        <img class="about__logo" src="assets/logo.svg" alt="Mangoprint logo" />
+        <h1 id="aboutTitle" class="about__title">
+          <span class="titlebar__title-mango">Mango</span><span class="titlebar__title-print">print</span> Prepress PDF
+        </h1>
+        <p class="about__version">Version 0.1 <span class="titlebar__beta">beta</span></p>
+        <p class="about__lead">
+          A free tool for checking print-ready PDFs: overprint, separations,
+          ink values, trim and bleed, RGB and spot colours.
+        </p>
+        <p>
+          Developed and maintained by Chris Cork from
+          <a href="#" class="site-link" data-url="https://mangoprint.co.uk">Mangoprint.co.uk</a>.
+        </p>
+        <p>
+          Mangoprint Prepress PDF is free to use. If it saves you time, you can
+          <a href="#" class="site-link" data-url="https://buymeacoffee.com/chriscorkphotography">buy Chris a coffee</a> ☕
+        </p>
+        <h2 class="about__heading">Built with</h2>
+        <ul class="about__credits">
+          <li><strong>Ghostscript</strong> by Artifex Software (AGPL-3.0): overprint preview, separations, ink readings and colour/font conversions</li>
+          <li><strong>PDF.js</strong> by Mozilla (Apache-2.0): sharp vector page display and text selection</li>
+          <li><strong>Tauri</strong> (MIT / Apache-2.0): the desktop app framework</li>
+          <li><strong>lopdf</strong> (MIT): reading and editing page boxes and rotation</li>
+          <li><strong>Poppins</strong> typeface (SIL Open Font License)</li>
+        </ul>
+        <p class="about__small">
+          Mangoprint Prepress PDF is free and open-source software, licensed AGPL-3.0.
+        </p>
+      </div>
+    </div>
+
     <footer class="app-footer">
       <span class="oss-note">Mangoprint Prepress PDF is free and open-source software, licensed AGPL-3.0. Developed and maintained by Chris Cork from <a id="siteLink" class="site-link" href="#" title="Visit Mangoprint.co.uk">Mangoprint.co.uk</a>.</span>
-      <a id="coffeeLink" class="coffee-link" href="#" title="Buy Chris a coffee">
+      <span class="footer-links"><a id="aboutLink" class="coffee-link" href="#" title="About Mangoprint Prepress PDF">About</a>
+        <a id="coffeeLink" class="coffee-link" href="#" title="Buy Chris a coffee">
         Feed Chris' coffee addiction
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffcc33" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" x2="9.01" y1="9" y2="9" /><line x1="15" x2="15.01" y1="9" y2="9" /></svg>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffcc33" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v2" /><path d="M14 2v2" /><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1" /><path d="M6 2v2" /></svg>
-      </a>
+      </a></span>
     </footer>
 
     <script src="main.js"></script>
