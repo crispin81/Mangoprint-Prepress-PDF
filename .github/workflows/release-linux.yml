@@ -1,0 +1,70 @@
+# Builds the Linux installers and attaches them to their own DRAFT GitHub
+# Release (only visible to the repo owner) for testing before they go public.
+# Run it from the Actions tab: "release-linux" -> "Run workflow". Kept separate from
+# the other platforms so rebuilding one never touches the other.
+name: release-linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag for the draft release'
+        default: 'v0.1.0-beta-linux'
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'ubuntu-22.04'
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build bundled Ghostscript (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: bash .github/scripts/build-ghostscript-linux.sh
+
+      - name: build bundled Ghostscript (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: bash .github/scripts/build-ghostscript-macos.sh
+
+      - name: install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf build-essential rpm
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: install frontend dependencies
+        run: npm install
+
+      - name: install patched linuxdeploy gtk hook (native Wayland fix)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          mkdir -p ~/.cache/tauri
+          cp .github/appimage/linuxdeploy-plugin-gtk.sh ~/.cache/tauri/linuxdeploy-plugin-gtk.sh
+          chmod +x ~/.cache/tauri/linuxdeploy-plugin-gtk.sh
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.event.inputs.tag }}
+          releaseName: 'Mangoprint Prepress PDF Linux (testing)'
+          releaseBody: 'Test build for Linux. Not public until published. Ghostscript is built in.'
+          releaseDraft: true
+          prerelease: true
+          args: ${{ matrix.args }}
