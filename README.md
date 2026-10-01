@@ -13,18 +13,18 @@ maintained by Chris Cork from [Mangoprint.co.uk](https://mangoprint.co.uk).
 ## Installing
 
 Grab the latest build from
-[Releases](https://github.com/crispin81/MangoprintPrepressPDF/releases).
+[Releases](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases).
 
 **These builds aren't code-signed** (that needs a paid developer
 certificate this project doesn't have yet), so Windows will warn that the
 publisher is unverified on first launch. That's expected for unsigned beta
 software, not a sign anything's wrong:
 
-- **Windows (installer)**: [Direct download (setup .exe)](https://github.com/crispin81/MangoprintPrepressPDF/releases/download/v0.1.0-beta/MangoprintPrepressPDF_0.1.0_x64-setup.exe),
-  or the [.msi](https://github.com/crispin81/MangoprintPrepressPDF/releases/download/v0.1.0-beta/MangoprintPrepressPDF_0.1.0_x64_en-US.msi)
+- **Windows (installer)**: [Direct download (setup .exe)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_x64-setup.exe),
+  or the [.msi](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_x64_en-US.msi)
   if you prefer. SmartScreen will show "Windows protected your PC" — click
   **More info**, then **Run anyway**.
-- **Windows (portable, no install)**: [Direct download (.zip)](https://github.com/crispin81/MangoprintPrepressPDF/releases/download/v0.1.0-beta/MangoprintPrepressPDF_0.1.0_portable_win64.zip).
+- **Windows (portable, no install)**: [Direct download (.zip)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_portable_win64.zip).
   Unzip anywhere (a USB stick is fine) and run
   `Mangoprint Prepress PDF.exe`. Keep the `ghostscript` folder next to it.
 - **macOS and Linux**: coming soon.
