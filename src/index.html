@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mangoprint Prepress PDF</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="titlebar" data-tauri-drag-region>
+      <span class="titlebar__title" data-tauri-drag-region>
+        <span class="titlebar__title-mango">Mango</span><span class="titlebar__title-print">print</span>
+        Prepress PDF <span class="titlebar__version">v0.1</span>
+        <span class="titlebar__beta">beta</span>
+      </span>
+      <div class="titlebar__controls">
+        <button type="button" id="winMin" title="Minimize">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14" /></svg>
+        </button>
+        <button type="button" id="winMax" title="Maximize">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" /></svg>
+        </button>
+        <button type="button" id="winClose" class="titlebar__close" title="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+        </button>
+      </div>
+    </div>
+
+    <header id="toolbar">
+      <button id="openBtn" class="btn-primary">Open PDF…</button>
+      <span id="fileName" class="muted">No file open</span>
+      <div class="spacer"></div>
+      <button id="prevPage" disabled>‹</button>
+      <span id="pageLabel" class="muted">–</span>
+      <button id="nextPage" disabled>›</button>
+      <label class="dpi-label">
+        DPI
+        <select id="dpiSelect">
+          <option value="72">72 (fast)</option>
+          <option value="150" selected>150</option>
+          <option value="300">300</option>
+        </select>
+      </label>
+    </header>
+
+    <div id="gsWarning" class="banner hidden"></div>
+
+    <main>
+      <section id="viewport">
+        <div id="imgWrap">
+          <img id="preview" alt="Rendered page preview" />
+          <svg id="boxOverlay" preserveAspectRatio="none"></svg>
+          <div id="loadingOverlay" class="hidden">Rendering…</div>
+        </div>
+      </section>
+
+      <aside id="sidebar">
+        <div class="panel">
+          <h2>Overprint Preview</h2>
+          <label class="toggle-row">
+            <input type="checkbox" id="overprintToggle" />
+            Simulate overprinting
+          </label>
+          <p class="hint">
+            Mirrors Acrobat's Output Preview "Simulate Overprinting". Off
+            shows the naive on-screen composite (overprinted objects knock
+            out what's beneath). On shows what will actually happen on an
+            overprint-aware output device.
+          </p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Separations</h2>
+            <div class="panel-actions">
+              <button id="selectAllSep" class="link-btn">All</button>
+              <button id="selectNoneSep" class="link-btn">None</button>
+            </div>
+          </div>
+          <ul id="separationsList"></ul>
+          <p class="hint">
+            Toggle plates to inspect trapping — e.g. check whether black
+            text is set to overprint (K only, colors underneath still
+            present) versus knockout (a white gap in the other plates).
+          </p>
+        </div>
+
+        <div class="panel">
+          <h2>Mode</h2>
+          <label class="toggle-row">
+            <input type="radio" name="mode" id="modeOverprint" checked />
+            Overprint Preview
+          </label>
+          <label class="toggle-row">
+            <input type="radio" name="mode" id="modeSeparations" />
+            Separations
+          </label>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Page Rotation</h2>
+            <span id="rotationCurrent" class="muted"></span>
+          </div>
+          <div id="pageRotation" class="rotation-buttons"></div>
+          <p class="hint">
+            Sets the page's <code>/Rotate</code> entry — the same thing
+            Acrobat's "Rotate Pages" changes. Applies immediately, and the
+            preview + box overlay re-render to match.
+          </p>
+        </div>
+
+        <div class="panel">
+          <h2>Page Boxes</h2>
+          <div id="pageBoxes"></div>
+          <p class="hint">
+            Values are in PDF points (1 pt = 1⁄72 in), in the page's own
+            unrotated coordinate space — the same numbers Acrobat's Crop
+            Pages / Document Properties show. Edits apply immediately and
+            are saved to the file (a one-time <code>.bak</code> backup is
+            made on first edit).
+          </p>
+        </div>
+      </aside>
+    </main>
+
+    <script src="main.js"></script>
+  </body>
+</html>

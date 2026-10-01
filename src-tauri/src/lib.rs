@@ -1,0 +1,237 @@
+mod gs;
+mod pagebox;
+
+use base64::Engine;
+use image::{GrayImage, RgbImage};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use tempfile::TempDir;
+
+/// Caches per (path, page, dpi) separation renders so toggling plate
+/// checkboxes in the UI doesn't re-invoke Ghostscript every time — only
+/// the recombination step (cheap, pure Rust) reruns. Keys are plain
+/// "<path>\0<page>\0<dpi>" strings (not hashed) so that editing a page
+/// box can cheaply invalidate every cached render for that file — see
+/// `invalidate_path`.
+struct SepCache(Mutex<HashMap<String, TempDir>>);
+
+fn cache_key(pdf_path: &str, page: u32, dpi: u32) -> String {
+    format!("{pdf_path}\0{page}\0{dpi}")
+}
+
+/// Drops every cached separation render for `pdf_path`, regardless of
+/// page or DPI. Called after a page box or rotation edit, since those can
+/// change the page's rendered dimensions and would otherwise leave stale
+/// (wrong-size) cached plates behind.
+fn invalidate_path(cache: &SepCache, pdf_path: &str) {
+    let prefix = format!("{pdf_path}\0");
+    if let Ok(mut guard) = cache.0.lock() {
+        guard.retain(|k, _| !k.starts_with(&prefix));
+    }
+}
+
+/// Returns the cache directory for a (path, page, dpi) key, creating it
+/// if this is the first request for that key.
+fn cache_dir(cache: &SepCache, key: String) -> Result<PathBuf, String> {
+    let mut guard = cache
+        .0
+        .lock()
+        .map_err(|_| "Separation cache was poisoned".to_string())?;
+    if let Some(dir) = guard.get(&key) {
+        return Ok(dir.path().to_path_buf());
+    }
+    let tmp = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
+    let p = tmp.path().to_path_buf();
+    guard.insert(key, tmp);
+    Ok(p)
+}
+
+fn png_to_data_uri(png_path: &Path) -> Result<String, String> {
+    let bytes = std::fs::read(png_path).map_err(|e| format!("Could not read rendered PNG: {e}"))?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(format!("data:image/png;base64,{b64}"))
+}
+
+#[tauri::command]
+fn check_ghostscript() -> Result<String, String> {
+    gs::check_available()
+}
+
+/// Page count comes from Ghostscript (it's what renders the pages), with
+/// lopdf as a fallback in case the Ghostscript query is blocked or fails.
+#[tauri::command]
+fn open_pdf(path: String) -> Result<u32, String> {
+    let p = Path::new(&path);
+    match gs::page_count(p) {
+        Ok(n) => Ok(n),
+        Err(gs_err) => pagebox::page_count(p).map_err(|_| gs_err),
+    }
+}
+
+#[tauri::command]
+fn render_overprint(path: String, page: u32, dpi: u32, simulate: bool) -> Result<String, String> {
+    let tmp = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
+    let out_png = tmp.path().join("preview.png");
+    gs::render_overprint_png(Path::new(&path), page, simulate, dpi, &out_png)?;
+    png_to_data_uri(&out_png)
+}
+
+/// Runs (or reuses a cached run of) tiffsep for the given page and returns
+/// the colorant names found, in process-then-spot order.
+#[tauri::command]
+fn list_separations(path: String, page: u32, dpi: u32, cache: tauri::State<SepCache>) -> Result<Vec<String>, String> {
+    let dir_path = cache_dir(&cache, cache_key(&path, page, dpi))?;
+    let found = gs::ensure_separations(Path::new(&path), page, dpi, &dir_path)?;
+    Ok(found.into_iter().map(|(n, _)| n).collect())
+}
+
+/// Recombines the checked separation plates into a preview image using a
+/// standard subtractive (print) compositing model. Process colorants
+/// (Cyan/Magenta/Yellow/Black) are combined with the textbook formula
+/// R = 255*(1-C)*(1-K), G = 255*(1-M)*(1-K), B = 255*(1-Y)*(1-K). Spot
+/// colorants have no fixed RGB equivalent (their real appearance depends
+/// on the PDF's alternate/tint-transform color space, which this tool
+/// does not evaluate), so they're approximated as a neutral darkening —
+/// enough to see where a spot plate has ink and how it traps against the
+/// process plates, but not a color-accurate spot preview.
+#[tauri::command]
+fn render_separation_composite(
+    path: String,
+    page: u32,
+    dpi: u32,
+    active: Vec<String>,
+    cache: tauri::State<SepCache>,
+) -> Result<String, String> {
+    let dir_path = cache_dir(&cache, cache_key(&path, page, dpi))?;
+    let plates = gs::ensure_separations(Path::new(&path), page, dpi, &dir_path)?;
+    let active_set: std::collections::HashSet<&str> = active.iter().map(|s| s.as_str()).collect();
+
+    let mut process: HashMap<&str, GrayImage> = HashMap::new();
+    let mut spots: Vec<GrayImage> = Vec::new();
+    let mut dims: Option<(u32, u32)> = None;
+
+    for (name, tif_path) in &plates {
+        if !active_set.contains(name.as_str()) {
+            continue;
+        }
+        let img = image::open(tif_path)
+            .map_err(|e| format!("Could not read separation plate '{name}': {e}"))?
+            .to_luma8();
+        dims.get_or_insert((img.width(), img.height()));
+        match name.as_str() {
+            "Cyan" | "Magenta" | "Yellow" | "Black" => {
+                process.insert(name.as_str(), img);
+            }
+            _ => spots.push(img),
+        }
+    }
+
+    let (w, h) = match dims {
+        Some(d) => d,
+        None => {
+            // Nothing selected: return a blank white page at the native
+            // plate resolution so the UI has something sane to show.
+            let (_, first) = &plates[0];
+            image::open(first).map(|i| i.to_luma8().dimensions()).unwrap_or((1, 1))
+        }
+    };
+
+    let ink = |img: &HashMap<&str, GrayImage>, name: &str, x: u32, y: u32| -> f32 {
+        img.get(name)
+            .map(|g| 1.0 - (g.get_pixel(x, y).0[0] as f32 / 255.0))
+            .unwrap_or(0.0)
+    };
+
+    let mut out = RgbImage::new(w, h);
+    for y in 0..h {
+        for x in 0..w {
+            let c = ink(&process, "Cyan", x, y);
+            let m = ink(&process, "Magenta", x, y);
+            let ye = ink(&process, "Yellow", x, y);
+            let k = ink(&process, "Black", x, y);
+
+            let mut r = 255.0 * (1.0 - c) * (1.0 - k);
+            let mut g = 255.0 * (1.0 - m) * (1.0 - k);
+            let mut b = 255.0 * (1.0 - ye) * (1.0 - k);
+
+            for spot in &spots {
+                let s = 1.0 - (spot.get_pixel(x, y).0[0] as f32 / 255.0);
+                let factor = 1.0 - 0.8 * s;
+                r *= factor;
+                g *= factor;
+                b *= factor;
+            }
+
+            out.put_pixel(x, y, image::Rgb([r.round() as u8, g.round() as u8, b.round() as u8]));
+        }
+    }
+
+    let tmp_out = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
+    let out_path = tmp_out.path().join("composite.png");
+    out.save(&out_path)
+        .map_err(|e| format!("Could not encode preview PNG: {e}"))?;
+    png_to_data_uri(&out_path)
+}
+
+#[tauri::command]
+fn get_page_boxes(path: String, page: u32) -> Result<pagebox::PageBoxes, String> {
+    pagebox::get_page_boxes(Path::new(&path), page)
+}
+
+#[tauri::command]
+fn set_page_box(
+    path: String,
+    page: u32,
+    name: String,
+    rect: [f64; 4],
+    cache: tauri::State<SepCache>,
+) -> Result<pagebox::PageBoxes, String> {
+    let result = pagebox::set_page_box(Path::new(&path), page, &name, rect)?;
+    invalidate_path(&cache, &path);
+    Ok(result)
+}
+
+#[tauri::command]
+fn reset_page_box(
+    path: String,
+    page: u32,
+    name: String,
+    cache: tauri::State<SepCache>,
+) -> Result<pagebox::PageBoxes, String> {
+    let result = pagebox::reset_page_box(Path::new(&path), page, &name)?;
+    invalidate_path(&cache, &path);
+    Ok(result)
+}
+
+#[tauri::command]
+fn set_page_rotation(
+    path: String,
+    page: u32,
+    degrees: i32,
+    cache: tauri::State<SepCache>,
+) -> Result<pagebox::PageBoxes, String> {
+    let result = pagebox::set_rotation(Path::new(&path), page, degrees)?;
+    invalidate_path(&cache, &path);
+    Ok(result)
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .manage(SepCache(Mutex::new(HashMap::new())))
+        .invoke_handler(tauri::generate_handler![
+            check_ghostscript,
+            open_pdf,
+            render_overprint,
+            list_separations,
+            render_separation_composite,
+            get_page_boxes,
+            set_page_box,
+            reset_page_box,
+            set_page_rotation,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

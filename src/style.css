@@ -1,0 +1,564 @@
+/* Look and feel matched to RapidCulling: bundled Poppins, the same dark
+   palette, gold (#ffcc33) accent, themed scrollbars and a frameless
+   custom title bar. Fonts are bundled locally so the app never depends on
+   a network connection to render its own UI. */
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url("./assets/fonts/poppins-300.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/poppins-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/poppins-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./assets/fonts/poppins-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./assets/fonts/poppins-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Poppins";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/poppins-400-italic.woff2") format("woff2");
+}
+
+:root {
+  --bg: #14151a;          /* app background */
+  --bg-deep: #0e0f13;     /* page viewport, behind the preview */
+  --panel: #1b1c22;       /* title bar, toolbar, sidebar */
+  --field: #23242c;       /* buttons, inputs, selected rows */
+  --field-border: #33343e;
+  --border: #2a2b33;
+  --text: #e8e8ec;
+  --text-soft: #b7b8c2;
+  --muted: #8a8b96;
+  --faint: #6c6d78;
+  --accent: #ffcc33;
+  --accent-bg: #4a3f1a;
+  --accent-text: #ffe08a;
+  --ok: #4caf50;
+  --danger: #ff5252;
+  --danger-bg: #4a1f1f;
+  --danger-text: #ff8a8a;
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #3a3b45 transparent;
+}
+
+/* WebView2 (Windows) and WebKit (Linux/macOS) both support these, so the
+   scrollbars look the same on every platform. */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: #3a3b45;
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--accent);
+}
+
+button,
+input,
+select {
+  font-family: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Poppins", system-ui, sans-serif;
+  font-size: 13px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+code {
+  font-size: 11px;
+  background: var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+/* --- title bar (frameless window) --- */
+
+.titlebar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 28px;
+  flex-shrink: 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.titlebar__title {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.titlebar__title-mango {
+  font-style: italic;
+}
+
+.titlebar__title-print {
+  font-weight: 600;
+}
+
+.titlebar__version {
+  color: var(--faint);
+}
+
+.titlebar__beta {
+  color: #ff9800;
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.titlebar__controls {
+  display: flex;
+  height: 100%;
+}
+
+.titlebar__controls button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--text-soft);
+  cursor: pointer;
+}
+
+.titlebar__controls button:hover {
+  background: var(--border);
+}
+
+.titlebar__controls .titlebar__close:hover {
+  background: #e81123;
+  color: white;
+}
+
+/* --- toolbar --- */
+
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+button {
+  background: var(--field);
+  border: 1px solid var(--field-border);
+  color: var(--text);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--panel);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-weight: 600;
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.dpi-label {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--field)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%238a8b96' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right 6px center;
+  color: var(--text);
+  border: 1px solid var(--field-border);
+  border-radius: 4px;
+  padding: 3px 22px 3px 6px;
+  font-size: 12px;
+}
+
+/* --- banners --- */
+
+.banner {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  background: var(--danger-bg);
+  border-bottom: 1px solid var(--danger);
+  color: var(--danger-text);
+  font-size: 12px;
+}
+
+.banner.hidden,
+.hidden {
+  display: none !important;
+}
+
+/* --- layout --- */
+
+main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+#viewport {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg-deep);
+}
+
+#imgWrap {
+  position: relative;
+  border-radius: 2px;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.6);
+}
+
+#preview {
+  display: block;
+  max-width: 100%;
+  background: white;
+}
+
+#boxOverlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+#boxOverlay rect {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+
+#loadingOverlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(14, 15, 19, 0.55);
+  color: var(--text-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+#loadingOverlay::before {
+  content: "";
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--field-border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --- sidebar --- */
+
+#sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.panel {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 14px;
+  margin-bottom: 12px;
+}
+
+.panel:last-child {
+  border-bottom: none;
+}
+
+.panel h2 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 11px;
+  padding: 0;
+}
+
+.link-btn:hover:not(:disabled) {
+  color: var(--accent-text);
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 3px 0;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--faint);
+  line-height: 1.55;
+  margin: 8px 0 0;
+}
+
+#separationsList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#separationsList li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  margin: 0 -6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+#separationsList li:hover {
+  background: var(--field);
+}
+
+#separationsList .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* --- page boxes --- */
+
+.box-row {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.box-row-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.box-row-header .line-sample {
+  width: 18px;
+  height: 0;
+  border-top-width: 2px;
+  border-top-style: solid;
+}
+
+.box-row-header .box-title {
+  font-size: 12px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.box-row-header .box-status {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.box-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.box-fields label {
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  color: var(--muted);
+  gap: 2px;
+}
+
+.box-fields input {
+  background: var(--field);
+  border: 1px solid var(--field-border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+  width: 100%;
+}
+
+.box-row-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.box-row-actions button {
+  font-size: 11px;
+  padding: 3px 9px;
+}
+
+.box-error {
+  color: var(--danger-text);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.box-error:empty {
+  display: none;
+}
+
+/* --- rotation --- */
+
+.rotation-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.rotation-buttons button {
+  padding: 5px 0;
+}
+
+.rotation-buttons button.active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}

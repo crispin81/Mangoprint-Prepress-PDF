@@ -1,0 +1,29 @@
+[package]
+name = "mangoprint-prepress-pdf"
+version = "0.1.0"
+description = "Mangoprint Prepress PDF: overprint, separations and page box/rotation checker for print-ready PDFs"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "mangoprint_prepress_pdf_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["tiff", "png"] }
+base64 = "0.22"
+tempfile = "3"
+lopdf = "0.34"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
