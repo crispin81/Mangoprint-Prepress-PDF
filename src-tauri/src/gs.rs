@@ -112,6 +112,15 @@ fn gs_command() -> Result<Command, String> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
+    // Inside an AppImage, the AppImage's own bundled libraries are put on
+    // the library search path. The system Ghostscript then loads those
+    // instead of its own and fails, e.g. "/usr/bin/gs: symbol lookup error:
+    // /usr/lib/libtiff.so.6: undefined symbol: jpeg12_write_raw_data".
+    // Ghostscript is a system program, so give it the system's libraries.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("APPIMAGE").is_some() || std::env::var_os("APPDIR").is_some() {
+        cmd.env_remove("LD_LIBRARY_PATH").env_remove("LD_PRELOAD");
+    }
     Ok(cmd)
 }
 
