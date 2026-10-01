@@ -685,7 +685,7 @@ main {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--muted);
+  color: var(--accent);
   margin: 0 0 8px;
 }
 
