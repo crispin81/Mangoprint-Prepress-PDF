@@ -952,12 +952,15 @@ a:hover > .about__logo {
 
 #viewport.zoom-tool #imgWrap,
 #viewport.zoom-tool {
-  cursor: zoom-in;
+  /* Vector cursor (crisp on high-res screens); the 2x file is used there. */
+  cursor: url("assets/cursor-zoom-in@1x.svg") 11 11, zoom-in;
+  cursor: -webkit-image-set(url("assets/cursor-zoom-in@1x.svg") 1x, url("assets/cursor-zoom-in@2x.svg") 2x) 11 11, zoom-in;
 }
 
 #viewport.zoom-tool.zoom-out,
 #viewport.zoom-tool.zoom-out #imgWrap {
-  cursor: zoom-out;
+  cursor: url("assets/cursor-zoom-out@1x.svg") 11 11, zoom-out;
+  cursor: -webkit-image-set(url("assets/cursor-zoom-out@1x.svg") 1x, url("assets/cursor-zoom-out@2x.svg") 2x) 11 11, zoom-out;
 }
 
 .marquee {
