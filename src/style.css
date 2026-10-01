@@ -895,6 +895,79 @@ a:hover > .about__logo {
   color: var(--muted);
 }
 
+/* --- overprint warning pop-up (reuses the About dialog card) --- */
+
+.op-warning__icon {
+  font-size: 34px;
+  line-height: 1;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.op-warning__list {
+  list-style: none;
+  margin: 4px 0 16px;
+  padding: 0;
+  text-align: left;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.op-warning__list li {
+  display: flex;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.op-warning__page {
+  color: var(--muted);
+  min-width: 52px;
+}
+
+.op-warning__colour {
+  flex: 1;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.op-warning__kind {
+  color: var(--muted);
+}
+
+.op-warning__actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* --- zoom area (marquee) tool --- */
+
+#zoomToolBtn.active {
+  background: var(--accent);
+  color: var(--panel);
+  border-color: var(--accent);
+}
+
+#viewport.zoom-tool #imgWrap,
+#viewport.zoom-tool {
+  cursor: zoom-in;
+}
+
+#viewport.zoom-tool.zoom-out,
+#viewport.zoom-tool.zoom-out #imgWrap {
+  cursor: zoom-out;
+}
+
+.marquee {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+  border: 1.5px dashed var(--accent);
+  background: rgba(255, 204, 51, 0.12);
+}
+
 .lock-badge {
   position: fixed;
   z-index: 50;

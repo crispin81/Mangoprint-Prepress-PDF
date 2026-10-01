@@ -180,6 +180,7 @@ async function openPdf() {
     view.zoom = "fit";
     await showPage({ reloadDoc: true });
     enableFixes();
+    checkOverprintOnOpen(); // pop-up warning if any non-black colour overprints
   } catch (err) {
     alert(`Could not open PDF:\n${err}`);
   } finally {
@@ -532,6 +533,7 @@ function applyLayout() {
   els.zoomLabel.textContent = `${zoomPercent()}%`;
   for (const b of [els.zoomIn, els.zoomOut, els.zoomFit, els.zoomActual]) b.disabled = false;
   document.getElementById("textModeBtn").disabled = false;
+  document.getElementById("zoomToolBtn").disabled = false;
   setTextLayerScale();
 }
 
@@ -1122,6 +1124,7 @@ els.imgWrap.addEventListener("mouseleave", () => {
 els.imgWrap.addEventListener("click", (ev) => {
   // In Select text mode a click on text (or finishing a selection) is for
   // the text, not for holding an ink reading.
+  if (state.zoomTool) return; // clicks belong to the zoom tool
   if (state.textMode && (ev.target.closest("#textLayer span") || String(window.getSelection() || "").trim())) return;
   if (!state.path || !state.separationNames.length) return;
   eyedrop.held = !eyedrop.held;
@@ -1139,6 +1142,55 @@ els.nextPage.addEventListener("click", () => goToPage(1));
 els.overprintToggle.addEventListener("change", () => {
   state.simulateOverprint = els.overprintToggle.checked;
   renderCurrent();
+});
+
+// --- overprint warning on open ---
+// Black overprinting is normal; any other colour overprinting (white,
+// CMYK colours, RGB, spots) is usually a mistake, so warn straight away.
+
+const overprintDialog = document.getElementById("overprintDialog");
+
+async function checkOverprintOnOpen() {
+  const forPath = state.path;
+  let hits;
+  try {
+    hits = await invoke("check_overprint", { path: forPath });
+  } catch (err) {
+    console.error(err);
+    return;
+  }
+  if (!hits.length || forPath !== state.path) return;
+  const list = document.getElementById("overprintList");
+  list.innerHTML = "";
+  for (const h of hits) {
+    const li = document.createElement("li");
+    const page = document.createElement("span");
+    page.className = "op-warning__page";
+    page.textContent = `Page ${h.page}`;
+    const colour = document.createElement("span");
+    colour.className = "op-warning__colour";
+    colour.textContent = h.colour;
+    const kind = document.createElement("span");
+    kind.className = "op-warning__kind";
+    kind.textContent = h.kind;
+    li.append(page, colour, kind);
+    list.appendChild(li);
+  }
+  overprintDialog.dataset.firstPage = String(hits[0].page);
+  overprintDialog.classList.remove("hidden");
+}
+
+document.getElementById("overprintOk").addEventListener("click", () => overprintDialog.classList.add("hidden"));
+document.getElementById("overprintShow").addEventListener("click", async () => {
+  overprintDialog.classList.add("hidden");
+  const first = Number(overprintDialog.dataset.firstPage || state.page);
+  if (first !== state.page) await goToPageNumber(first);
+  els.overprintToggle.checked = true;
+  state.simulateOverprint = true;
+  renderCurrent();
+});
+window.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && !overprintDialog.classList.contains("hidden")) overprintDialog.classList.add("hidden");
 });
 
 els.selectAllSep.addEventListener("click", () => {
@@ -1325,10 +1377,18 @@ function openExternal(url) {
   });
 }
 
-document.getElementById("textModeBtn").addEventListener("click", () => setTextMode(!state.textMode));
+document.getElementById("textModeBtn").addEventListener("click", () => {
+  if (state.zoomTool) {
+    setZoomTool(false, true);
+    return;
+  }
+  setTextMode(!state.textMode);
+});
 els.imgWrap.classList.toggle("text-mode", state.textMode);
 window.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape" && state.textMode) setTextMode(false);
+  if (ev.key !== "Escape") return;
+  if (state.zoomTool) setZoomTool(false);
+  else if (state.textMode) setTextMode(false);
 });
 
 document.getElementById("scopeAll").addEventListener("click", () => setApplyScope(true));
@@ -1370,6 +1430,93 @@ window.addEventListener("keydown", (ev) => {
   else if (ev.key === "End") goToPageNumber(state.pageCount);
   else return;
   ev.preventDefault();
+});
+
+// --- zoom area (marquee) tool ---
+// While on: drag a box over the page to zoom so that box fills the view;
+// a plain click zooms in one step there, Alt+click zooms out. Esc or the
+// button turns it off and goes back to Select text.
+
+const marquee = document.getElementById("marquee");
+const zoomDrag = { active: false, x0: 0, y0: 0 };
+
+function setZoomTool(on, textAfter) {
+  state.zoomTool = on;
+  document.getElementById("zoomToolBtn").classList.toggle("active", on);
+  els.viewport.classList.toggle("zoom-tool", on);
+  els.imgWrap.classList.toggle("zoom-tool", on);
+  if (on) {
+    state.textModeBeforeZoom = state.textMode;
+    setTextMode(false);
+    eyedrop.held = false;
+    clearInks();
+  } else {
+    setTextMode(textAfter ?? state.textModeBeforeZoom ?? true);
+  }
+}
+
+function drawMarquee(x1, y1) {
+  marquee.style.left = `${Math.min(zoomDrag.x0, x1)}px`;
+  marquee.style.top = `${Math.min(zoomDrag.y0, y1)}px`;
+  marquee.style.width = `${Math.abs(x1 - zoomDrag.x0)}px`;
+  marquee.style.height = `${Math.abs(y1 - zoomDrag.y0)}px`;
+}
+
+// Zooms so the client-space box (x0,y0)-(x1,y1) fills the view, centred.
+function zoomToBox(x0, y0, x1, y1) {
+  const wrap = els.imgWrap.getBoundingClientRect();
+  const port = els.viewport.getBoundingClientRect();
+  // Box as fractions of the page, clipped to the page.
+  const fx0 = Math.max(0, (Math.min(x0, x1) - wrap.left) / wrap.width);
+  const fx1 = Math.min(1, (Math.max(x0, x1) - wrap.left) / wrap.width);
+  const fy0 = Math.max(0, (Math.min(y0, y1) - wrap.top) / wrap.height);
+  const fy1 = Math.min(1, (Math.max(y0, y1) - wrap.top) / wrap.height);
+  if (fx1 <= fx0 || fy1 <= fy0) return;
+  const boxW = (fx1 - fx0) * wrap.width;
+  const boxH = (fy1 - fy0) * wrap.height;
+  const pad = 48;
+  const k = Math.min((port.width - pad) / boxW, (port.height - pad) / boxH);
+  view.zoom = Math.min(ZOOM_STEPS[ZOOM_STEPS.length - 1], Math.max(ZOOM_STEPS[0], (view.scale * k) / CSS_PX_PER_PT));
+  applyLayout();
+  const after = els.imgWrap.getBoundingClientRect();
+  els.viewport.scrollLeft += after.left + ((fx0 + fx1) / 2) * after.width - (port.left + port.width / 2);
+  els.viewport.scrollTop += after.top + ((fy0 + fy1) / 2) * after.height - (port.top + port.height / 2);
+  scheduleRender(isVectorMode() ? 60 : 250);
+}
+
+els.viewport.addEventListener("mousedown", (ev) => {
+  if (!state.zoomTool || !view.page || ev.button !== 0) return;
+  ev.preventDefault();
+  zoomDrag.active = true;
+  zoomDrag.x0 = ev.clientX;
+  zoomDrag.y0 = ev.clientY;
+  drawMarquee(ev.clientX, ev.clientY);
+});
+
+window.addEventListener("mousemove", (ev) => {
+  if (state.zoomTool) els.viewport.classList.toggle("zoom-out", ev.altKey);
+  if (!zoomDrag.active) return;
+  drawMarquee(ev.clientX, ev.clientY);
+  marquee.classList.toggle("hidden", Math.abs(ev.clientX - zoomDrag.x0) + Math.abs(ev.clientY - zoomDrag.y0) < 6);
+});
+
+window.addEventListener("mouseup", (ev) => {
+  if (!zoomDrag.active) return;
+  zoomDrag.active = false;
+  marquee.classList.add("hidden");
+  const moved = Math.abs(ev.clientX - zoomDrag.x0) > 6 || Math.abs(ev.clientY - zoomDrag.y0) > 6;
+  if (moved) zoomToBox(zoomDrag.x0, zoomDrag.y0, ev.clientX, ev.clientY);
+  else stepZoom(ev.altKey ? -1 : 1, [ev.clientX, ev.clientY]);
+});
+
+document.getElementById("zoomToolBtn").addEventListener("click", () => setZoomTool(!state.zoomTool));
+
+// Z toggles the zoom area tool (ignored while typing in a field).
+window.addEventListener("keydown", (ev) => {
+  if (ev.key.toLowerCase() !== "z" || ev.ctrlKey || ev.altKey || ev.metaKey || !view.page) return;
+  if (ev.target.closest && ev.target.closest("input, textarea, select")) return;
+  ev.preventDefault();
+  setZoomTool(!state.zoomTool);
 });
 
 // --- zoom & scrolling ---

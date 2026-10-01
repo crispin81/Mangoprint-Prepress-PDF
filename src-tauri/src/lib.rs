@@ -1,6 +1,7 @@
 mod colorcheck;
 mod gs;
 mod imageres;
+mod overprint;
 mod pagebox;
 
 use base64::Engine;
@@ -288,6 +289,12 @@ fn clear_plates(plates: &PlateCache) {
     }
 }
 
+/// Non-black colours set to overprint (empty when there are none).
+#[tauri::command]
+fn check_overprint(path: String) -> Result<Vec<overprint::OverprintHit>, String> {
+    overprint::check_overprint(Path::new(&path))
+}
+
 /// Spot colour names used anywhere in the PDF.
 #[tauri::command]
 fn spot_colours(path: String) -> Result<Vec<String>, String> {
@@ -446,6 +453,7 @@ pub fn run() {
             page_image_dpi,
             check_rgb,
             spot_colours,
+            check_overprint,
             convert_pdf,
             sample_inks,
             get_page_boxes,

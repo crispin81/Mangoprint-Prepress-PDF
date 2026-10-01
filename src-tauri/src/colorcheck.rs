@@ -25,12 +25,12 @@ impl PageRgb {
     }
 }
 
-fn deref<'a>(doc: &'a Document, o: &'a Object) -> &'a Object {
+pub(crate) fn deref<'a>(doc: &'a Document, o: &'a Object) -> &'a Object {
     doc.dereference(o).map(|(_, o)| o).unwrap_or(o)
 }
 
 /// Is this colour space (a name or array, possibly a reference) RGB?
-fn is_rgb_space(doc: &Document, cs: &Object, resources: &[&Dictionary], depth: u32) -> bool {
+pub(crate) fn is_rgb_space(doc: &Document, cs: &Object, resources: &[&Dictionary], depth: u32) -> bool {
     if depth > 4 {
         return false;
     }
@@ -63,7 +63,7 @@ fn is_rgb_space(doc: &Document, cs: &Object, resources: &[&Dictionary], depth: u
     }
 }
 
-fn find_named<'a>(doc: &'a Document, resources: &[&'a Dictionary], category: &[u8], name: &[u8]) -> Option<&'a Object> {
+pub(crate) fn find_named<'a>(doc: &'a Document, resources: &[&'a Dictionary], category: &[u8], name: &[u8]) -> Option<&'a Object> {
     for res in resources {
         let Ok(Object::Dictionary(d)) = res.get_deref(category, doc) else { continue };
         if let Ok(o) = d.get_deref(name, doc) {

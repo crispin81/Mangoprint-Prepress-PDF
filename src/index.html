@@ -46,6 +46,10 @@
           <button id="zoomFit" disabled title="Fit page to window (Ctrl 0)">Fit</button>
           <button id="zoomActual" disabled title="Actual size (Ctrl 1)">1:1</button>
         </div>
+        <button id="zoomToolBtn" disabled title="Zoom area (Z): drag a box to zoom into it; click to zoom in, Alt-click to zoom out. Esc or Z to finish">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /><path d="M11 8v6" /><path d="M8 11h6" /></svg>
+          Zoom area
+        </button>
         <button id="textModeBtn" class="active" disabled title="Select text: live text can be highlighted; outlined text can't">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px"><path d="M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1" /><path d="M7 22h1a4 4 0 0 0 4-4v-1" /><path d="M7 2h1a4 4 0 0 1 4 4v1" /></svg>
           Select text
@@ -170,8 +174,27 @@
       </aside>
     </main>
 
+    <div id="marquee" class="marquee hidden" aria-hidden="true"></div>
+
     <div id="lockBadge" class="lock-badge hidden" aria-hidden="true">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="#ffcc33" stroke="#14151a" stroke-width="1.5" stroke-linejoin="round"><rect x="4" y="11" width="16" height="11" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" fill="none" stroke="#ffcc33" stroke-width="2.5" stroke-linecap="round" /></svg>
+    </div>
+
+    <div id="overprintDialog" class="modal-backdrop hidden" role="alertdialog" aria-modal="true" aria-labelledby="overprintTitle">
+      <div class="about op-warning">
+        <div class="op-warning__icon" aria-hidden="true">⚠</div>
+        <h1 id="overprintTitle" class="about__title">Overprint warning</h1>
+        <p>
+          These colours other than black are set to overprint. On press they
+          mix with whatever is underneath, so they can change colour or
+          disappear (white overprint vanishes completely).
+        </p>
+        <ul id="overprintList" class="op-warning__list"></ul>
+        <div class="op-warning__actions">
+          <button type="button" id="overprintShow" class="btn-primary">Show with overprint simulated</button>
+          <button type="button" id="overprintOk">OK</button>
+        </div>
+      </div>
     </div>
 
     <div id="aboutDialog" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
