@@ -153,6 +153,13 @@ code {
   pointer-events: none;
 }
 
+.titlebar__logo {
+  height: 15px;
+  width: 15px;
+  vertical-align: -3px;
+  margin-right: 6px;
+}
+
 .titlebar__title-mango {
   font-style: normal;
 }
