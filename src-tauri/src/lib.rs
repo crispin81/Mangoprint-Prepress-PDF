@@ -339,6 +339,7 @@ fn set_page_rotation(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(SepCache(Mutex::new(HashMap::new())))
         .manage(WorkingCopy(Mutex::new(None)))
         .manage(PlateCache(Mutex::new(None)))

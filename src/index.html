@@ -27,6 +27,10 @@
     </div>
 
     <header id="toolbar">
+      <div id="videoLink" class="video-link hidden">
+        <a id="videoLinkCta" class="video-link__cta" href="#" title="Watch the tutorial video on YouTube">▶ New user? Watch this first!</a>
+        <button type="button" id="videoLinkClose" class="video-link__close" title="Dismiss">×</button>
+      </div>
       <button id="exportBtn" class="btn-primary" disabled title="Save a copy of the PDF with your page box / rotation changes">Export PDF…</button>
       <button id="fileName" class="file-link" disabled title="Open a different PDF">No file open</button>
       <div class="spacer"></div>
@@ -119,6 +123,15 @@
         </div>
       </aside>
     </main>
+
+    <footer class="app-footer">
+      <span class="oss-note">Mangoprint Prepress PDF is free and open-source software, licensed AGPL-3.0. Developed and maintained by Chris Cork from Mangoprint.co.uk.</span>
+      <a id="coffeeLink" class="coffee-link" href="#" title="Buy Chris a coffee">
+        Feed Chris' coffee addiction
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffcc33" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" x2="9.01" y1="9" y2="9" /><line x1="15" x2="15.01" y1="9" y2="9" /></svg>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffcc33" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v2" /><path d="M14 2v2" /><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1" /><path d="M6 2v2" /></svg>
+      </a>
+    </footer>
 
     <script src="main.js"></script>
   </body>

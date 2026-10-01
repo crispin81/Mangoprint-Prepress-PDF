@@ -925,6 +925,44 @@ els.selectNoneSep.addEventListener("click", () => {
 });
 
 
+// --- tutorial link & footer (same as RapidCulling) ---
+
+// TODO before launch: set the Mangoprint Prepress PDF tutorial video URL.
+const TUTORIAL_VIDEO_URL = "";
+const TUTORIAL_DISMISSED_KEY = "mangoprint.tutorialDismissed";
+const COFFEE_URL = "https://buymeacoffee.com/chriscorkphotography";
+
+function openExternal(url) {
+  if (url) window.__TAURI__.opener.openUrl(url).catch((err) => console.error(err));
+}
+
+{
+  const link = document.getElementById("videoLink");
+  let dismissed = false;
+  try {
+    dismissed = localStorage.getItem(TUTORIAL_DISMISSED_KEY) === "1";
+  } catch {
+    // localStorage unavailable - show the link.
+  }
+  link.classList.toggle("hidden", dismissed);
+  document.getElementById("videoLinkCta").addEventListener("click", (ev) => {
+    ev.preventDefault();
+    openExternal(TUTORIAL_VIDEO_URL);
+  });
+  document.getElementById("videoLinkClose").addEventListener("click", () => {
+    link.classList.add("hidden");
+    try {
+      localStorage.setItem(TUTORIAL_DISMISSED_KEY, "1");
+    } catch {
+      // Dismissal just won't persist across restarts.
+    }
+  });
+  document.getElementById("coffeeLink").addEventListener("click", (ev) => {
+    ev.preventDefault();
+    openExternal(COFFEE_URL);
+  });
+}
+
 // --- zoom & scrolling ---
 
 els.zoomIn.addEventListener("click", () => stepZoom(1));
