@@ -38,6 +38,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: build bundled Ghostscript (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: bash .github/scripts/build-ghostscript-linux.sh
+
       - name: install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |

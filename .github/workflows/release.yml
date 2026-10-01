@@ -28,6 +28,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: build bundled Ghostscript (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: bash .github/scripts/build-ghostscript-linux.sh
+
       - name: install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -58,7 +62,7 @@ jobs:
         with:
           tagName: ${{ github.event.inputs.tag }}
           releaseName: 'Mangoprint Prepress PDF macOS & Linux (testing)'
-          releaseBody: 'Test builds for macOS and Linux. Not public until published. Ghostscript must be installed on these platforms - see the README.'
+          releaseBody: 'Test builds for macOS and Linux. Not public until published. Ghostscript is bundled on Linux; on macOS install it with Homebrew.'
           releaseDraft: true
           prerelease: true
           args: ${{ matrix.args }}

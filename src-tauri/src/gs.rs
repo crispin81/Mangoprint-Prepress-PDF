@@ -83,12 +83,53 @@ const INSTALL_HINT: &str = "Install it with Homebrew (`brew install ghostscript`
 const INSTALL_HINT: &str =
     "Install it with your package manager, e.g. `sudo apt install ghostscript` or `sudo dnf install ghostscript`.";
 
-/// A copy of Ghostscript shipped alongside the app (portable build):
-/// `<app folder>/ghostscript/bin/<gs binary>`. Preferred over any system
-/// install so the app always runs the version it was tested with.
+/// The app's bundled-resources folder, set once at startup (Tauri knows
+/// where the installer put it: next to the exe on Windows, /usr/lib/<app>
+/// for .deb/.rpm, inside the AppImage, Contents/Resources on macOS).
+static RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+pub fn set_resource_dir(dir: PathBuf) {
+    let _ = RESOURCE_DIR.set(dir);
+}
+
+/// A copy of Ghostscript shipped with the app: `<resources>/ghostscript/bin/`
+/// (installers) or `<exe folder>/ghostscript/bin/` (Windows portable).
+/// Preferred over any system install so the app always runs the version it
+/// was tested with, with no library clashes.
 fn find_bundled() -> Option<PathBuf> {
-    let dir = std::env::current_exe().ok()?.parent()?.join("ghostscript").join("bin");
-    PATH_NAMES.iter().map(|n| dir.join(n)).find(|p| p.is_file())
+    let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
+    RESOURCE_DIR
+        .get()
+        .cloned()
+        .into_iter()
+        .chain(exe_dir)
+        .map(|d| d.join("ghostscript").join("bin"))
+        .flat_map(|dir| PATH_NAMES.iter().map(move |n| dir.join(n)))
+        .find(|p| p.is_file())
+        .and_then(ensure_executable)
+}
+
+/// Some packagers install resources without the execute bit. If so, run a
+/// private executable copy from the temp folder instead (the AppImage's own
+/// files are read-only, so it can't be fixed in place).
+#[cfg(unix)]
+fn ensure_executable(path: PathBuf) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(&path).ok()?.permissions().mode();
+    if mode & 0o111 != 0 {
+        return Some(path);
+    }
+    let dir = std::env::temp_dir().join("mangoprint-prepress-pdf-gs");
+    std::fs::create_dir_all(&dir).ok()?;
+    let copy = dir.join(path.file_name()?);
+    std::fs::copy(&path, &copy).ok()?;
+    std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o755)).ok()?;
+    Some(copy)
+}
+
+#[cfg(not(unix))]
+fn ensure_executable(path: PathBuf) -> Option<PathBuf> {
+    Some(path)
 }
 
 /// Locates Ghostscript once per run and caches the result: bundled copy
