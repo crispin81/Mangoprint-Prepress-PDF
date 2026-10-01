@@ -82,6 +82,7 @@ const state = {
   renderToken: 0,
   pageBoxes: null,
   boxVisible: new Set(["trim", "bleed"]),
+  applyAll: true, // page box / rotation edits apply to every page by default
   boxPreview: {}, // key → displayed norm rect while a box is being typed in (unsaved)
 };
 
@@ -236,6 +237,7 @@ function updatePageControls() {
   els.pageLabel.textContent = state.path ? `Page ${state.page} / ${state.pageCount}` : "–";
   els.prevPage.disabled = !state.path || state.page <= 1;
   els.nextPage.disabled = !state.path || state.page >= state.pageCount;
+  document.getElementById("scopePanel").classList.toggle("hidden", !(state.pageCount > 1));
   markCurrentThumb();
 }
 
@@ -753,10 +755,23 @@ async function rotatePageBy(n, delta) {
   }
 }
 
+// Page box, rotation and reset edits go to every page unless the user
+// switches "Apply edits to" to This page. (Colour and font conversions
+// always apply to the whole document; thumbnails rotate single pages.)
+const editAllPages = () => state.applyAll && state.pageCount > 1;
+
+function setApplyScope(all) {
+  state.applyAll = all;
+  document.getElementById("scopeAll").classList.toggle("active", all);
+  document.getElementById("scopePage").classList.toggle("active", !all);
+}
+
 async function setRotation(degrees) {
   if (!state.path) return;
   try {
-    state.pageBoxes = await invoke("set_page_rotation", { path: state.path, page: state.page, degrees });
+    state.pageBoxes = editAllPages()
+      ? await invoke("set_rotation_all", { path: state.path, page: state.page, degrees })
+      : await invoke("set_page_rotation", { path: state.path, page: state.page, degrees });
     await afterBoxEdit();
   } catch (err) {
     alert(`Could not set rotation:\n${err}`);
@@ -810,7 +825,7 @@ function rectFromInsets(ins) {
   return [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)];
 }
 
-async function applyBox(def, inputs) {
+async function applyBox(def, inputs, allPages = false) {
   setBoxError(def.key, "");
   const ins = {};
   for (const side of INSET_SIDES) ins[side] = fromMm(Number.parseFloat(inputs[side].value));
@@ -825,7 +840,14 @@ async function applyBox(def, inputs) {
   }
   const rect = rectFromInsets(ins);
   try {
-    state.pageBoxes = await invoke("set_page_box", { path: state.path, page: state.page, name: def.name, rect });
+    state.pageBoxes = allPages
+      ? await invoke("set_page_box_all", {
+          path: state.path,
+          page: state.page,
+          name: def.name,
+          insets: [ins.top, ins.bottom, ins.left, ins.right],
+        })
+      : await invoke("set_page_box", { path: state.path, page: state.page, name: def.name, rect });
     await afterBoxEdit();
   } catch (err) {
     setBoxError(def.key, String(err));
@@ -835,7 +857,9 @@ async function applyBox(def, inputs) {
 async function resetBox(def) {
   setBoxError(def.key, "");
   try {
-    state.pageBoxes = await invoke("reset_page_box", { path: state.path, page: state.page, name: def.name });
+    state.pageBoxes = editAllPages()
+      ? await invoke("reset_page_box_all", { path: state.path, page: state.page, name: def.name })
+      : await invoke("reset_page_box", { path: state.path, page: state.page, name: def.name });
     await afterBoxEdit();
   } catch (err) {
     setBoxError(def.key, String(err));
@@ -952,7 +976,7 @@ function renderPageBoxesPanel() {
     for (const input of Object.values(inputs)) {
       input.addEventListener("input", preview);
       input.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter") applyBox(def, inputs);
+        if (ev.key === "Enter") applyBox(def, inputs, editAllPages());
       });
     }
 
@@ -960,7 +984,8 @@ function renderPageBoxesPanel() {
     actions.className = "box-row-actions";
     const applyBtn = document.createElement("button");
     applyBtn.textContent = "Apply";
-    applyBtn.addEventListener("click", () => applyBox(def, inputs));
+    applyBtn.title = "Uses the Apply edits to setting (all pages or this page)";
+    applyBtn.addEventListener("click", () => applyBox(def, inputs, editAllPages()));
     actions.appendChild(applyBtn);
 
     if (def.resettable) {
@@ -1247,6 +1272,9 @@ document.getElementById("textModeBtn").addEventListener("click", () => setTextMo
 window.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape" && state.textMode) setTextMode(false);
 });
+
+document.getElementById("scopeAll").addEventListener("click", () => setApplyScope(true));
+document.getElementById("scopePage").addEventListener("click", () => setApplyScope(false));
 
 // --- zoom & scrolling ---
 

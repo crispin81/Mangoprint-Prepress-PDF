@@ -776,6 +776,30 @@ input[type="radio"] {
   padding-left: 18px;
 }
 
+/* --- apply-edits scope switch --- */
+
+.scope-toggle {
+  display: flex;
+  border: 1px solid var(--field-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.scope-toggle button {
+  border: none;
+  border-radius: 0;
+  font-size: 11px;
+  padding: 3px 9px;
+  background: var(--field);
+  color: var(--text-soft);
+}
+
+.scope-toggle button.active {
+  background: var(--accent);
+  color: var(--panel);
+  font-weight: 600;
+}
+
 /* --- colour & fonts fixes --- */
 
 .fix-row {
@@ -877,7 +901,8 @@ input[type="radio"] {
 
 .box-row-actions {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   align-items: center;
 }
 

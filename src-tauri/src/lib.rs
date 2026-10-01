@@ -339,6 +339,51 @@ fn set_page_box(
     Ok(result)
 }
 
+/// Applies a box to every page as edge distances (points: top, bottom,
+/// left, right); returns the current page's boxes afterwards.
+#[tauri::command]
+fn set_page_box_all(
+    path: String,
+    page: u32,
+    name: String,
+    insets: [f64; 4],
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+) -> Result<pagebox::PageBoxes, String> {
+    pagebox::set_box_insets_all(Path::new(&path), &name, insets)?;
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
+    pagebox::get_page_boxes(Path::new(&path), page)
+}
+
+#[tauri::command]
+fn set_rotation_all(
+    path: String,
+    page: u32,
+    degrees: i32,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+) -> Result<pagebox::PageBoxes, String> {
+    pagebox::set_rotation_all(Path::new(&path), degrees)?;
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
+    pagebox::get_page_boxes(Path::new(&path), page)
+}
+
+#[tauri::command]
+fn reset_page_box_all(
+    path: String,
+    page: u32,
+    name: String,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+) -> Result<pagebox::PageBoxes, String> {
+    pagebox::reset_box_all(Path::new(&path), &name)?;
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
+    pagebox::get_page_boxes(Path::new(&path), page)
+}
+
 #[tauri::command]
 fn reset_page_box(
     path: String,
@@ -391,6 +436,9 @@ pub fn run() {
             get_page_boxes,
             set_page_box,
             reset_page_box,
+            set_page_box_all,
+            set_rotation_all,
+            reset_page_box_all,
             set_page_rotation,
         ])
         .run(tauri::generate_context!())

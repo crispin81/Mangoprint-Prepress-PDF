@@ -257,6 +257,78 @@ pub fn set_page_box(path: &Path, page: u32, name: &str, rect: [f64; 4]) -> Resul
     get_page_boxes(path, page)
 }
 
+/// Sets box `name` on every page from distances (points) in from each edge
+/// of that page's MediaBox, as displayed (after /Rotate): `[top, bottom,
+/// left, right]`. Pages of different sizes or rotations each get the same
+/// edge distances. Returns how many pages were changed.
+pub fn set_box_insets_all(path: &Path, name: &str, insets: [f64; 4]) -> Result<u32, String> {
+    validate_box_name(name)?;
+    let [top, bottom, left, right] = insets;
+    let mut doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
+    let pages: Vec<(u32, ObjectId)> = doc.get_pages().into_iter().collect();
+    let mut rects = Vec::with_capacity(pages.len());
+    for (num, page_id) in &pages {
+        let (media, _) = resolve_box(&doc, *page_id, "MediaBox", [0.0, 0.0, 612.0, 792.0]);
+        let rot = rotate_of(&doc, *page_id);
+        let (mw, mh) = (media[2] - media[0], media[3] - media[1]);
+        let (w, h) = if rot == 90 || rot == 270 { (mh, mw) } else { (mw, mh) };
+        if left + right >= w || top + bottom >= h {
+            return Err(format!("Those distances don't fit on page {num} — opposite sides overlap."));
+        }
+        // Displayed unit coords (y down) → unrotated unit coords (y down).
+        let unrotate = |x: f64, y: f64| match rot {
+            90 => (y, 1.0 - x),
+            180 => (1.0 - x, 1.0 - y),
+            270 => (1.0 - y, x),
+            _ => (x, y),
+        };
+        let to_pdf = |(x, y): (f64, f64)| (media[0] + x * mw, media[1] + (1.0 - y) * mh);
+        let (ax, ay) = to_pdf(unrotate(left / w, top / h));
+        let (bx, by) = to_pdf(unrotate(1.0 - right / w, 1.0 - bottom / h));
+        rects.push((*page_id, [ax.min(bx), ay.min(by), ax.max(bx), ay.max(by)]));
+    }
+    for (page_id, rect) in &rects {
+        let arr = Object::Array(rect.iter().map(|v| Object::Real(*v as _)).collect());
+        doc.get_dictionary_mut(*page_id)
+            .map_err(|e| format!("Could not access the page dictionary: {e}"))?
+            .set(name, arr);
+    }
+    doc.save(path).map_err(|e| format!("Could not save the PDF: {e}"))?;
+    Ok(rects.len() as u32)
+}
+
+/// Sets `/Rotate` on every page.
+pub fn set_rotation_all(path: &Path, degrees: i32) -> Result<(), String> {
+    let normalized = ((degrees % 360) + 360) % 360;
+    if normalized % 90 != 0 {
+        return Err("Rotation must be a multiple of 90 degrees.".into());
+    }
+    let mut doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
+    let ids: Vec<ObjectId> = doc.get_pages().into_values().collect();
+    for id in ids {
+        doc.get_dictionary_mut(id)
+            .map_err(|e| format!("Could not access the page dictionary: {e}"))?
+            .set("Rotate", Object::Integer(normalized as i64));
+    }
+    doc.save(path).map(|_| ()).map_err(|e| format!("Could not save the PDF: {e}"))
+}
+
+/// Removes an explicit box from every page (see `reset_page_box`).
+pub fn reset_box_all(path: &Path, name: &str) -> Result<(), String> {
+    validate_box_name(name)?;
+    if name == "MediaBox" {
+        return Err("MediaBox can't be reset to a default — every page must have one.".into());
+    }
+    let mut doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
+    let ids: Vec<ObjectId> = doc.get_pages().into_values().collect();
+    for id in ids {
+        doc.get_dictionary_mut(id)
+            .map_err(|e| format!("Could not access the page dictionary: {e}"))?
+            .remove(name.as_bytes());
+    }
+    doc.save(path).map(|_| ()).map_err(|e| format!("Could not save the PDF: {e}"))
+}
+
 /// Sets the page's `/Rotate` entry (a clockwise viewing rotation applied
 /// on top of the page's raw content — the same entry Acrobat's "Rotate
 /// Pages" edits, and the same one Ghostscript honors when rasterizing,
@@ -313,6 +385,30 @@ pub fn reset_page_box(path: &Path, page: u32, name: &str) -> Result<PageBoxes, S
 mod tests {
     use super::*;
 
+    /// `MP_TEST_MULTI=path cargo test insets_all -- --nocapture`: rotate page 2,
+    /// apply the same edge distances to all pages, and check every page
+    /// reports those distances as displayed.
+    #[test]
+    fn insets_all() {
+        let Ok(src) = std::env::var("MP_TEST_MULTI") else { return };
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("m.pdf");
+        std::fs::copy(src, &p).unwrap();
+        set_rotation(&p, 2, 90).unwrap();
+        let ins = [10.0, 20.0, 30.0, 40.0]; // top, bottom, left, right
+        let n = set_box_insets_all(&p, "TrimBox", ins).unwrap();
+        for page in 1..=n {
+            let b = get_page_boxes(&p, page).unwrap();
+            let (m, r) = (b.media.rect, b.rotate);
+            let (w, h) = if r == 90 || r == 270 { (m[3] - m[1], m[2] - m[0]) } else { (m[2] - m[0], m[3] - m[1]) };
+            let [l, t, nw, nh] = b.trim.norm;
+            let got = [t * h, (1.0 - t - nh) * h, l * w, (1.0 - l - nw) * w];
+            println!("page {page} rot {r}: {got:?}");
+            for i in 0..4 {
+                assert!((got[i] - ins[i]).abs() < 1e-3, "page {page}: {got:?}");
+            }
+        }
+    }
     /// Manual check against real files: `MP_TEST_PDFS="a.pdf;b.pdf" cargo test edit_roundtrip -- --nocapture`.
     /// Each file is copied, its TrimBox rewritten, and the result re-read.
     #[test]
