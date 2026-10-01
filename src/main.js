@@ -931,6 +931,7 @@ els.selectNoneSep.addEventListener("click", () => {
 const TUTORIAL_VIDEO_URL = "";
 const TUTORIAL_DISMISSED_KEY = "mangoprint.tutorialDismissed";
 const COFFEE_URL = "https://buymeacoffee.com/chriscorkphotography";
+const SITE_URL = "https://mangoprint.co.uk";
 
 function openExternal(url) {
   if (url) window.__TAURI__.opener.openUrl(url).catch((err) => console.error(err));
@@ -960,6 +961,10 @@ function openExternal(url) {
   document.getElementById("coffeeLink").addEventListener("click", (ev) => {
     ev.preventDefault();
     openExternal(COFFEE_URL);
+  });
+  document.getElementById("siteLink").addEventListener("click", (ev) => {
+    ev.preventDefault();
+    openExternal(SITE_URL);
   });
 }
 

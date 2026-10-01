@@ -278,6 +278,16 @@ code {
   color: #8a8b96;
 }
 
+.site-link {
+  color: #ffcc33;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.site-link:hover {
+  text-decoration: underline;
+}
+
 .coffee-link {
   display: inline-flex;
   align-items: center;
