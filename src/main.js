@@ -28,8 +28,6 @@ const els = {
   pageBoxes: document.getElementById("pageBoxes"),
   pageRotation: document.getElementById("pageRotation"),
   rotationCurrent: document.getElementById("rotationCurrent"),
-  unitMm: document.getElementById("unitMm"),
-  unitPt: document.getElementById("unitPt"),
   winMin: document.getElementById("winMin"),
   winMax: document.getElementById("winMax"),
   winClose: document.getElementById("winClose"),
@@ -87,16 +85,16 @@ const state = {
   renderToken: 0,
   pageBoxes: null,
   boxVisible: new Set(["trim", "bleed"]),
-  unit: "mm", // "mm" | "pt" — PDF stores points; mm is converted for display/entry
 };
 
 // Eyedropper request state (see the eyedropper section below).
 const eyedrop = { inFlight: false, pending: null, held: false };
 
 const MM_PER_PT = 25.4 / 72;
-const toUnit = (pt) => (state.unit === "mm" ? pt * MM_PER_PT : pt);
-const fromUnit = (v) => (state.unit === "mm" ? v / MM_PER_PT : v);
-const fmtMm = (pt) => (pt * MM_PER_PT).toFixed(2);
+// The PDF stores geometry in points; everything the user sees or types is mm.
+const toMm = (pt) => pt * MM_PER_PT;
+const fromMm = (mm) => mm / MM_PER_PT;
+const fmtMm = (pt) => toMm(pt).toFixed(2);
 
 function setLoading(isLoading) {
   els.loadingOverlay.classList.toggle("hidden", !isLoading);
@@ -562,7 +560,7 @@ function setBoxError(key, message) {
 
 async function applyBox(def, inputs) {
   setBoxError(def.key, "");
-  const rect = inputs.map((i) => fromUnit(Number.parseFloat(i.value)));
+  const rect = inputs.map((i) => fromMm(Number.parseFloat(i.value)));
   if (rect.some((v) => !Number.isFinite(v))) {
     setBoxError(def.key, "Enter a number for all four fields.");
     return;
@@ -653,18 +651,18 @@ function renderPageBoxesPanel() {
     const h = ry1 - ry0;
     const size = document.createElement("div");
     size.className = "box-size";
-    size.textContent = `${fmtMm(w)} × ${fmtMm(h)} mm  ·  ${w.toFixed(2)} × ${h.toFixed(2)} pt`;
+    size.textContent = `${fmtMm(w)} × ${fmtMm(h)} mm`;
 
     const fields = document.createElement("div");
     fields.className = "box-fields";
-    const fieldLabels = ["x0", "y0", "x1", "y1"].map((n) => `${n} (${state.unit})`);
+    const fieldLabels = ["x0", "y0", "x1", "y1"].map((n) => `${n} (mm)`);
     const inputs = fieldLabels.map((fname, i) => {
       const label = document.createElement("label");
       label.textContent = fname;
       const input = document.createElement("input");
       input.type = "number";
-      input.step = state.unit === "mm" ? "0.01" : "0.1";
-      input.value = toUnit(info.rect[i]).toFixed(2);
+      input.step = "0.01";
+      input.value = fmtMm(info.rect[i]);
       label.appendChild(input);
       fields.appendChild(label);
       return input;
@@ -716,7 +714,7 @@ function drawBoxOverlay() {
 
     const titleEl = document.createElementNS(SVG_NS, "title");
     const [bx0, by0, bx1, by1] = info.rect;
-    titleEl.textContent = `${def.label}: ${fmtMm(bx1 - bx0)} × ${fmtMm(by1 - by0)} mm (${(bx1 - bx0).toFixed(1)} × ${(by1 - by0).toFixed(1)} pt)`;
+    titleEl.textContent = `${def.label}: ${fmtMm(bx1 - bx0)} × ${fmtMm(by1 - by0)} mm`;
     rect.appendChild(titleEl);
 
     svg.appendChild(rect);
@@ -729,14 +727,6 @@ els.winMin.addEventListener("click", () => appWindow.minimize());
 els.winMax.addEventListener("click", () => appWindow.toggleMaximize());
 els.winClose.addEventListener("click", () => appWindow.close());
 
-function setUnit(unit) {
-  state.unit = unit;
-  els.unitMm.classList.toggle("active", unit === "mm");
-  els.unitPt.classList.toggle("active", unit === "pt");
-  renderPageBoxesPanel();
-}
-els.unitMm.addEventListener("click", () => setUnit("mm"));
-els.unitPt.addEventListener("click", () => setUnit("pt"));
 
 // --- eyedropper ---
 // Hovering the preview asks the backend for ink % at that point (read
