@@ -580,18 +580,62 @@ function setBoxError(key, message) {
   if (el) el.textContent = message || "";
 }
 
+// --- box geometry as seen on screen ---
+// Boxes are shown as distances in from each edge of the page (MediaBox)
+// as it's displayed, i.e. after /Rotate — so "Top" is always the edge at
+// the top of the preview. The PDF stores unrotated corner coordinates.
+
+const INSET_SIDES = ["top", "bottom", "left", "right"];
+const INSET_LABELS = { top: "Top", bottom: "Bottom", left: "Left", right: "Right" };
+
+// Displayed page size in points.
+function displayedMediaPt() {
+  const [x0, y0, x1, y1] = state.pageBoxes.media.rect;
+  const r = state.pageBoxes.rotate;
+  return r === 90 || r === 270 ? [y1 - y0, x1 - x0] : [x1 - x0, y1 - y0];
+}
+
+// Box → { top, bottom, left, right } insets in points from the page edges.
+function boxInsets(info) {
+  const [W, H] = displayedMediaPt();
+  const [l, t, w, h] = info.norm;
+  return { top: t * H, bottom: (1 - t - h) * H, left: l * W, right: (1 - l - w) * W };
+}
+
+// Inverse of boxInsets: insets (points) → unrotated PDF rect [x0,y0,x1,y1].
+function rectFromInsets(ins) {
+  const [W, H] = displayedMediaPt();
+  const [mx0, my0, mx1, my1] = state.pageBoxes.media.rect;
+  const rot = state.pageBoxes.rotate;
+  // Displayed unit coords (y down) → unrotated unit coords (y down).
+  const unrotate = (x, y) => {
+    if (rot === 90) return [y, 1 - x];
+    if (rot === 180) return [1 - x, 1 - y];
+    if (rot === 270) return [1 - y, x];
+    return [x, y];
+  };
+  const a = unrotate(ins.left / W, ins.top / H);
+  const b = unrotate(1 - ins.right / W, 1 - ins.bottom / H);
+  const toPdf = ([x, y]) => [mx0 + x * (mx1 - mx0), my0 + (1 - y) * (my1 - my0)];
+  const [ax, ay] = toPdf(a);
+  const [bx, by] = toPdf(b);
+  return [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)];
+}
+
 async function applyBox(def, inputs) {
   setBoxError(def.key, "");
-  const rect = inputs.map((i) => fromMm(Number.parseFloat(i.value)));
-  if (rect.some((v) => !Number.isFinite(v))) {
-    setBoxError(def.key, "Enter a number for all four fields.");
+  const ins = {};
+  for (const side of INSET_SIDES) ins[side] = fromMm(Number.parseFloat(inputs[side].value));
+  if (Object.values(ins).some((v) => !Number.isFinite(v))) {
+    setBoxError(def.key, "Enter a number for all four sides.");
     return;
   }
-  const [x0, y0, x1, y1] = rect;
-  if (!(x1 > x0 && y1 > y0)) {
-    setBoxError(def.key, "x1 must be greater than x0, and y1 greater than y0.");
+  const [W, H] = displayedMediaPt();
+  if (ins.left + ins.right >= W || ins.top + ins.bottom >= H) {
+    setBoxError(def.key, "Those distances leave no room — opposite sides overlap.");
     return;
   }
+  const rect = rectFromInsets(ins);
   try {
     state.pageBoxes = await invoke("set_page_box", { path: state.path, page: state.page, name: def.name, rect });
     await afterBoxEdit();
@@ -668,27 +712,37 @@ function renderPageBoxesPanel() {
 
     header.append(visCheckbox, sample, title, status);
 
-    const [rx0, ry0, rx1, ry1] = info.rect;
-    const w = rx1 - rx0;
-    const h = ry1 - ry0;
+    const [W, H] = displayedMediaPt();
+    const ins = boxInsets(info);
     const size = document.createElement("div");
     size.className = "box-size";
-    size.textContent = `${fmtMm(w)} × ${fmtMm(h)} mm`;
+    size.textContent = `${fmtMm(W - ins.left - ins.right)} × ${fmtMm(H - ins.top - ins.bottom)} mm`;
+
+    // How far the bleed extends past the trim, per side.
+    if (def.key === "bleed" && state.pageBoxes.trim) {
+      const t = boxInsets(state.pageBoxes.trim);
+      const amounts = INSET_SIDES.map((s) => toMm(t[s] - ins[s]));
+      const same = amounts.every((a) => Math.abs(a - amounts[0]) < 0.005);
+      size.textContent += same
+        ? `  ·  ${amounts[0].toFixed(2)} mm bleed each side`
+        : `  ·  bleed T ${amounts[0].toFixed(2)} / B ${amounts[1].toFixed(2)} / L ${amounts[2].toFixed(2)} / R ${amounts[3].toFixed(2)} mm`;
+    }
 
     const fields = document.createElement("div");
     fields.className = "box-fields";
-    const fieldLabels = ["x0", "y0", "x1", "y1"].map((n) => `${n} (mm)`);
-    const inputs = fieldLabels.map((fname, i) => {
+    const inputs = {};
+    for (const side of INSET_SIDES) {
       const label = document.createElement("label");
-      label.textContent = fname;
+      label.textContent = `${INSET_LABELS[side]} (mm)`;
+      label.title = `Distance in from the ${side} edge of the page`;
       const input = document.createElement("input");
       input.type = "number";
       input.step = "0.01";
-      input.value = fmtMm(info.rect[i]);
+      input.value = fmtMm(Math.max(0, ins[side]));
       label.appendChild(input);
       fields.appendChild(label);
-      return input;
-    });
+      inputs[side] = input;
+    }
 
     const actions = document.createElement("div");
     actions.className = "box-row-actions";
