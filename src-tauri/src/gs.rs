@@ -329,51 +329,86 @@ pub enum Conversion {
     SpotsToCmyk,
 }
 
-/// Rewrites `input` to `output` applying `conv`. Images are kept at full
-/// resolution (no downsampling, JPEGs passed through untouched), embedded
-/// CMYK values are preserved, and overprint settings and page boxes carry
-/// over.
-pub fn convert_pdf(input: &Path, output: &Path, conv: Conversion) -> Result<(), String> {
-    let mut args: Vec<&str> = vec![
-        "-q",
-        "-dBATCH",
-        "-dNOPAUSE",
-        "-dSAFER",
-        "-sDEVICE=pdfwrite",
-        PRESERVE_CMYK,
-        "-dPreserveOverprintSettings=true",
-        "-dPassThroughJPEGImages=true",
-        "-dPassThroughJPXImages=true",
-        "-dDownsampleColorImages=false",
-        "-dDownsampleGrayImages=false",
-        "-dDownsampleMonoImages=false",
-        "-dAutoFilterColorImages=false",
-        "-dAutoFilterGrayImages=false",
-        "-dColorImageFilter=/FlateEncode",
-        "-dGrayImageFilter=/FlateEncode",
-    ];
+/// pdfwrite settings shared by every rewrite: full-resolution images (no
+/// downsampling, JPEG/JPEG 2000 passed through untouched), embedded CMYK
+/// values kept as-is, overprint settings preserved. Page boxes carry over.
+const PDFWRITE_BASE: [&str; 16] = [
+    "-q",
+    "-dBATCH",
+    "-dNOPAUSE",
+    "-dSAFER",
+    "-sDEVICE=pdfwrite",
+    PRESERVE_CMYK,
+    "-dPreserveOverprintSettings=true",
+    "-dPassThroughJPEGImages=true",
+    "-dPassThroughJPXImages=true",
+    "-dDownsampleColorImages=false",
+    "-dDownsampleGrayImages=false",
+    "-dDownsampleMonoImages=false",
+    "-dAutoFilterColorImages=false",
+    "-dAutoFilterGrayImages=false",
+    "-dColorImageFilter=/FlateEncode",
+    "-dGrayImageFilter=/FlateEncode",
+];
+
+/// Leaves colour and fonts alone: used to copy pages unchanged.
+const UNCHANGED: [&str; 1] = ["-sColorConversionStrategy=LeaveColorUnchanged"];
+
+fn conversion_args(conv: Conversion) -> &'static [&'static str] {
     match conv {
-        Conversion::Outlines => args.extend(["-dNoOutputFonts", "-sColorConversionStrategy=LeaveColorUnchanged"]),
-        Conversion::RgbToCmyk => args.extend(["-sColorConversionStrategy=CMYK", "-dProcessColorModel=/DeviceCMYK"]),
-        Conversion::SpotsToCmyk => args.extend([
+        Conversion::Outlines => &["-dNoOutputFonts", "-sColorConversionStrategy=LeaveColorUnchanged"],
+        Conversion::RgbToCmyk => &["-sColorConversionStrategy=CMYK", "-dProcessColorModel=/DeviceCMYK"],
+        Conversion::SpotsToCmyk => &[
             "-sColorConversionStrategy=CMYK",
             "-dProcessColorModel=/DeviceCMYK",
             "-dPreserveSeparation=false",
             "-dPreserveDeviceN=false",
-        ]),
+        ],
     }
-    let out_arg = output_file_arg(output);
-    let status = gs_command()?
-        .args(&args)
-        .arg(&out_arg)
-        .arg(input)
-        .output()
-        .map_err(|e| format!("Failed to run Ghostscript: {e}"))?;
+}
+
+/// Runs pdfwrite over `inputs` (concatenated, in order) into `output`,
+/// optionally limited to `page_list` (Ghostscript syntax, e.g. "2-5").
+fn pdfwrite(inputs: &[&Path], output: &Path, extra: &[&str], page_list: Option<&str>) -> Result<(), String> {
+    let mut cmd = gs_command()?;
+    cmd.args(PDFWRITE_BASE).args(extra);
+    if let Some(list) = page_list {
+        cmd.arg(format!("-sPageList={list}"));
+    }
+    cmd.arg(output_file_arg(output)).args(inputs);
+    let status = cmd.output().map_err(|e| format!("Failed to run Ghostscript: {e}"))?;
     if !status.status.success() || !output.exists() {
         let stderr = String::from_utf8_lossy(&status.stderr);
         return Err(format!("Ghostscript could not convert the PDF:\n{stderr}"));
     }
     Ok(())
+}
+
+/// Rewrites `input` to `output` applying `conv` to every page.
+pub fn convert_pdf(input: &Path, output: &Path, conv: Conversion) -> Result<(), String> {
+    pdfwrite(&[input], output, conversion_args(conv), None)
+}
+
+/// Applies `conv` to page `page` only: the pages before and after are
+/// copied unchanged and the three parts are joined back together.
+pub fn convert_one_page(input: &Path, output: &Path, conv: Conversion, page: u32, page_count: u32) -> Result<(), String> {
+    let tmp = tempfile::TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
+    let mut parts = Vec::new();
+    if page > 1 {
+        let before = tmp.path().join("before.pdf");
+        pdfwrite(&[input], &before, &UNCHANGED, Some(&format!("1-{}", page - 1)))?;
+        parts.push(before);
+    }
+    let this = tmp.path().join("page.pdf");
+    pdfwrite(&[input], &this, conversion_args(conv), Some(&page.to_string()))?;
+    parts.push(this);
+    if page < page_count {
+        let after = tmp.path().join("after.pdf");
+        pdfwrite(&[input], &after, &UNCHANGED, Some(&format!("{}-", page + 1)))?;
+        parts.push(after);
+    }
+    let refs: Vec<&Path> = parts.iter().map(|p| p.as_path()).collect();
+    pdfwrite(&refs, output, &UNCHANGED, None)
 }
 
 #[cfg(test)]
@@ -397,4 +432,18 @@ mod tests {
             "-sOutputFile=/tmp/100%%.png"
         );
     }
-}
+
+    /// `MP_TEST_MULTI=3-page.pdf cargo test one_page -- --nocapture`:
+    /// outlining page 2 only leaves fonts on pages 1 and 3.
+    #[test]
+    fn one_page_outlines() {
+        let Ok(src) = std::env::var("MP_TEST_MULTI") else { return };
+        let tmp = tempfile::tempdir().unwrap();
+        let out = tmp.path().join("out.pdf");
+        convert_one_page(Path::new(&src), &out, Conversion::Outlines, 2, 3).unwrap();
+        let doc = lopdf::Document::load(&out).unwrap();
+        let fonts: Vec<usize> = doc.get_pages().values().map(|id| doc.get_page_fonts(*id).map(|f| f.len()).unwrap_or(0)).collect();
+        println!("fonts per page: {fonts:?}");
+        assert_eq!(fonts.len(), 3);
+        assert!(fonts[0] > 0 && fonts[1] == 0 && fonts[2] > 0);
+    }}

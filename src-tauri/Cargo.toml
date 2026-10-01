@@ -33,6 +33,9 @@ opt-level = "s"
 # fully) so testing runs at close to release speed; release adds LTO.
 [profile.dev]
 opt-level = 1
+# Incremental + optimised builds intermittently fail to link on MSVC
+# (LNK2019 on anon.* symbols), so build each crate in full.
+incremental = false
 
 [profile.dev.package."*"]
 opt-level = 3

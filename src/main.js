@@ -237,7 +237,7 @@ function updatePageControls() {
   els.pageLabel.textContent = state.path ? `Page ${state.page} / ${state.pageCount}` : "–";
   els.prevPage.disabled = !state.path || state.page <= 1;
   els.nextPage.disabled = !state.path || state.page >= state.pageCount;
-  document.getElementById("scopePanel").classList.toggle("hidden", !(state.pageCount > 1));
+  for (const id of ["scopeAll", "scopePage"]) document.getElementById(id).disabled = !state.path;
   markCurrentThumb();
 }
 
@@ -755,9 +755,9 @@ async function rotatePageBy(n, delta) {
   }
 }
 
-// Page box, rotation and reset edits go to every page unless the user
-// switches "Apply edits to" to This page. (Colour and font conversions
-// always apply to the whole document; thumbnails rotate single pages.)
+// Every edit (colour & font conversions, rotation, page boxes) goes to all
+// pages unless "Apply edits to" is switched to This page. Thumbnail arrows
+// always rotate just their own page.
 const editAllPages = () => state.applyAll && state.pageCount > 1;
 
 function setApplyScope(all) {
@@ -1196,7 +1196,7 @@ async function runConversion(kind) {
   for (const b of fixBtns) b.disabled = true;
   setProgress(30, CONVERSIONS[kind].label);
   try {
-    await invoke("convert_pdf", { path: state.path, kind });
+    await invoke("convert_pdf", { path: state.path, kind, page: editAllPages() ? null : state.page });
     setProgress(60, "Reloading…");
     state.separationNames = [];
     state.activeSeparations = new Set();

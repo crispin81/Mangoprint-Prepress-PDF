@@ -300,6 +300,8 @@ fn check_rgb(path: String) -> Result<Vec<colorcheck::PageRgb>, String> {
 fn convert_pdf(
     path: String,
     kind: String,
+    // Some(page) = convert just that page; None = whole document.
+    page: Option<u32>,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
 ) -> Result<(), String> {
@@ -312,7 +314,13 @@ fn convert_pdf(
     let src = Path::new(&path);
     let tmp = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
     let out = tmp.path().join("converted.pdf");
-    gs::convert_pdf(src, &out, conv)?;
+    match page {
+        Some(p) => {
+            let count = gs::page_count(src).or_else(|_| pagebox::page_count(src))?;
+            gs::convert_one_page(src, &out, conv, p, count)?
+        }
+        None => gs::convert_pdf(src, &out, conv)?,
+    }
     std::fs::copy(&out, src).map_err(|e| format!("Could not update the working copy: {e}"))?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
