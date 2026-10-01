@@ -840,6 +840,11 @@ input[type="radio"] {
   width: 72px;
   height: 72px;
   margin-bottom: 8px;
+  transition: transform 0.15s ease-out;
+}
+
+a:hover > .about__logo {
+  transform: scale(1.06);
 }
 
 .about__title {
