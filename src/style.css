@@ -498,6 +498,21 @@ input[type="radio"] {
   color: var(--muted);
 }
 
+.box-size {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.unit-btn {
+  color: var(--muted);
+}
+
+.unit-btn.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .box-fields {
   display: grid;
   grid-template-columns: 1fr 1fr;

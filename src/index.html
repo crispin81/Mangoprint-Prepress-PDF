@@ -111,14 +111,18 @@
         </div>
 
         <div class="panel">
-          <h2>Page Boxes</h2>
+          <div class="panel-header">
+            <h2>Page Boxes</h2>
+            <div class="panel-actions">
+              <button id="unitMm" class="link-btn unit-btn active">mm</button>
+              <button id="unitPt" class="link-btn unit-btn">pt</button>
+            </div>
+          </div>
           <div id="pageBoxes"></div>
           <p class="hint">
-            Values are in PDF points (1 pt = 1⁄72 in), in the page's own
-            unrotated coordinate space — the same numbers Acrobat's Crop
-            Pages / Document Properties show. Edits apply immediately and
-            are saved to the file (a one-time <code>.bak</code> backup is
-            made on first edit).
+            Coordinates are in the page's own unrotated space (1 pt = 1⁄72 in
+            = 0.3528 mm). Edits apply immediately and are saved to the file
+            (a one-time <code>.bak</code> backup is made on first edit).
           </p>
         </div>
       </aside>
