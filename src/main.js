@@ -299,6 +299,7 @@ const CSS_PX_PER_PT = 96 / 72; // 100% zoom = real size on a standard display
 
 const view = {
   lib: null, // pdf.js module
+  loadingTask: null,
   doc: null,
   page: null,
   zoom: "fit", // "fit" | factor (1 = 100%)
@@ -321,14 +322,17 @@ async function loadPdfjs() {
 // (Re)loads the working copy into pdf.js — on open and after every edit.
 async function loadVectorDoc() {
   const lib = await loadPdfjs();
-  if (view.doc) {
-    view.doc.destroy();
+  // pdf.js v6 frees a document through its loading task, not the document.
+  if (view.loadingTask) {
+    const old = view.loadingTask;
+    view.loadingTask = null;
     view.doc = null;
     view.page = null;
+    old.destroy().catch(() => {});
   }
   const buf = await invoke("read_pdf", { path: state.path });
   const url = (p) => new URL(p, location.href).href;
-  view.doc = await lib.getDocument({
+  view.loadingTask = lib.getDocument({
     data: new Uint8Array(buf),
     cMapUrl: url("vendor/pdfjs/cmaps/"),
     cMapPacked: true,
@@ -337,7 +341,8 @@ async function loadVectorDoc() {
     iccUrl: url("vendor/pdfjs/iccs/"),
     isEvalSupported: false,
     enableXfa: false,
-  }).promise;
+  });
+  view.doc = await view.loadingTask.promise;
 }
 
 async function loadVectorPage() {
