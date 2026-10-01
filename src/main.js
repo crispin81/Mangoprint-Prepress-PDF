@@ -110,6 +110,35 @@ async function checkGhostscript() {
   }
 }
 
+// Loading progress card. Steps are real stages of the load (copying,
+// reading, parsing, drawing), so the bar moves as each one finishes.
+const progress = { active: false };
+
+function setProgress(pct, label) {
+  const box = document.getElementById("progress");
+  if (!progress.active) {
+    // Only show the card if loading takes more than a moment, so quick
+    // page flips don't flash it.
+    clearTimeout(progress.timer);
+    progress.timer = setTimeout(() => progress.active && box.classList.remove("hidden"), 150);
+  }
+  progress.active = true;
+  box.setAttribute("aria-valuenow", String(pct));
+  document.getElementById("progressFill").style.width = `${pct}%`;
+  if (label) document.getElementById("progressLabel").textContent = label;
+}
+
+function hideProgress() {
+  if (!progress.active) return;
+  progress.active = false;
+  document.getElementById("progressFill").style.width = "100%";
+  setTimeout(() => {
+    if (progress.active) return;
+    document.getElementById("progress").classList.add("hidden");
+    document.getElementById("progressFill").style.width = "0";
+  }, 250);
+}
+
 async function openPdf() {
   if (state.edited) {
     const discard = await ask("You have page changes that haven't been exported. Open another PDF and discard them?", {
@@ -125,10 +154,12 @@ async function openPdf() {
   if (!selected) return;
 
   const source = Array.isArray(selected) ? selected[0] : selected;
-  setLoading(true);
+  setProgress(5, `Opening ${baseName(source)}…`);
   try {
     const path = await invoke("create_working_copy", { path: source });
+    setProgress(15, "Counting pages…");
     const pageCount = await invoke("open_pdf", { path });
+    setProgress(30, "Reading page boxes…");
     state.path = path;
     state.sourcePath = source;
     setEdited(false);
@@ -149,7 +180,7 @@ async function openPdf() {
   } catch (err) {
     alert(`Could not open PDF:\n${err}`);
   } finally {
-    setLoading(false);
+    hideProgress();
   }
 }
 
@@ -330,7 +361,9 @@ async function loadVectorDoc() {
     view.page = null;
     old.destroy().catch(() => {});
   }
+  if (progress.active) setProgress(45, "Reading PDF…");
   const buf = await invoke("read_pdf", { path: state.path });
+  if (progress.active) setProgress(60, "Parsing PDF…");
   const url = (p) => new URL(p, location.href).href;
   view.loadingTask = lib.getDocument({
     data: new Uint8Array(buf),
@@ -343,6 +376,7 @@ async function loadVectorDoc() {
     enableXfa: false,
   });
   view.doc = await view.loadingTask.promise;
+  if (progress.active) setProgress(80, "Drawing page…");
 }
 
 async function loadVectorPage() {
@@ -531,8 +565,14 @@ async function goToPage(delta) {
   updatePageControls();
   updateRasterDpi();
   loadSeparationsList();
-  await loadPageBoxes();
-  await showPage();
+  setProgress(40, `Loading page ${next}…`);
+  try {
+    await loadPageBoxes();
+    setProgress(70, "Drawing page…");
+    await showPage();
+  } finally {
+    hideProgress();
+  }
 }
 
 // --- page boxes (MediaBox / CropBox / TrimBox / ArtBox / BleedBox) ---
@@ -669,7 +709,12 @@ async function afterBoxEdit() {
   // page's rendered dimensions/orientation, so refresh whatever's
   // currently on screen.
   loadSeparationsList();
-  await showPage({ reloadDoc: true });
+  setProgress(40, "Applying change…");
+  try {
+    await showPage({ reloadDoc: true });
+  } finally {
+    hideProgress();
+  }
 }
 
 function renderPageBoxesPanel() {

@@ -28,3 +28,11 @@ panic = "abort"
 codegen-units = 1
 lto = true
 opt-level = "s"
+
+# `tauri dev` builds the debug profile. Optimise it (and all dependencies
+# fully) so testing runs at close to release speed; release adds LTO.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
