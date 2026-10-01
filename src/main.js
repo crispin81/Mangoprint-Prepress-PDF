@@ -389,6 +389,50 @@ async function loadVectorPage() {
   if (media && view.page._pageInfo) view.page._pageInfo.view = [...media];
 }
 
+// --- text layer ---
+// pdf.js places invisible copies of the page's real text over the preview
+// so it can be selected (Select text mode). Text that has been converted
+// to outlines is just shapes, so there's nothing to select. Built once per
+// page; zooming only updates the scale variable.
+
+async function buildTextLayer() {
+  const layer = document.getElementById("textLayer");
+  layer.replaceChildren();
+  const status = document.getElementById("textStatus");
+  if (!view.page) {
+    status.textContent = "";
+    return;
+  }
+  const page = view.page;
+  const content = await page.getTextContent();
+  if (page !== view.page) return; // page changed meanwhile
+  const runs = content.items.filter((i) => i.str && i.str.trim()).length;
+  status.className = `text-status ${runs ? "live" : "none"}`;
+  status.textContent = runs
+    ? `This page has live text (${runs} text run${runs > 1 ? "s" : ""}) — try Select text.`
+    : "No live text on this page (outlined or none).";
+  setTextLayerScale();
+  const viewport = page.getViewport({ scale: view.scale });
+  await new view.lib.TextLayer({ textContentSource: content, container: layer, viewport }).render();
+}
+
+function setTextLayerScale() {
+  const layer = document.getElementById("textLayer");
+  layer.style.setProperty("--scale-factor", String(view.scale));
+  layer.style.setProperty("--total-scale-factor", String(view.scale));
+}
+
+function setTextMode(on) {
+  state.textMode = on;
+  document.getElementById("textModeBtn").classList.toggle("active", on);
+  els.imgWrap.classList.toggle("text-mode", on);
+  if (!on) window.getSelection()?.removeAllRanges();
+  if (on) {
+    eyedrop.held = false;
+    clearInks();
+  }
+}
+
 // Displayed page size in PDF points, after /Rotate.
 function pageSizePt() {
   const vp = view.page.getViewport({ scale: 1 });
@@ -412,6 +456,8 @@ function applyLayout() {
   els.imgWrap.style.height = `${h * view.scale}px`;
   els.zoomLabel.textContent = `${zoomPercent()}%`;
   for (const b of [els.zoomIn, els.zoomOut, els.zoomFit, els.zoomActual]) b.disabled = false;
+  document.getElementById("textModeBtn").disabled = false;
+  setTextLayerScale();
 }
 
 // Draws the visible part of the page (plus a margin, so small scrolls
@@ -527,6 +573,7 @@ async function showPage({ reloadDoc = false } = {}) {
   if (reloadDoc || !view.doc) await loadVectorDoc();
   await loadVectorPage();
   applyLayout();
+  buildTextLayer().catch((err) => console.error(err));
   await renderCurrent();
 }
 
@@ -930,6 +977,7 @@ function pointerFraction(ev) {
 
 els.imgWrap.addEventListener("mousemove", (ev) => {
   eyedrop.inside = true;
+  if (state.textMode) return;
   if (!state.path || eyedrop.held || !state.separationNames.length) return;
   sampleAt(...pointerFraction(ev));
 });
@@ -941,6 +989,7 @@ els.imgWrap.addEventListener("mouseleave", () => {
 });
 
 els.imgWrap.addEventListener("click", (ev) => {
+  if (state.textMode) return;
   if (!state.path || !state.separationNames.length) return;
   eyedrop.held = !eyedrop.held;
   els.separationsList.classList.toggle("held", eyedrop.held);
@@ -1099,6 +1148,11 @@ function openExternal(url) {
     openExternal(SITE_URL);
   });
 }
+
+document.getElementById("textModeBtn").addEventListener("click", () => setTextMode(!state.textMode));
+window.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && state.textMode) setTextMode(false);
+});
 
 // --- zoom & scrolling ---
 
