@@ -48,6 +48,17 @@ fn cache_dir(cache: &SepCache, key: String) -> Result<PathBuf, String> {
     Ok(p)
 }
 
+/// Decoded separation plates for the page currently being sampled by the
+/// eyedropper, keyed like `SepCache`. Only one page is held at a time.
+struct PlateCache(Mutex<Option<(String, Vec<(String, GrayImage)>)>>);
+
+#[derive(serde::Serialize)]
+struct InkSample {
+    name: String,
+    /// Ink coverage 0–100 %.
+    percent: f32,
+}
+
 /// The temp folder holding the working copy of the currently open PDF.
 /// Geometry edits go to this copy; the original file is never touched
 /// until the user exports. Replacing it drops (deletes) the previous copy.
@@ -211,6 +222,51 @@ fn page_image_dpi(path: String, page: u32) -> Result<Option<[u32; 2]>, String> {
     Ok(imageres::image_ppi_range(Path::new(&path), page)?.map(|(lo, hi)| [lo.round() as u32, hi.round() as u32]))
 }
 
+/// Eyedropper: ink coverage of every separation at a point on the page.
+/// `x`/`y` are fractions (0–1) of the displayed page. Values come from
+/// Ghostscript's tiffsep plates, so they reflect real overprint behaviour.
+#[tauri::command]
+fn sample_inks(
+    path: String,
+    page: u32,
+    dpi: u32,
+    x: f64,
+    y: f64,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+) -> Result<Vec<InkSample>, String> {
+    let key = cache_key(&path, page, dpi);
+    let mut guard = plates.0.lock().map_err(|_| "Plate cache was poisoned".to_string())?;
+    if guard.as_ref().map(|(k, _)| k != &key).unwrap_or(true) {
+        let dir_path = cache_dir(&cache, key.clone())?;
+        let found = gs::ensure_separations(Path::new(&path), page, dpi, &dir_path)?;
+        let mut decoded = Vec::with_capacity(found.len());
+        for (name, tif) in found {
+            let img = image::open(&tif)
+                .map_err(|e| format!("Could not read separation plate '{name}': {e}"))?
+                .to_luma8();
+            decoded.push((name, img));
+        }
+        *guard = Some((key, decoded));
+    }
+    let (_, decoded) = guard.as_ref().expect("plate cache just filled");
+    Ok(decoded
+        .iter()
+        .map(|(name, img)| {
+            let px = ((x.clamp(0.0, 1.0) * img.width() as f64) as u32).min(img.width().saturating_sub(1));
+            let py = ((y.clamp(0.0, 1.0) * img.height() as f64) as u32).min(img.height().saturating_sub(1));
+            let v = img.get_pixel(px, py).0[0] as f32;
+            InkSample { name: name.clone(), percent: (1.0 - v / 255.0) * 100.0 }
+        })
+        .collect())
+}
+
+fn clear_plates(plates: &PlateCache) {
+    if let Ok(mut g) = plates.0.lock() {
+        *g = None;
+    }
+}
+
 #[tauri::command]
 fn get_page_boxes(path: String, page: u32) -> Result<pagebox::PageBoxes, String> {
     pagebox::get_page_boxes(Path::new(&path), page)
@@ -223,9 +279,11 @@ fn set_page_box(
     name: String,
     rect: [f64; 4],
     cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
 ) -> Result<pagebox::PageBoxes, String> {
     let result = pagebox::set_page_box(Path::new(&path), page, &name, rect)?;
     invalidate_path(&cache, &path);
+    clear_plates(&plates);
     Ok(result)
 }
 
@@ -235,9 +293,11 @@ fn reset_page_box(
     page: u32,
     name: String,
     cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
 ) -> Result<pagebox::PageBoxes, String> {
     let result = pagebox::reset_page_box(Path::new(&path), page, &name)?;
     invalidate_path(&cache, &path);
+    clear_plates(&plates);
     Ok(result)
 }
 
@@ -247,9 +307,11 @@ fn set_page_rotation(
     page: u32,
     degrees: i32,
     cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
 ) -> Result<pagebox::PageBoxes, String> {
     let result = pagebox::set_rotation(Path::new(&path), page, degrees)?;
     invalidate_path(&cache, &path);
+    clear_plates(&plates);
     Ok(result)
 }
 
@@ -259,6 +321,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(SepCache(Mutex::new(HashMap::new())))
         .manage(WorkingCopy(Mutex::new(None)))
+        .manage(PlateCache(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             check_ghostscript,
             open_pdf,
@@ -268,6 +331,7 @@ pub fn run() {
             list_separations,
             render_separation_composite,
             page_image_dpi,
+            sample_inks,
             get_page_boxes,
             set_page_box,
             reset_page_box,

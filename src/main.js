@@ -83,6 +83,9 @@ const state = {
   unit: "mm", // "mm" | "pt" — PDF stores points; mm is converted for display/entry
 };
 
+// Eyedropper request state (see the eyedropper section below).
+const eyedrop = { inFlight: false, pending: null, held: false };
+
 const MM_PER_PT = 25.4 / 72;
 const toUnit = (pt) => (state.unit === "mm" ? pt * MM_PER_PT : pt);
 const fromUnit = (v) => (state.unit === "mm" ? v / MM_PER_PT : v);
@@ -191,6 +194,11 @@ async function exportPdf() {
 }
 
 function updatePageControls() {
+  // A held eyedropper reading belongs to the previous page/file.
+  if (eyedrop.held) {
+    eyedrop.held = false;
+    showInkMessage("Hover over the page to read ink values.");
+  }
   els.pageLabel.textContent = state.path ? `Page ${state.page} / ${state.pageCount}` : "–";
   els.prevPage.disabled = !state.path || state.page <= 1;
   els.nextPage.disabled = !state.path || state.page >= state.pageCount;
@@ -514,6 +522,99 @@ function setUnit(unit) {
 }
 els.unitMm.addEventListener("click", () => setUnit("mm"));
 els.unitPt.addEventListener("click", () => setUnit("pt"));
+
+// --- eyedropper ---
+// Hovering the preview asks the backend for ink % at that point (read
+// from the tiffsep plates). Only one request is in flight at a time; the
+// latest pointer position is sent once it returns.
+
+const inkReadout = document.getElementById("inkReadout");
+const eyedropToggle = document.getElementById("eyedropToggle");
+const imgWrap = document.getElementById("imgWrap");
+
+function setEyedropCursor() {
+  imgWrap.classList.toggle("eyedrop", eyedropToggle.checked);
+}
+
+function showInkMessage(text) {
+  inkReadout.classList.remove("held");
+  inkReadout.innerHTML = "";
+  const li = document.createElement("li");
+  li.className = "hint";
+  li.textContent = text;
+  inkReadout.appendChild(li);
+}
+
+function showInks(samples) {
+  inkReadout.innerHTML = "";
+  inkReadout.classList.toggle("held", eyedrop.held);
+  let total = 0;
+  for (const { name, percent } of samples) {
+    total += percent;
+    const li = document.createElement("li");
+    const sw = document.createElement("span");
+    sw.className = "swatch";
+    sw.style.background = SWATCHES[name] || spotSwatch(name);
+    const n = document.createElement("span");
+    n.className = "ink-name";
+    n.textContent = name;
+    const v = document.createElement("span");
+    v.className = "ink-value";
+    v.textContent = `${Math.round(percent)}%`;
+    li.append(sw, n, v);
+    inkReadout.appendChild(li);
+  }
+  const t = document.createElement("li");
+  t.className = "ink-total";
+  t.innerHTML = `<span class="ink-name">Total ink</span><span class="ink-value">${Math.round(total)}%</span>`;
+  inkReadout.appendChild(t);
+}
+
+async function sampleAt(x, y) {
+  if (eyedrop.inFlight) {
+    eyedrop.pending = [x, y];
+    return;
+  }
+  eyedrop.inFlight = true;
+  try {
+    const samples = await invoke("sample_inks", { path: state.path, page: state.page, dpi: state.dpi, x, y });
+    if (eyedrop.pending === null) showInks(samples); // skip if a newer point is queued
+  } catch (err) {
+    showInkMessage(String(err));
+  } finally {
+    eyedrop.inFlight = false;
+    if (eyedrop.pending) {
+      const [px, py] = eyedrop.pending;
+      eyedrop.pending = null;
+      sampleAt(px, py);
+    }
+  }
+}
+
+function pointerFraction(ev) {
+  const r = els.preview.getBoundingClientRect();
+  return [(ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height];
+}
+
+els.preview.addEventListener("mousemove", (ev) => {
+  if (!eyedropToggle.checked || !state.path || eyedrop.held) return;
+  if (eyedrop.inFlight === false && inkReadout.children.length <= 1) showInkMessage("Reading separations…");
+  sampleAt(...pointerFraction(ev));
+});
+
+els.preview.addEventListener("click", (ev) => {
+  if (!eyedropToggle.checked || !state.path) return;
+  eyedrop.held = !eyedrop.held;
+  inkReadout.classList.toggle("held", eyedrop.held);
+  sampleAt(...pointerFraction(ev));
+});
+
+eyedropToggle.addEventListener("change", () => {
+  eyedrop.held = false;
+  setEyedropCursor();
+  showInkMessage(eyedropToggle.checked ? "Hover over the page to read ink values." : "Eyedropper is off.");
+});
+setEyedropCursor();
 
 els.emptyOpenBtn.addEventListener("click", openPdf);
 els.fileName.addEventListener("click", openPdf);

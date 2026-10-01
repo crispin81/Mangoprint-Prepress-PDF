@@ -56,6 +56,22 @@
 
       <aside id="sidebar">
         <div class="panel">
+          <div class="panel-header">
+            <h2>Eyedropper</h2>
+            <label class="toggle-row inline">
+              <input type="checkbox" id="eyedropToggle" checked />
+              On
+            </label>
+          </div>
+          <ul id="inkReadout"><li class="hint">Hover over the page to read ink values.</li></ul>
+          <p class="hint">
+            Ink percentages at the cursor, read from the actual separations
+            (so overprint is taken into account). Click to hold a reading;
+            click again to release.
+          </p>
+        </div>
+
+        <div class="panel">
           <h2>Overprint Preview</h2>
           <label class="toggle-row">
             <input type="checkbox" id="overprintToggle" />

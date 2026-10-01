@@ -515,6 +515,61 @@ input[type="radio"] {
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
+/* --- eyedropper --- */
+
+.toggle-row.inline {
+  font-size: 11px;
+  padding: 0;
+  gap: 5px;
+}
+
+#inkReadout {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+#inkReadout li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+#inkReadout .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+#inkReadout .ink-name {
+  flex: 1;
+}
+
+#inkReadout .ink-value {
+  font-weight: 600;
+}
+
+#inkReadout li.ink-total {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 5px;
+  color: var(--muted);
+}
+
+#inkReadout.held .ink-value {
+  color: var(--accent);
+}
+
+#imgWrap.eyedrop #preview,
+#imgWrap.eyedrop #boxOverlay {
+  cursor: crosshair;
+}
+
 /* --- page boxes --- */
 
 .box-row {
