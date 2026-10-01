@@ -215,11 +215,22 @@ fn render_separation_composite(
     png_to_data_uri(&out_path)
 }
 
-/// [lowest, highest] effective resolution of the raster images on a page,
-/// rounded to whole PPI; `None` for pages with no raster images.
+#[derive(serde::Serialize)]
+struct PageContent {
+    /// [lowest, highest] effective raster image resolution in whole PPI;
+    /// `None` when the page has no raster images.
+    ppi: Option<[u32; 2]>,
+    /// The page has vector content (paths, shadings or text).
+    vector: bool,
+}
+
 #[tauri::command]
-fn page_image_dpi(path: String, page: u32) -> Result<Option<[u32; 2]>, String> {
-    Ok(imageres::image_ppi_range(Path::new(&path), page)?.map(|(lo, hi)| [lo.round() as u32, hi.round() as u32]))
+fn page_image_dpi(path: String, page: u32) -> Result<PageContent, String> {
+    let scan = imageres::scan_page(Path::new(&path), page)?;
+    Ok(PageContent {
+        ppi: scan.ppi.map(|(lo, hi)| [lo.round() as u32, hi.round() as u32]),
+        vector: scan.vector,
+    })
 }
 
 /// Eyedropper: ink coverage of every separation at a point on the page.

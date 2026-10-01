@@ -132,6 +132,14 @@ fn ps_escape(path: &Path) -> String {
 
 /// Ghostscript treats `%` in -sOutputFile as a printf-style page-number
 /// placeholder; a literal `%` must be doubled.
+/// Prepress wants the CMYK numbers that are actually in the file. By
+/// default Ghostscript colour-manages ICC-based CMYK (embedded profiles)
+/// into its own default CMYK profile, which shifts values — e.g. 100 K
+/// text turns into a rich black. `OverrideICC` makes it ignore embedded
+/// profiles so CMYK passes straight through; plain DeviceCMYK is already
+/// passed through untouched. RGB content still has to be converted.
+const PRESERVE_CMYK: &str = "-dOverrideICC=true";
+
 fn output_file_arg(path: &Path) -> String {
     format!("-sOutputFile={}", path.to_string_lossy().replace('%', "%%"))
 }
@@ -185,6 +193,7 @@ pub fn render_overprint_png(
             "-dNOPAUSE",
             "-dSAFER",
             "-sDEVICE=png16m",
+            PRESERVE_CMYK,
             &format!("-r{dpi}"),
             &format!("-dFirstPage={page}"),
             &format!("-dLastPage={page}"),
@@ -264,6 +273,7 @@ pub fn render_separations(
             "-dNOPAUSE",
             "-dSAFER",
             "-sDEVICE=tiffsep",
+            PRESERVE_CMYK,
             &format!("-r{dpi}"),
             &format!("-dFirstPage={page}"),
             &format!("-dLastPage={page}"),

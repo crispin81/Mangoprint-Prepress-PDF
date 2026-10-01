@@ -156,20 +156,21 @@ async function updateRasterDpi() {
     els.rasterDpi.textContent = "–";
     return;
   }
-  let range = null;
+  let info;
   try {
-    range = await invoke("page_image_dpi", { path: state.path, page: state.page });
+    info = await invoke("page_image_dpi", { path: state.path, page: state.page });
   } catch (err) {
     console.error(err);
     els.rasterDpi.textContent = "?";
     return;
   }
-  if (!range) {
-    els.rasterDpi.textContent = "no raster images";
-    return;
+  const parts = [];
+  if (info.ppi) {
+    const [lo, hi] = info.ppi;
+    parts.push(lo === hi ? `${lo}` : `${lo}–${hi}`);
   }
-  const [lo, hi] = range;
-  els.rasterDpi.textContent = lo === hi ? `${lo}` : `${lo}–${hi}`;
+  if (info.vector) parts.push("Vector");
+  els.rasterDpi.textContent = parts.length ? parts.join(" + ") : "–";
 }
 
 function setEdited(edited) {

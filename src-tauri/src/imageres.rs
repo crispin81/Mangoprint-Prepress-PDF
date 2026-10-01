@@ -57,13 +57,25 @@ fn find_xobject<'a>(doc: &'a Document, resources: &[&'a Dictionary], name: &[u8]
 /// Lowest and highest effective PPI seen so far.
 type Range = Option<(f64, f64)>;
 
-fn walk(doc: &Document, content: &[u8], resources: &[&Dictionary], start: Matrix, depth: u32, best: &mut Range) {
+/// What a page contains: the raster image resolution range, and whether
+/// there is any vector content (filled/stroked paths, shadings or text).
+#[derive(Default)]
+pub struct Scan {
+    pub ppi: Range,
+    pub vector: bool,
+}
+
+fn walk(doc: &Document, content: &[u8], resources: &[&Dictionary], start: Matrix, depth: u32, scan: &mut Scan) {
     let Ok(ops) = Content::decode(content) else { return };
     let mut ctm = start;
     let mut stack: Vec<Matrix> = Vec::new();
 
     for op in &ops.operations {
         match op.operator.as_str() {
+            // Path painting (not `n`, which only clips), shadings and text.
+            "f" | "F" | "f*" | "S" | "s" | "B" | "B*" | "b" | "b*" | "sh" | "Tj" | "TJ" | "'" | "\"" => {
+                scan.vector = true;
+            }
             "q" => stack.push(ctm),
             "Q" => ctm = stack.pop().unwrap_or(start),
             "cm" => {
@@ -86,7 +98,7 @@ fn walk(doc: &Document, content: &[u8], resources: &[&Dictionary], start: Matrix
                         continue; // ignore tiny images/masks — they skew the result
                     }
                     let ppi = (w / (placed_w / 72.0)).min(h / (placed_h / 72.0));
-                    *best = Some(best.map_or((ppi, ppi), |(lo, hi)| (lo.min(ppi), hi.max(ppi))));
+                    scan.ppi = Some(scan.ppi.map_or((ppi, ppi), |(lo, hi)| (lo.min(ppi), hi.max(ppi))));
                 } else if subtype == b"Form" && depth < MAX_FORM_DEPTH {
                     let form_m = stream
                         .dict
@@ -102,7 +114,7 @@ fn walk(doc: &Document, content: &[u8], resources: &[&Dictionary], start: Matrix
                     // Forms without their own /Resources inherit the caller's.
                     form_res.extend_from_slice(resources);
                     let data = stream.decompressed_content().unwrap_or_else(|_| stream.content.clone());
-                    walk(doc, &data, &form_res, mul(&form_m, &ctm), depth + 1, best);
+                    walk(doc, &data, &form_res, mul(&form_m, &ctm), depth + 1, scan);
                 }
             }
             _ => {}
@@ -110,9 +122,9 @@ fn walk(doc: &Document, content: &[u8], resources: &[&Dictionary], start: Matrix
     }
 }
 
-/// Lowest and highest effective image resolution (pixels per inch) placed
-/// on `page`, or `None` if the page has no raster images (vector/text only).
-pub fn image_ppi_range(path: &Path, page: u32) -> Result<Range, String> {
+/// Scans `page` for placed raster images (lowest/highest effective pixels
+/// per inch) and vector content.
+pub fn scan_page(path: &Path, page: u32) -> Result<Scan, String> {
     let doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
     let page_id = *doc
         .get_pages()
@@ -124,9 +136,9 @@ pub fn image_ppi_range(path: &Path, page: u32) -> Result<Range, String> {
     let mut resources: Vec<&Dictionary> = own.into_iter().collect();
     resources.extend(inherited.iter().filter_map(|id| doc.get_dictionary(*id).ok()));
 
-    let mut best = None;
-    walk(&doc, &content, &resources, IDENTITY, 0, &mut best);
-    Ok(best)
+    let mut scan = Scan::default();
+    walk(&doc, &content, &resources, IDENTITY, 0, &mut scan);
+    Ok(scan)
 }
 
 #[cfg(test)]
@@ -145,7 +157,7 @@ mod tests {
     fn real_pdf_if_given() {
         let Ok(p) = std::env::var("MP_TEST_PDF") else { return };
         for page in 1..=3 {
-            println!("page {page}: {:?}", image_ppi_range(Path::new(&p), page));
+            println!("page {page}: {:?}", scan_page(Path::new(&p), page).map(|s| (s.ppi, s.vector)));
         }
     }
 }
