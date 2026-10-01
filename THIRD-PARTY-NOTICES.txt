@@ -1,0 +1,17 @@
+Mangoprint Prepress PDF uses these open-source components.
+
+Ghostscript 10.08.0 - Artifex Software, Inc. - AGPL-3.0
+  Bundled in the "ghostscript" folder; see ghostscript\README.txt for the
+  licence and source code.
+PDF.js 6.3 - Mozilla Foundation - Apache License 2.0
+  https://github.com/mozilla/pdf.js  (includes OpenJPEG, JBIG2 and qcms
+  decoders and the Foxit/Liberation standard fonts, each under their own
+  permissive licences as listed in the PDF.js distribution)
+Tauri 2 - The Tauri Programme within The Commons Conservancy - MIT / Apache-2.0
+  https://tauri.app
+lopdf - MIT - https://github.com/J-F-Liu/lopdf
+image, tiff, png, serde, tempfile and other Rust crates - MIT / Apache-2.0
+Poppins typeface - Indian Type Foundry - SIL Open Font License 1.1
+
+Mangoprint Prepress PDF itself is free and open-source software, licensed
+AGPL-3.0, developed by Chris Cork from Mangoprint.co.uk.

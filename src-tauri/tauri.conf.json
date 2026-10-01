@@ -26,7 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "category": "Graphics",
+    "category": "GraphicsAndDesign",
     "shortDescription": "Overprint, separations and page box checker for print PDFs",
     "icon": [
       "icons/32x32.png",
@@ -42,6 +42,22 @@
     },
     "macOS": {
       "minimumSystemVersion": "10.15"
+    },
+    "publisher": "Chris Cork - Mangoprint.co.uk",
+    "copyright": "Copyright (C) 2026 Chris Cork, Mangoprint.co.uk. Licensed AGPL-3.0.",
+    "homepage": "https://github.com/crispin81/MangoprintPrepressPDF",
+    "longDescription": "Free tool for checking print-ready PDFs: overprint preview, separations and ink readings, trim and bleed boxes, RGB and spot colour checks and fixes.",
+    "linux": {
+      "deb": {
+        "depends": [
+          "ghostscript"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "ghostscript"
+        ]
+      }
     }
   }
 }

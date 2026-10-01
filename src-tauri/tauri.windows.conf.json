@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "ghostscript/bin/gswin64c.exe": "ghostscript/bin/gswin64c.exe",
+      "ghostscript/bin/gsdll64.dll": "ghostscript/bin/gsdll64.dll",
+      "ghostscript/COPYING.txt": "ghostscript/COPYING.txt",
+      "ghostscript/README.txt": "ghostscript/README.txt",
+      "../THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt"
+    }
+  }
+}

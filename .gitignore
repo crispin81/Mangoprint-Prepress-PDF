@@ -4,3 +4,4 @@ src-tauri/gen/
 dist/
 *.log
 portable/
+src-tauri/ghostscript/

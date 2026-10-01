@@ -66,6 +66,19 @@ jobs:
           cp .github/appimage/linuxdeploy-plugin-gtk.sh ~/.cache/tauri/linuxdeploy-plugin-gtk.sh
           chmod +x ~/.cache/tauri/linuxdeploy-plugin-gtk.sh
 
+      - name: bundle Ghostscript (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ver = 'gs10080'
+          Invoke-WebRequest "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/$ver/${ver}w64.exe" -OutFile gs.exe
+          Start-Process .\gs.exe -ArgumentList '/S' -Wait
+          $gs = (Get-ChildItem 'C:\Program Files\gs\*\bin\gswin64c.exe' | Select-Object -First 1).Directory.Parent.FullName
+          New-Item -ItemType Directory -Force src-tauri\ghostscript\bin | Out-Null
+          Copy-Item "$gs\bin\gswin64c.exe","$gs\bin\gsdll64.dll" src-tauri\ghostscript\bin
+          Copy-Item "$gs\doc\COPYING" src-tauri\ghostscript\COPYING.txt
+          Copy-Item .github\ghostscript-README.txt src-tauri\ghostscript\README.txt
+
       - name: unit tests
         if: matrix.platform != 'macos-latest'
         run: cargo test --manifest-path src-tauri/Cargo.toml

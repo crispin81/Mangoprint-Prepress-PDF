@@ -1,141 +1,119 @@
 # Mangoprint Prepress PDF
 
-A small desktop app for **Windows, macOS and Linux** (Tauri v2 + Rust +
-vanilla JS) for checking trapping in print-ready PDFs: overprint
-simulation, per-separation (CMYK + spot) plate inspection, and page
-box/rotation checking and editing, in the spirit of Adobe Acrobat's
-**Output Preview** panel. Styled to match RapidCulling (bundled Poppins,
-same dark palette and gold accent, frameless title bar).
+A free prepress checker for print-ready PDFs. Check overprint,
+separations and ink coverage, see and set trim and bleed, find RGB and spot colours, and fix them, all in a native
+desktop app (Tauri: Rust backend, plain JavaScript UI) with nothing else to
+install on Windows.
 
-It does not reimplement a RIP. It drives **Ghostscript**, the engine most
-real prepress tooling is built on, and asks it the two questions
-Acrobat's panel answers:
+📺 [Video walkthrough](https://youtu.be/T5qqebtV9_g)
 
-1. **Overprint Preview** — render the page with `-dSimulateOverprint=true`
-   vs `false`. This is the literal flag behind Acrobat's "Simulate
-   Overprinting" checkbox: off shows the naive composite where each object
-   knocks out what's underneath it; on shows what will actually happen on
-   an overprint-aware output device.
-2. **Separations** — render through Ghostscript's `tiffsep` device, which
-   rasterizes every colorant (C, M, Y, K, and any spot colors defined in
-   the PDF) to its own 8-bit grayscale plate, already resolved through the
-   page's real overprint/knockout state. The app lets you toggle plates
-   on/off and recombines the checked ones (in Rust) using a standard
-   subtractive print model, so you can see e.g. whether black text is set
-   to overprint or knockout — the classic trapping check.
+Free and open-source, licensed [AGPL-3.0](LICENSE). Developed and
+maintained by Chris Cork from [Mangoprint.co.uk](https://mangoprint.co.uk).
 
-## Installing (users)
+## Installing
 
-1. **Install Ghostscript** — the app's only runtime dependency. It's not
-   bundled (Ghostscript is AGPL-licensed and large), so install it once:
-   - **Windows:** run the 64-bit installer from
-     https://ghostscript.com/releases/gsdnld.html. The app finds it in
-     `C:\Program Files\gs\…` automatically; no PATH changes needed.
-   - **macOS:** `brew install ghostscript` (Homebrew and MacPorts locations
-     are found automatically).
-   - **Linux:** `sudo apt install ghostscript` / `sudo dnf install
-     ghostscript` / `sudo pacman -S ghostscript`.
+Grab the latest build from
+[Releases](https://github.com/crispin81/MangoprintPrepressPDF/releases).
 
-   The app shows a red banner at the top if it can't find Ghostscript.
-2. **Install the app** from the installers built by GitHub (see below):
-   - Windows: the `.exe` (NSIS) or `.msi`. WebView2 is already part of
-     Windows 11; on older Windows the installer fetches it.
-   - macOS: the `.dmg` (universal — Apple Silicon and Intel). It isn't
-     signed with an Apple Developer ID, so the first time, right-click the
-     app → **Open** → **Open** (or run `xattr -cr "/Applications/Mangoprint
-     Prepress PDF.app"`).
-   - Linux: `.AppImage`, `.deb` or `.rpm`.
+**These builds aren't code-signed** (that needs a paid developer
+certificate this project doesn't have yet), so Windows will warn that the
+publisher is unverified on first launch. That's expected for unsigned beta
+software, not a sign anything's wrong:
 
-## Building installers for all three platforms (GitHub Actions)
+- **Windows (installer)**: [Direct download (setup .exe)](https://github.com/crispin81/MangoprintPrepressPDF/releases/download/v0.1.0-beta/MangoprintPrepressPDF_0.1.0_x64-setup.exe),
+  or the [.msi](https://github.com/crispin81/MangoprintPrepressPDF/releases/download/v0.1.0-beta/MangoprintPrepressPDF_0.1.0_x64_en-US.msi)
+  if you prefer. SmartScreen will show "Windows protected your PC" — click
+  **More info**, then **Run anyway**.
+- **Windows (portable, no install)**: [Direct download (.zip)](https://github.com/crispin81/MangoprintPrepressPDF/releases/download/v0.1.0-beta/MangoprintPrepressPDF_0.1.0_portable_win64.zip).
+  Unzip anywhere (a USB stick is fine) and run
+  `Mangoprint Prepress PDF.exe`. Keep the `ghostscript` folder next to it.
+- **macOS and Linux**: coming soon.
 
-You don't need a Mac or a Windows PC to build their versions. Push this
-project to a GitHub repo and:
+Ghostscript, which powers overprint preview, separations, ink readings and
+the colour/font conversions, is **built into the Windows installer and
+portable version** — there's nothing else to install. Windows 10 and 11
+already include the WebView2 runtime the app needs.
 
-- **Any push to `main`** (or **Actions → build → Run workflow**) builds
-  Windows, macOS and Linux installers. When the run finishes, download them
-  from the **Artifacts** section at the bottom of the run's page
-  (`Mangoprint-Windows`, `Mangoprint-macOS`, `Mangoprint-Linux`).
-- **Pushing a tag** like `v0.1.0` (`git tag v0.1.0 && git push --tags`)
-  builds all three and attaches the installers to a **draft Release** you
-  can review and publish.
+## Usage
 
-Same setup as RapidCulling's workflows, including its patched
-`linuxdeploy` GTK hook for native Wayland in the AppImage.
+1. **Open a PDF** with the Open PDF button (or click the file name in the
+   toolbar to open another). Pages appear as thumbnails on the left; the page
+   itself is drawn as true vectors, sharp at any zoom, with images at their
+   own resolution.
+2. **Check it.**
+   - **Overprint Preview** — tick *Simulate overprinting* to see what an
+     overprint-aware press will actually produce.
+   - **Separations** — hover over the page to read the ink % of every
+     plate (CMYK and spot colours, plus total ink) at the cursor; click to
+     lock a reading (a gold padlock follows the cursor), click again to
+     release. Untick plates to inspect trapping and knockouts.
+   - **Raster DPI of PDF** in the toolbar shows the effective resolution of
+     the placed images on the page, plus *Vector* when there's vector art
+     or text.
+   - **Select text** (on by default) lets you highlight live text, so you
+     can tell text from outlined artwork.
+   - A **white overprint warning** pops up on opening if anything white is
+     set to overprint (it would vanish on press).
+3. **Fix it.** Everything in the gold *Apply edits to* box works on all
+   pages by default, or switch to *This page*:
+   - **Colour & Fonts** — check for RGB, convert RGB to CMYK, convert spot
+     colours to CMYK, convert text to outlines.
+   - **Page Rotation** — or use the ↺ ↻ arrows on a single thumbnail.
+   - **Page Boxes** — trim (red) and bleed (blue) measured in mm in from
+     each edge of the page; the lines move as you type.
+4. **Export PDF** saves a copy with your changes.
 
-## Building locally (developers)
+### Keyboard and mouse
 
-Needs Rust (`rustup`, stable), Node.js 18+, and Ghostscript, plus:
+- <kbd>Z</kbd> — zoom area tool: drag a box to zoom into it, click to zoom
+  in, <kbd>Alt</kbd>+click to zoom out
+- <kbd>Ctrl</kbd>+mouse wheel, <kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>−</kbd> — zoom;
+  <kbd>Ctrl</kbd>+<kbd>0</kbd> — fit page; <kbd>Ctrl</kbd>+<kbd>1</kbd> — actual size
+- Mouse wheel, <kbd>Page Up</kbd>/<kbd>Page Down</kbd>, <kbd>Home</kbd>/<kbd>End</kbd> — move between pages
+- <kbd>Esc</kbd> — leave the zoom tool / text selection
 
-- **Windows:** Microsoft C++ Build Tools ("Desktop development with C++").
-  WebView2 is already present on Windows 10/11.
-- **macOS:** Xcode Command Line Tools (`xcode-select --install`).
-- **Linux:** WebKitGTK and friends, e.g. Debian/Ubuntu:
-  `sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`.
-  Full list: https://v2.tauri.app/start/prerequisites/
+## Data safety
+
+- **Your original PDF is never modified.** Opening a file makes a working
+  copy in a temporary folder; every edit and conversion goes to that copy.
+  Nothing reaches your files until you choose **Export PDF**, which writes
+  a new file (named `…_edited.pdf` by default). The app asks before
+  discarding unexported changes.
+- **Conversions keep quality**: images stay at full resolution (no
+  downsampling, JPEGs passed through untouched), existing CMYK values,
+  overprint settings and page boxes are preserved, and vectors stay vectors.
+- **CMYK values are shown as they are in the file** — embedded colour
+  profiles aren't applied to CMYK, so 100% K reads as 100% K, not a
+  converted rich black.
+
+## Building / running
+
+Requires Node 18+ and a Rust toolchain (see [tauri.app/start/prerequisites](https://tauri.app/start/prerequisites/)),
+plus [Ghostscript](https://ghostscript.com/releases/gsdnld.html) for
+development.
 
 ```bash
 npm install
-npm run dev      # run the app in dev mode
-npm run build    # build installers for the platform you're on
-cargo test --manifest-path src-tauri/Cargo.toml   # unit tests
+npm run tauri dev      # run in development
+npm run tauri build    # produce a native installer for the current OS
 ```
 
-There's no frontend build step: `src/` is plain HTML/CSS/JS served as-is,
-using Tauri's global `window.__TAURI__` API.
+The Windows build bundles Ghostscript from `src-tauri/ghostscript/`
+(`bin/gswin64c.exe`, `bin/gsdll64.dll`, `COPYING.txt`, `README.txt`) —
+copy those from a Ghostscript 10.x install before running `tauri build` on
+Windows (the GitHub Actions build does this automatically). On macOS and
+Linux the app uses the system Ghostscript.
 
-## How to use it
+`tauri build` produces a `.msi`/`.exe` on Windows, `.dmg`/`.app` on macOS
+and `.AppImage`/`.deb`/`.rpm` on Linux — run it on each target OS (or via
+CI) to get that platform's installer.
 
-1. **Open PDF…** and pick a print-ready file.
-2. Use **Overprint Preview** mode and flip **Simulate overprinting** to
-   compare the two renders — a mismatch usually means an overprint flag
-   was set incorrectly somewhere in the file.
-3. Switch to **Separations** mode to isolate individual plates:
-   - Uncheck everything but K: is small black text built from K only, or
-     does it pull in C/M/Y too?
-   - Uncheck K: does removing black leave a gap (knockout) or does the
-     artwork underneath remain (overprint)?
-   - Spot colors are listed by name below the process plates — toggle them
-     to confirm they're where you expect (e.g. a die-line or varnish plate).
-4. **Page Rotation** sets the page's `/Rotate` entry (0°/90°/180°/270°),
-   the same thing Acrobat's "Rotate Pages" changes.
-5. **Page Boxes** shows MediaBox, CropBox, TrimBox, ArtBox and BleedBox
-   for the current page as colored outlines over the preview. You can see
-   whether each is explicit or defaulted, edit its coordinates (points),
-   or reset it to default. Edits are written straight into the page
-   dictionary via `lopdf` (no re-distilling) and saved immediately; a
-   `<filename>.pdf.bak` safety copy is made the first time you edit a file.
+## Credits
 
-## Known limitations / approximations
+Built with [Ghostscript](https://ghostscript.com) (Artifex Software,
+AGPL-3.0), [PDF.js](https://github.com/mozilla/pdf.js) (Mozilla,
+Apache-2.0), [Tauri](https://tauri.app) (MIT/Apache-2.0),
+[lopdf](https://github.com/J-F-Liu/lopdf) (MIT) and the Poppins typeface
+(SIL Open Font License). See [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
 
-- **Spot color preview is not color-accurate** — spot plates show as a
-  neutral darkening (placement and coverage, not the real ink color).
-- **No ICC-managed CMYK→RGB conversion** — for structural/trapping checks,
-  not exact soft-proofing.
-- Rendering is per-page on demand; large pages at 300 DPI take a few
-  seconds (Ghostscript is the bottleneck).
-- A malformed Trim/Art/Bleed box entry is treated as "not set" rather than
-  flagged as an error.
-- Editing a page box rewrites the whole file via `lopdf`.
-- The window is frameless (custom title bar, like RapidCulling), so macOS
-  shows the app's own minimize/maximize/close buttons rather than the
-  usual traffic lights.
-
-## Project layout
-
-```
-src/                        plain HTML/CSS/JS frontend + bundled Poppins fonts
-src-tauri/src/gs.rs         Ghostscript discovery (per OS) + invocation
-src-tauri/src/pagebox.rs    page box + rotation read/write via lopdf
-src-tauri/src/lib.rs        Tauri commands, separation caching, plate recombination
-src-tauri/icons/            app icons (.png, .ico for Windows, .icns for macOS)
-.github/workflows/          build.yml (3-platform artifacts), release.yml (tagged releases)
-```
-
-## Build status
-
-The first real compile happens on the first GitHub Actions run (or your
-first `npm run dev`). The Ghostscript module has been compiled and
-unit-tested on its own; the rest hasn't been compiled yet. If something
-fails, the likeliest spots are `src-tauri/src/pagebox.rs` (`lopdf` API
-differences between versions — see the note at the top of that file) and
-`src-tauri/capabilities/default.json` (Tauri permission names).
+If it saves you time, [buy Chris a coffee](https://buymeacoffee.com/chriscorkphotography) 😊

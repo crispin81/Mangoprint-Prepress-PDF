@@ -1,11 +1,15 @@
-# Push a tag like v0.1.0 to build all three platforms and attach the
-# installers to a draft GitHub Release you can then publish.
-name: release
+# Builds the macOS and Linux installers and attaches them to a DRAFT
+# GitHub Release (only visible to the repo owner) for testing before they
+# go public. Run it from the Actions tab: "release-mac-linux" -> "Run workflow".
+# Windows releases are built on Windows with Ghostscript bundled.
+name: release-mac-linux
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag for the draft release'
+        default: 'v0.1.0-beta-mac-linux'
 
 jobs:
   release:
@@ -18,8 +22,6 @@ jobs:
           - platform: 'macos-latest'
             args: '--target universal-apple-darwin'
           - platform: 'ubuntu-22.04'
-            args: ''
-          - platform: 'windows-latest'
             args: ''
 
     runs-on: ${{ matrix.platform }}
@@ -54,9 +56,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Mangoprint Prepress PDF ${{ github.ref_name }}'
-          releaseBody: 'Installers for Windows, macOS and Linux. Ghostscript must be installed separately - see the README.'
+          tagName: ${{ github.event.inputs.tag }}
+          releaseName: 'Mangoprint Prepress PDF macOS & Linux (testing)'
+          releaseBody: 'Test builds for macOS and Linux. Not public until published. Ghostscript must be installed on these platforms - see the README.'
           releaseDraft: true
           prerelease: true
           args: ${{ matrix.args }}
