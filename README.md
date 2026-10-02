@@ -20,7 +20,7 @@ certificate this project doesn't have yet), so your OS will warn that the
 publisher is unverified on first launch. That's expected for unsigned beta
 software, not a sign anything's wrong:
 
-- **macOS**: [Direct download (.dmg, Apple Silicon + Intel)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_universal.dmg).
+- **macOS**: [Direct download (.dmg, Apple Silicon + Intel)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF_0.1.1_universal.dmg).
   Open the `.dmg`, drag `Mangoprint Prepress PDF.app` into Applications.
   Gatekeeper will refuse to open it the first time — recent macOS versions
   no longer reliably let you bypass this with right-click → Open, so use one
@@ -33,22 +33,22 @@ software, not a sign anything's wrong:
     then go to **System Settings → Privacy & Security**, scroll down to
     the security notice about Mangoprint Prepress PDF, and click
     **Open Anyway**.
-- **Windows (installer)**: [Direct download (setup .exe)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_x64-setup.exe),
-  or the [.msi](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_x64_en-US.msi)
+- **Windows (installer)**: [Direct download (setup .exe)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF_0.1.1_x64-setup.exe),
+  or the [.msi](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF_0.1.1_x64_en-US.msi)
   if you prefer. SmartScreen will show "Windows protected your PC" — click
   **More info**, then **Run anyway**.
-- **Windows (portable, no install)**: [Direct download (.zip)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_portable_win64.zip).
+- **Windows (portable, no install)**: [Direct download (.zip)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF_0.1.1_portable_win64.zip).
   Unzip anywhere (a USB stick is fine) and run
   `Mangoprint Prepress PDF.exe`. Keep the `ghostscript` folder next to it.
-- **Linux**: [Direct download (.AppImage)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_amd64.AppImage).
+- **Linux**: [Direct download (.AppImage)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF_0.1.1_amd64.AppImage).
   `chmod +x` the `.AppImage` and run it directly (works on Debian, Ubuntu,
   Arch, Fedora and most others):
   ```
-  chmod +x Mangoprint-Prepress-PDF_0.1.0_amd64.AppImage
-  ./Mangoprint-Prepress-PDF_0.1.0_amd64.AppImage
+  chmod +x Mangoprint-Prepress-PDF_0.1.1_amd64.AppImage
+  ./Mangoprint-Prepress-PDF_0.1.1_amd64.AppImage
   ```
-  Or install the [.deb](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_amd64.deb)
-  / [.rpm](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF-0.1.0-1.x86_64.rpm)
+  Or install the [.deb](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF_0.1.1_amd64.deb)
+  / [.rpm](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF-0.1.1-1.x86_64.rpm)
   for your distro. On Wayland the AppImage runs natively, falling back to
   X11 automatically if needed.
 
@@ -58,8 +58,10 @@ Windows 10 and 11 already include the WebView2 runtime the app needs.
 
 ## Usage
 
-1. **Open a PDF** with the Open PDF button (or click the file name in the
-   toolbar to open another). Pages appear as thumbnails on the left; the page
+1. **Open a PDF** with the Open PDF button, by dragging it onto the
+   window, or by double-clicking it (the installers register the app as a
+   PDF viewer; it also appears under **Open with**). Click the file name in
+   the toolbar to open another. Pages appear as thumbnails on the left; the page
    itself is drawn as true vectors, sharp at any zoom, with images at their
    own resolution.
 2. **Check it.**
