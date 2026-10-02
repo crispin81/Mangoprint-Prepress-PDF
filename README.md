@@ -20,6 +20,19 @@ certificate this project doesn't have yet), so your OS will warn that the
 publisher is unverified on first launch. That's expected for unsigned beta
 software, not a sign anything's wrong:
 
+- **macOS**: [Direct download (.dmg, Apple Silicon + Intel)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_universal.dmg).
+  Open the `.dmg`, drag `Mangoprint Prepress PDF.app` into Applications.
+  Gatekeeper will refuse to open it the first time — recent macOS versions
+  no longer reliably let you bypass this with right-click → Open, so use one
+  of these instead:
+  - **Terminal** (quickest): run this once, then launch normally:
+    ```
+    xattr -dr com.apple.quarantine "/Applications/Mangoprint Prepress PDF.app"
+    ```
+  - **System Settings**: try to open the app once (it'll be blocked),
+    then go to **System Settings → Privacy & Security**, scroll down to
+    the security notice about Mangoprint Prepress PDF, and click
+    **Open Anyway**.
 - **Windows (installer)**: [Direct download (setup .exe)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_x64-setup.exe),
   or the [.msi](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_x64_en-US.msi)
   if you prefer. SmartScreen will show "Windows protected your PC" — click
@@ -38,7 +51,6 @@ software, not a sign anything's wrong:
   / [.rpm](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF-0.1.0-1.x86_64.rpm)
   for your distro. On Wayland the AppImage runs natively, falling back to
   X11 automatically if needed.
-- **macOS**: coming soon.
 
 Ghostscript, which powers overprint preview, separations, ink readings and
 the colour/font conversions, is **built into every download** — there's nothing else to install.
