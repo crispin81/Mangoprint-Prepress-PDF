@@ -544,7 +544,7 @@ pub fn run() {
             // rather than as command-line arguments.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = _event {
-                let paths = urls
+                let paths: Vec<String> = urls
                     .into_iter()
                     .filter_map(|u| u.to_file_path().ok())
                     .map(|p| p.to_string_lossy().into_owned())
