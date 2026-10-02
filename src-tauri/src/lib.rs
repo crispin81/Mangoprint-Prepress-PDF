@@ -453,14 +453,58 @@ fn set_page_rotation(
     Ok(result)
 }
 
+/// PDFs handed to the app by the operating system (double-click, "Open
+/// with", dropping onto the app icon) waiting for the page to pick them up.
+/// Queued rather than sent straight to the page so a file given at launch
+/// isn't lost before the page has loaded.
+struct PendingOpen(Mutex<Vec<String>>);
+
+/// The PDF paths among command-line arguments (Windows/Linux pass the
+/// double-clicked file this way).
+fn pdf_args(args: impl IntoIterator<Item = String>) -> Vec<String> {
+    args.into_iter()
+        .filter(|a| a.to_lowercase().ends_with(".pdf") && Path::new(a).is_file())
+        .collect()
+}
+
+/// Queues PDFs to open, tells the page, and brings the window to the front.
+fn hand_over(app: &tauri::AppHandle, paths: Vec<String>) {
+    use tauri::{Emitter, Manager};
+    if paths.is_empty() {
+        return;
+    }
+    if let Ok(mut q) = app.state::<PendingOpen>().0.lock() {
+        q.extend(paths);
+    }
+    let _ = app.emit("open-files", ());
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+    }
+}
+
+/// Files waiting to be opened (emptied by the call).
+#[tauri::command]
+fn take_pending_open(pending: tauri::State<PendingOpen>) -> Vec<String> {
+    pending.0.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // One window only: opening another PDF while the app is running
+        // (double-click, "Open with") sends it to the existing window.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            hand_over(app, pdf_args(argv.into_iter().skip(1)));
+        }))
+        .manage(PendingOpen(Mutex::new(Vec::new())))
         .setup(|app| {
             use tauri::Manager;
             if let Ok(dir) = app.path().resource_dir() {
                 gs::set_resource_dir(dir);
             }
+            // A PDF double-clicked to launch the app (Windows/Linux).
+            hand_over(app.handle(), pdf_args(std::env::args().skip(1)));
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
@@ -491,7 +535,21 @@ pub fn run() {
             set_rotation_all,
             reset_page_box_all,
             set_page_rotation,
+            take_pending_open,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            // macOS hands over double-clicked / "Open with" files as an event
+            // rather than as command-line arguments.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                let paths = urls
+                    .into_iter()
+                    .filter_map(|u| u.to_file_path().ok())
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect();
+                hand_over(_app, pdf_args(paths));
+            }
+        });
 }

@@ -76,7 +76,7 @@
       <section id="viewport">
         <div id="emptyState">
           <button id="emptyOpenBtn" class="btn-primary">Open PDF…</button>
-          <p class="hint">Choose a print-ready PDF to check</p>
+          <p class="hint">Choose a print-ready PDF to check, or drag one onto this window</p>
         </div>
         <div id="imgWrap" class="empty">
           <div id="vectorLayer"></div>
@@ -173,6 +173,10 @@
         </div>
       </aside>
     </main>
+
+    <div id="dropHint" class="drop-hint hidden" aria-hidden="true">
+      <div class="drop-hint__card">Drop PDF to open</div>
+    </div>
 
     <div id="marquee" class="marquee hidden" aria-hidden="true"></div>
 

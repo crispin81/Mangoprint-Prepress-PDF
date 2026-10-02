@@ -971,6 +971,30 @@ a:hover > .about__logo {
   background: rgba(255, 204, 51, 0.12);
 }
 
+/* --- drag and drop hint --- */
+
+.drop-hint {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 21, 26, 0.6);
+  border: 3px dashed var(--accent);
+  pointer-events: none;
+}
+
+.drop-hint__card {
+  padding: 18px 28px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
+  font-size: 16px;
+  font-weight: 600;
+}
+
 .lock-badge {
   position: fixed;
   z-index: 50;

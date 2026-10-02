@@ -166,21 +166,28 @@ function hideProgress() {
   }, 250);
 }
 
+// Asks before throwing away unexported edits; true if it's OK to proceed.
+async function okToDiscardEdits() {
+  if (!state.edited) return true;
+  return ask("You have page changes that haven't been exported. Open another PDF and discard them?", {
+    title: "Unexported changes",
+    kind: "warning",
+  });
+}
+
 async function openPdf() {
-  if (state.edited) {
-    const discard = await ask("You have page changes that haven't been exported. Open another PDF and discard them?", {
-      title: "Unexported changes",
-      kind: "warning",
-    });
-    if (!discard) return;
-  }
+  if (!(await okToDiscardEdits())) return;
   const selected = await open({
     multiple: false,
     filters: [{ name: "PDF", extensions: ["pdf", "PDF"] }],
   });
   if (!selected) return;
+  await loadPdf(Array.isArray(selected) ? selected[0] : selected);
+}
 
-  const source = Array.isArray(selected) ? selected[0] : selected;
+// Opens a PDF by path: from the Open dialog, a double-clicked file, or a
+// file dropped on the window.
+async function loadPdf(source) {
   setProgress(5, `Opening ${baseName(source)}…`);
   try {
     const path = await invoke("create_working_copy", { path: source });
@@ -1341,6 +1348,44 @@ document.getElementById("checkRgbBtn").addEventListener("click", checkRgb);
 document.getElementById("convertRgbBtn").addEventListener("click", () => runConversion("rgb"));
 document.getElementById("convertSpotsBtn").addEventListener("click", () => runConversion("spots"));
 document.getElementById("outlineBtn").addEventListener("click", () => runConversion("outlines"));
+
+// --- opening files from outside: double-click / "Open with" / drag and drop ---
+
+// Files the operating system handed to the app (at launch, or later while
+// it's running) wait in a queue in the app; take them and open the first.
+async function openPendingFiles() {
+  let paths = [];
+  try {
+    paths = await invoke("take_pending_open");
+  } catch (err) {
+    console.error(err);
+  }
+  if (!paths.length) return;
+  if (!(await okToDiscardEdits())) return;
+  await loadPdf(paths[0]);
+}
+
+window.__TAURI__.event.listen("open-files", () => openPendingFiles());
+openPendingFiles(); // a PDF double-clicked to launch the app
+
+// Drag a PDF onto the window to open it.
+const dropHint = document.getElementById("dropHint");
+window.__TAURI__.webview.getCurrentWebview().onDragDropEvent(async (ev) => {
+  const { type, paths } = ev.payload;
+  if (type === "enter" || type === "over") {
+    dropHint.classList.remove("hidden");
+  } else if (type === "leave") {
+    dropHint.classList.add("hidden");
+  } else if (type === "drop") {
+    dropHint.classList.add("hidden");
+    const pdf = (paths || []).find((p) => p.toLowerCase().endsWith(".pdf"));
+    if (!pdf) {
+      if (paths && paths.length) alert("That isn't a PDF. Drop a .pdf file to open it.");
+      return;
+    }
+    if (await okToDiscardEdits()) await loadPdf(pdf);
+  }
+});
 
 // --- tutorial link & footer (same as RapidCulling) ---
 
