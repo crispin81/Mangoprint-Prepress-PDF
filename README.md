@@ -16,7 +16,7 @@ Grab the latest build from
 [Releases](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases).
 
 **These builds aren't code-signed** (that needs a paid developer
-certificate this project doesn't have yet), so Windows will warn that the
+certificate this project doesn't have yet), so your OS will warn that the
 publisher is unverified on first launch. That's expected for unsigned beta
 software, not a sign anything's wrong:
 
@@ -27,12 +27,22 @@ software, not a sign anything's wrong:
 - **Windows (portable, no install)**: [Direct download (.zip)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_portable_win64.zip).
   Unzip anywhere (a USB stick is fine) and run
   `Mangoprint Prepress PDF.exe`. Keep the `ghostscript` folder next to it.
-- **macOS and Linux**: coming soon.
+- **Linux**: [Direct download (.AppImage)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_amd64.AppImage).
+  `chmod +x` the `.AppImage` and run it directly (works on Debian, Ubuntu,
+  Arch, Fedora and most others):
+  ```
+  chmod +x Mangoprint-Prepress-PDF_0.1.0_amd64.AppImage
+  ./Mangoprint-Prepress-PDF_0.1.0_amd64.AppImage
+  ```
+  Or install the [.deb](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF_0.1.0_amd64.deb)
+  / [.rpm](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.0-beta/Mangoprint-Prepress-PDF-0.1.0-1.x86_64.rpm)
+  for your distro. On Wayland the AppImage runs natively, falling back to
+  X11 automatically if needed.
+- **macOS**: coming soon.
 
 Ghostscript, which powers overprint preview, separations, ink readings and
-the colour/font conversions, is **built into the Windows installer and
-portable version** — there's nothing else to install. Windows 10 and 11
-already include the WebView2 runtime the app needs.
+the colour/font conversions, is **built into every download** — there's nothing else to install.
+Windows 10 and 11 already include the WebView2 runtime the app needs.
 
 ## Usage
 
@@ -98,11 +108,12 @@ npm run tauri dev      # run in development
 npm run tauri build    # produce a native installer for the current OS
 ```
 
-The Windows build bundles Ghostscript from `src-tauri/ghostscript/`
-(`bin/gswin64c.exe`, `bin/gsdll64.dll`, `COPYING.txt`, `README.txt`) —
-copy those from a Ghostscript 10.x install before running `tauri build` on
-Windows (the GitHub Actions build does this automatically). On macOS and
-Linux the app uses the system Ghostscript.
+Every build bundles Ghostscript from `src-tauri/ghostscript/`. On Windows,
+copy `bin/gswin64c.exe`, `bin/gsdll64.dll` and `doc/COPYING` (as
+`COPYING.txt`) from a Ghostscript 10.x install; on Linux and macOS run
+`.github/scripts/build-ghostscript-linux.sh` or `-macos.sh`, which compile a
+self-contained Ghostscript from source. The GitHub Actions workflows do this
+automatically.
 
 `tauri build` produces a `.msi`/`.exe` on Windows, `.dmg`/`.app` on macOS
 and `.AppImage`/`.deb`/`.rpm` on Linux — run it on each target OS (or via
