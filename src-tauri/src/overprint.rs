@@ -22,7 +22,7 @@ pub struct OverprintHit {
 
 /// A colour as far as the check needs to know it.
 #[derive(Clone, Debug)]
-enum Colour {
+pub(crate) enum Colour {
     Cmyk([f64; 4]),
     Gray(f64),
     Rgb([f64; 3]),
@@ -87,7 +87,7 @@ impl Colour {
 
 /// The colour space currently selected for fill or stroke.
 #[derive(Clone, Debug)]
-enum Space {
+pub(crate) enum Space {
     Gray,
     Rgb,
     Cmyk,
@@ -105,7 +105,7 @@ fn nums(ops: &[Object]) -> Vec<f64> {
         .collect()
 }
 
-fn resolve_space(doc: &Document, cs: &Object, resources: &[&Dictionary], depth: u32) -> Space {
+pub(crate) fn resolve_space(doc: &Document, cs: &Object, resources: &[&Dictionary], depth: u32) -> Space {
     if depth > 4 {
         return Space::Other;
     }
@@ -152,7 +152,7 @@ fn resolve_space(doc: &Document, cs: &Object, resources: &[&Dictionary], depth: 
 }
 
 /// Colour from `sc`/`scn` operands in the current space.
-fn colour_in(space: &Space, v: &[f64]) -> Colour {
+pub(crate) fn colour_in(space: &Space, v: &[f64]) -> Colour {
     match space {
         Space::Gray if v.len() == 1 => Colour::Gray(v[0]),
         Space::Rgb if v.len() == 3 => Colour::Rgb([v[0], v[1], v[2]]),
@@ -166,7 +166,7 @@ fn colour_in(space: &Space, v: &[f64]) -> Colour {
 
 /// Initial colour when a space is selected with cs/CS (all components 0,
 /// except grey/CMYK/RGB black and full-tint spots per the PDF spec).
-fn initial(space: &Space) -> Colour {
+pub(crate) fn initial(space: &Space) -> Colour {
     match space {
         Space::Gray => Colour::Gray(0.0),
         Space::Rgb => Colour::Rgb([0.0; 3]),

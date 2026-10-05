@@ -1,15 +1,17 @@
 mod colorcheck;
+mod fonts;
 mod gs;
 mod imageres;
 mod overprint;
 mod pagebox;
+mod recolour;
 mod spotcolor;
 
 use base64::Engine;
 use image::{GrayImage, RgbImage};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, RwLock};
 use tempfile::TempDir;
 
 /// Caches per (path, page, dpi) separation renders so toggling plate
@@ -18,7 +20,7 @@ use tempfile::TempDir;
 /// "<path>\0<page>\0<dpi>" strings (not hashed) so that editing a page
 /// box can cheaply invalidate every cached render for that file — see
 /// `invalidate_path`.
-struct SepCache(Mutex<HashMap<String, TempDir>>);
+struct SepCache(Mutex<HashMap<String, (TempDir, Arc<Mutex<()>>)>>);
 
 fn cache_key(pdf_path: &str, page: u32, dpi: u32) -> String {
     format!("{pdf_path}\0{page}\0{dpi}")
@@ -36,19 +38,43 @@ fn invalidate_path(cache: &SepCache, pdf_path: &str) {
 }
 
 /// Returns the cache directory for a (path, page, dpi) key, creating it
-/// if this is the first request for that key.
-fn cache_dir(cache: &SepCache, key: String) -> Result<PathBuf, String> {
+/// if this is the first request for that key, plus the lock that stops two
+/// requests rendering into it at once.
+fn cache_dir(cache: &SepCache, key: String) -> Result<(PathBuf, Arc<Mutex<()>>), String> {
     let mut guard = cache
         .0
         .lock()
         .map_err(|_| "Separation cache was poisoned".to_string())?;
-    if let Some(dir) = guard.get(&key) {
-        return Ok(dir.path().to_path_buf());
+    if let Some((dir, lock)) = guard.get(&key) {
+        return Ok((dir.path().to_path_buf(), lock.clone()));
     }
     let tmp = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
     let p = tmp.path().to_path_buf();
-    guard.insert(key, tmp);
-    Ok(p)
+    let lock = Arc::new(Mutex::new(()));
+    guard.insert(key, (tmp, lock.clone()));
+    Ok((p, lock))
+}
+
+/// The page's separation plates, rendered once and then reused. Requests
+/// for the same page wait for each other rather than rendering twice.
+fn separations(cache: &SepCache, path: &str, page: u32, dpi: u32) -> Result<Vec<(String, PathBuf)>, String> {
+    let (dir_path, lock) = cache_dir(cache, cache_key(path, page, dpi))?;
+    let _rendering = lock.lock().map_err(|_| "Separation render lock was poisoned".to_string())?;
+    gs::ensure_separations(Path::new(path), page, dpi, &dir_path)
+}
+
+/// Commands run on background threads (so a slow job such as rendering
+/// separations never holds up the page). Reads of the working copy share
+/// this lock; edits take it exclusively, so nothing reads a half-written
+/// file.
+struct DocLock(RwLock<()>);
+
+fn read_lock(doc: &DocLock) -> Result<std::sync::RwLockReadGuard<'_, ()>, String> {
+    doc.0.read().map_err(|_| "Document lock was poisoned".to_string())
+}
+
+fn write_lock(doc: &DocLock) -> Result<std::sync::RwLockWriteGuard<'_, ()>, String> {
+    doc.0.write().map_err(|_| "Document lock was poisoned".to_string())
 }
 
 /// Decoded separation plates for the page currently being sampled by the
@@ -73,47 +99,71 @@ fn png_to_data_uri(png_path: &Path) -> Result<String, String> {
     Ok(format!("data:image/png;base64,{b64}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn check_ghostscript() -> Result<String, String> {
     gs::check_available()
 }
 
-/// Page count comes from Ghostscript (it's what renders the pages), with
-/// lopdf as a fallback in case the Ghostscript query is blocked or fails.
-#[tauri::command]
-fn open_pdf(path: String) -> Result<u32, String> {
+/// Page count from lopdf (fast, no extra process), with Ghostscript as a
+/// fallback for files lopdf can't parse.
+#[tauri::command(async)]
+fn open_pdf(path: String, doc: tauri::State<DocLock>) -> Result<u32, String> {
+    let _r = read_lock(&doc)?;
     let p = Path::new(&path);
-    match gs::page_count(p) {
-        Ok(n) => Ok(n),
-        Err(gs_err) => pagebox::page_count(p).map_err(|_| gs_err),
+    match pagebox::page_count(p) {
+        Ok(n) if n > 0 => Ok(n),
+        _ => gs::page_count(p),
     }
 }
 
 /// Copies `path` into a fresh temp folder (keeping its file name) and
 /// returns the copy's path, which the UI then uses for everything.
-#[tauri::command]
-fn create_working_copy(path: String, working: tauri::State<WorkingCopy>) -> Result<String, String> {
+#[tauri::command(async)]
+fn create_working_copy(
+    app: tauri::AppHandle,
+    path: String,
+    working: tauri::State<WorkingCopy>,
+) -> Result<String, String> {
     let src = Path::new(&path);
     let name = src.file_name().ok_or("Invalid file path")?;
     let tmp = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
     let dest = tmp.path().join(name);
     std::fs::copy(src, &dest).map_err(|e| format!("Could not copy the PDF: {e}"))?;
-    *working.0.lock().map_err(|_| "Working copy lock was poisoned".to_string())? = Some(tmp);
+    // The viewer reads the copy straight from disk, a piece at a time, so
+    // a large PDF shows without first passing the whole file over.
+    {
+        use tauri::Manager;
+        let _ = app.asset_protocol_scope().allow_file(&dest);
+    }
+    let old = working.0.lock().map_err(|_| "Working copy lock was poisoned".to_string())?.replace(tmp);
+    // Delete the previous copy once nothing is still reading it (e.g. its
+    // separations), without making the new file wait for that.
+    if let Some(old) = old {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            use tauri::Manager;
+            let doc = app.state::<DocLock>();
+            let _w = write_lock(&doc);
+            drop(old);
+        });
+    }
     Ok(dest.to_string_lossy().into_owned())
 }
 
 /// Raw PDF bytes for the in-app vector renderer (pdf.js). Returned as a
 /// binary IPC response so the frontend gets an ArrayBuffer, not JSON.
-#[tauri::command]
-fn read_pdf(path: String) -> Result<tauri::ipc::Response, String> {
+#[tauri::command(async)]
+fn read_pdf(path: String, doc: tauri::State<DocLock>) -> Result<tauri::ipc::Response, String> {
+    let _r = read_lock(&doc)?;
     std::fs::read(&path)
         .map(tauri::ipc::Response::new)
         .map_err(|e| format!("Could not read the PDF: {e}"))
 }
 
 /// Writes the edited working copy out to `dest`.
-#[tauri::command]
-fn export_pdf(from: String, dest: String) -> Result<(), String> {
+#[tauri::command(async)]
+fn export_pdf(from: String, dest: String, doc: tauri::State<DocLock>) -> Result<(), String> {
+    let _r = read_lock(&doc)?;
     if Path::new(&from) == Path::new(&dest) {
         return Ok(());
     }
@@ -122,8 +172,15 @@ fn export_pdf(from: String, dest: String) -> Result<(), String> {
         .map_err(|e| format!("Could not save the PDF to {dest}: {e}"))
 }
 
-#[tauri::command]
-fn render_overprint(path: String, page: u32, dpi: u32, simulate: bool) -> Result<String, String> {
+#[tauri::command(async)]
+fn render_overprint(
+    path: String,
+    page: u32,
+    dpi: u32,
+    simulate: bool,
+    doc: tauri::State<DocLock>,
+) -> Result<String, String> {
+    let _r = read_lock(&doc)?;
     let tmp = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
     let out_png = tmp.path().join("preview.png");
     gs::render_overprint_png(Path::new(&path), page, simulate, dpi, &out_png)?;
@@ -132,10 +189,16 @@ fn render_overprint(path: String, page: u32, dpi: u32, simulate: bool) -> Result
 
 /// Runs (or reuses a cached run of) tiffsep for the given page and returns
 /// the colorant names found, in process-then-spot order.
-#[tauri::command]
-fn list_separations(path: String, page: u32, dpi: u32, cache: tauri::State<SepCache>) -> Result<Vec<String>, String> {
-    let dir_path = cache_dir(&cache, cache_key(&path, page, dpi))?;
-    let found = gs::ensure_separations(Path::new(&path), page, dpi, &dir_path)?;
+#[tauri::command(async)]
+fn list_separations(
+    path: String,
+    page: u32,
+    dpi: u32,
+    cache: tauri::State<SepCache>,
+    doc: tauri::State<DocLock>,
+) -> Result<Vec<String>, String> {
+    let _r = read_lock(&doc)?;
+    let found = separations(&cache, &path, page, dpi)?;
     Ok(found.into_iter().map(|(n, _)| n).collect())
 }
 
@@ -148,7 +211,7 @@ fn list_separations(path: String, page: u32, dpi: u32, cache: tauri::State<SepCa
 /// does not evaluate), so they're approximated as a neutral darkening —
 /// enough to see where a spot plate has ink and how it traps against the
 /// process plates, but not a color-accurate spot preview.
-#[tauri::command]
+#[tauri::command(async)]
 fn render_separation_composite(
     path: String,
     page: u32,
@@ -158,6 +221,7 @@ fn render_separation_composite(
     // without one are shown as a neutral darkening.
     spot_colours: Option<HashMap<String, String>>,
     cache: tauri::State<SepCache>,
+    doc: tauri::State<DocLock>,
 ) -> Result<String, String> {
     let spot_colours = spot_colours.unwrap_or_default();
     let parse_hex = |h: &str| -> Option<[f32; 3]> {
@@ -165,8 +229,10 @@ fn render_separation_composite(
         let v = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok().map(|b| b as f32 / 255.0);
         Some([v(0)?, v(2)?, v(4)?])
     };
-    let dir_path = cache_dir(&cache, cache_key(&path, page, dpi))?;
-    let plates = gs::ensure_separations(Path::new(&path), page, dpi, &dir_path)?;
+    let plates = {
+        let _r = read_lock(&doc)?;
+        separations(&cache, &path, page, dpi)?
+    };
     let active_set: std::collections::HashSet<&str> = active.iter().map(|s| s.as_str()).collect();
 
     let mut process: HashMap<&str, GrayImage> = HashMap::new();
@@ -249,8 +315,9 @@ struct PageContent {
     vector: bool,
 }
 
-#[tauri::command]
-fn page_image_dpi(path: String, page: u32) -> Result<PageContent, String> {
+#[tauri::command(async)]
+fn page_image_dpi(path: String, page: u32, doc: tauri::State<DocLock>) -> Result<PageContent, String> {
+    let _r = read_lock(&doc)?;
     let scan = imageres::scan_page(Path::new(&path), page)?;
     Ok(PageContent {
         ppi: scan.ppi.map(|(lo, hi)| [lo.round() as u32, hi.round() as u32]),
@@ -261,7 +328,7 @@ fn page_image_dpi(path: String, page: u32) -> Result<PageContent, String> {
 /// Eyedropper: ink coverage of every separation at a point on the page.
 /// `x`/`y` are fractions (0–1) of the displayed page. Values come from
 /// Ghostscript's tiffsep plates, so they reflect real overprint behaviour.
-#[tauri::command]
+#[tauri::command(async)]
 fn sample_inks(
     path: String,
     page: u32,
@@ -270,12 +337,13 @@ fn sample_inks(
     y: f64,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
 ) -> Result<Vec<InkSample>, String> {
     let key = cache_key(&path, page, dpi);
+    let _r = read_lock(&doc)?;
     let mut guard = plates.0.lock().map_err(|_| "Plate cache was poisoned".to_string())?;
     if guard.as_ref().map(|(k, _)| k != &key).unwrap_or(true) {
-        let dir_path = cache_dir(&cache, key.clone())?;
-        let found = gs::ensure_separations(Path::new(&path), page, dpi, &dir_path)?;
+        let found = separations(&cache, &path, page, dpi)?;
         let mut decoded = Vec::with_capacity(found.len());
         for (name, tif) in found {
             let img = image::open(&tif)
@@ -304,32 +372,46 @@ fn clear_plates(plates: &PlateCache) {
 }
 
 /// White objects set to overprint (empty when there are none).
-#[tauri::command]
-fn check_overprint(path: String) -> Result<Vec<overprint::OverprintHit>, String> {
+#[tauri::command(async)]
+fn check_overprint(path: String, doc: tauri::State<DocLock>) -> Result<Vec<overprint::OverprintHit>, String> {
+    let _r = read_lock(&doc)?;
     overprint::check_overprint(Path::new(&path))
 }
 
 /// Spot colour name → "#rrggbb" swatch at 100% tint.
-#[tauri::command]
-fn spot_swatches(path: String) -> Result<std::collections::BTreeMap<String, String>, String> {
+#[tauri::command(async)]
+fn spot_swatches(
+    path: String,
+    doc: tauri::State<DocLock>,
+) -> Result<std::collections::BTreeMap<String, String>, String> {
+    let _r = read_lock(&doc)?;
     spotcolor::spot_swatches(Path::new(&path))
 }
 
+/// Fonts used, with whether each is embedded and the pages it is on.
+#[tauri::command(async)]
+fn list_fonts(path: String, doc: tauri::State<DocLock>) -> Result<Vec<fonts::FontInfo>, String> {
+    let _r = read_lock(&doc)?;
+    fonts::list_fonts(Path::new(&path))
+}
+
 /// Spot colour names used anywhere in the PDF.
-#[tauri::command]
-fn spot_colours(path: String) -> Result<Vec<String>, String> {
+#[tauri::command(async)]
+fn spot_colours(path: String, doc: tauri::State<DocLock>) -> Result<Vec<String>, String> {
+    let _r = read_lock(&doc)?;
     colorcheck::spot_names(Path::new(&path))
 }
 
 /// Pages that contain RGB objects (empty when the file is RGB-free).
-#[tauri::command]
-fn check_rgb(path: String) -> Result<Vec<colorcheck::PageRgb>, String> {
+#[tauri::command(async)]
+fn check_rgb(path: String, doc: tauri::State<DocLock>) -> Result<Vec<colorcheck::PageRgb>, String> {
+    let _r = read_lock(&doc)?;
     colorcheck::check_rgb(Path::new(&path))
 }
 
 /// Applies a whole-document fix ("outlines", "rgb", "spots") to the working
 /// copy in place, via a temp file so a failed conversion leaves it intact.
-#[tauri::command]
+#[tauri::command(async)]
 fn convert_pdf(
     path: String,
     kind: String,
@@ -337,7 +419,9 @@ fn convert_pdf(
     page: Option<u32>,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
 ) -> Result<(), String> {
+    let _w = write_lock(&doc)?;
     let conv = match kind.as_str() {
         "outlines" => gs::Conversion::Outlines,
         "rgb" => gs::Conversion::RgbToCmyk,
@@ -360,12 +444,13 @@ fn convert_pdf(
     Ok(())
 }
 
-#[tauri::command]
-fn get_page_boxes(path: String, page: u32) -> Result<pagebox::PageBoxes, String> {
+#[tauri::command(async)]
+fn get_page_boxes(path: String, page: u32, doc: tauri::State<DocLock>) -> Result<pagebox::PageBoxes, String> {
+    let _r = read_lock(&doc)?;
     pagebox::get_page_boxes(Path::new(&path), page)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_page_box(
     path: String,
     page: u32,
@@ -373,7 +458,9 @@ fn set_page_box(
     rect: [f64; 4],
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
 ) -> Result<pagebox::PageBoxes, String> {
+    let _w = write_lock(&doc)?;
     let result = pagebox::set_page_box(Path::new(&path), page, &name, rect)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
@@ -382,7 +469,7 @@ fn set_page_box(
 
 /// Applies a box to every page as edge distances (points: top, bottom,
 /// left, right); returns the current page's boxes afterwards.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_page_box_all(
     path: String,
     page: u32,
@@ -390,67 +477,129 @@ fn set_page_box_all(
     insets: [f64; 4],
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
 ) -> Result<pagebox::PageBoxes, String> {
+    let _w = write_lock(&doc)?;
     pagebox::set_box_insets_all(Path::new(&path), &name, insets)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
     pagebox::get_page_boxes(Path::new(&path), page)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_rotation_all(
     path: String,
     page: u32,
     degrees: i32,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
 ) -> Result<pagebox::PageBoxes, String> {
+    let _w = write_lock(&doc)?;
     pagebox::set_rotation_all(Path::new(&path), degrees)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
     pagebox::get_page_boxes(Path::new(&path), page)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn reset_page_box_all(
     path: String,
     page: u32,
     name: String,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
 ) -> Result<pagebox::PageBoxes, String> {
+    let _w = write_lock(&doc)?;
     pagebox::reset_box_all(Path::new(&path), &name)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
     pagebox::get_page_boxes(Path::new(&path), page)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn reset_page_box(
     path: String,
     page: u32,
     name: String,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
 ) -> Result<pagebox::PageBoxes, String> {
+    let _w = write_lock(&doc)?;
     let result = pagebox::reset_page_box(Path::new(&path), page, &name)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
     Ok(result)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_page_rotation(
     path: String,
     page: u32,
     degrees: i32,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
 ) -> Result<pagebox::PageBoxes, String> {
+    let _w = write_lock(&doc)?;
     let result = pagebox::set_rotation(Path::new(&path), page, degrees)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
     Ok(result)
+}
+
+/// Recolour tool: the object under the cursor (x/y are fractions of the
+/// displayed page, `tol` the hit tolerance in points).
+#[tauri::command(async)]
+fn recolour_pick(
+    path: String,
+    page: u32,
+    x: f64,
+    y: f64,
+    tol: f64,
+    doc: tauri::State<DocLock>,
+) -> Result<Option<recolour::Picked>, String> {
+    let _r = read_lock(&doc)?;
+    recolour::pick(Path::new(&path), page, x, y, tol)
+}
+
+/// Recolour tool: what a recolour would change (count, pages, outlines on
+/// the current page).
+#[tauri::command(async)]
+fn recolour_find(
+    path: String,
+    page: u32,
+    target: recolour::PaintRef,
+    mode: recolour::Mode,
+    all_pages: bool,
+    doc: tauri::State<DocLock>,
+) -> Result<recolour::Found, String> {
+    let _r = read_lock(&doc)?;
+    recolour::find(Path::new(&path), page, target, mode, all_pages)
+}
+
+/// Recolour tool: repaints the chosen objects in CMYK (values 0–100).
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+fn recolour_apply(
+    path: String,
+    page: u32,
+    target: recolour::PaintRef,
+    mode: recolour::Mode,
+    all_pages: bool,
+    fill: Option<[f64; 4]>,
+    stroke: Option<[f64; 4]>,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
+) -> Result<usize, String> {
+    let _w = write_lock(&doc)?;
+    let n = recolour::apply_recolour(Path::new(&path), page, target, mode, all_pages, fill, stroke)?;
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
+    Ok(n)
 }
 
 /// PDFs handed to the app by the operating system (double-click, "Open
@@ -512,6 +661,7 @@ pub fn run() {
         .manage(SepCache(Mutex::new(HashMap::new())))
         .manage(WorkingCopy(Mutex::new(None)))
         .manage(PlateCache(Mutex::new(None)))
+        .manage(DocLock(RwLock::new(())))
         .invoke_handler(tauri::generate_handler![
             check_ghostscript,
             open_pdf,
@@ -535,6 +685,10 @@ pub fn run() {
             set_rotation_all,
             reset_page_box_all,
             set_page_rotation,
+            recolour_pick,
+            recolour_find,
+            recolour_apply,
+            list_fonts,
             take_pending_open,
         ])
         .build(tauri::generate_context!())
@@ -553,3 +707,4 @@ pub fn run() {
             }
         });
 }
+

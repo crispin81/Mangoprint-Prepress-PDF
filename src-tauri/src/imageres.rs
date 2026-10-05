@@ -9,13 +9,13 @@ use lopdf::content::Content;
 use lopdf::{Dictionary, Document, Object};
 use std::path::Path;
 
-type Matrix = [f64; 6];
+pub(crate) type Matrix = [f64; 6];
 
-const IDENTITY: Matrix = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+pub(crate) const IDENTITY: Matrix = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 const MAX_FORM_DEPTH: u32 = 8;
 
 /// `a` applied first, then `b` (PDF's `cm` is `new = a × current`).
-fn mul(a: &Matrix, b: &Matrix) -> Matrix {
+pub(crate) fn mul(a: &Matrix, b: &Matrix) -> Matrix {
     [
         a[0] * b[0] + a[1] * b[2],
         a[0] * b[1] + a[1] * b[3],
@@ -34,7 +34,7 @@ fn num(o: &Object) -> Option<f64> {
     }
 }
 
-fn matrix_from(objs: &[Object]) -> Option<Matrix> {
+pub(crate) fn matrix_from(objs: &[Object]) -> Option<Matrix> {
     if objs.len() != 6 {
         return None;
     }

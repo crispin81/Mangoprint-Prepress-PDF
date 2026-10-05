@@ -1391,3 +1391,288 @@ a:hover > .about__logo {
 .text-status.none {
   color: var(--text-soft);
 }
+
+/* --- recolour tool --- */
+
+#recolourToolBtn.active {
+  background: var(--accent);
+  color: var(--panel);
+  border-color: var(--accent);
+}
+
+/* White arrow like Illustrator's Direct Selection tool; tip at 2,2. */
+#viewport.recolour-tool #imgWrap {
+  cursor: url("assets/cursor-direct-select@1x.svg") 2 2, default;
+  cursor: -webkit-image-set(url("assets/cursor-direct-select@1x.svg") 1x, url("assets/cursor-direct-select@2x.svg") 2x) 2 2, default;
+}
+
+.rc-picked {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.rc-current {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rc-label {
+  width: 92px;
+  color: var(--muted);
+}
+
+#recolourPanel .swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--field-border);
+  flex-shrink: 0;
+  vertical-align: -2px;
+}
+
+/* Strokes show as a ring rather than a filled square. */
+#recolourPanel .swatch.rc-swatch-stroke {
+  background: transparent !important;
+  border-width: 3px;
+}
+
+.rc-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.rc-modes label.disabled {
+  color: var(--faint);
+}
+
+.rc-count {
+  font-size: 11px;
+  color: var(--accent-text);
+  margin: 2px 0 8px;
+  min-height: 1em;
+}
+
+.rc-new {
+  margin-bottom: 8px;
+}
+
+.rc-new.disabled {
+  opacity: 0.45;
+}
+
+.rc-new__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.rc-cmyk {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.rc-cmyk label {
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  color: var(--muted);
+  gap: 2px;
+}
+
+.rc-cmyk input {
+  background: var(--field);
+  border: 1px solid var(--field-border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.rc-result {
+  font-size: 11px;
+  margin: 6px 0 0;
+  min-height: 1em;
+}
+
+.rc-result.ok {
+  color: #6fcf7f;
+}
+
+.rc-result.err {
+  color: var(--danger-text);
+}
+
+#boxOverlay .rc-match {
+  fill: rgba(255, 204, 51, 0.12);
+  stroke: #ffcc33;
+  stroke-width: 1.5;
+  stroke-dasharray: 4, 3;
+  vector-effect: non-scaling-stroke;
+}
+
+#boxOverlay .rc-selected {
+  fill: none;
+  stroke: #ffcc33;
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Narrow windows: the centre tools show just their icons (names stay in
+   the tooltips) so the file name and Export button keep their room. */
+#exportBtn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+@media (max-width: 1500px) {
+  .tool-label {
+    display: none;
+  }
+}
+
+/* --- fonts panel --- */
+
+.font-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.font-list li:not(.hint) {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.font-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.font-status {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.font-list li.ok .font-status {
+  color: #6fcf7f;
+}
+
+.font-list li.bad .font-status,
+.font-list li.bad .font-name {
+  color: var(--danger-text);
+}
+
+.font-meta {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  color: var(--faint);
+}
+
+.font-summary.good {
+  color: #6fcf7f;
+}
+
+.font-summary.bad {
+  color: var(--danger-text);
+}
+
+/* "Look here": when the Recolour tool is switched on, a spinning CMYK
+   border and twinkling sparkles circle the Recolour panel for 5 seconds. */
+@property --rc-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+#recolourPanel {
+  position: relative;
+}
+
+#recolourPanel.sparkle::before {
+  content: "";
+  position: absolute;
+  inset: -8px -8px 4px -8px;
+  border-radius: 8px;
+  padding: 2px;
+  background: conic-gradient(from var(--rc-angle), #00aeef, #ec008c, #fff200, #ffcc33, #00aeef);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: drop-shadow(0 0 6px rgba(236, 0, 140, 0.7));
+  pointer-events: none;
+  animation: rc-spin 1.2s linear infinite, rc-fade 5s ease-out forwards;
+}
+
+@keyframes rc-spin {
+  to {
+    --rc-angle: 360deg;
+  }
+}
+
+@keyframes rc-fade {
+  0%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.rc-spark {
+  position: absolute;
+  pointer-events: none;
+  font-size: 14px;
+  line-height: 1;
+  text-shadow: 0 0 6px currentColor;
+  animation: rc-twinkle 1.1s ease-in-out infinite, rc-fade 5s ease-out forwards;
+}
+
+@keyframes rc-twinkle {
+  0%,
+  100% {
+    transform: scale(0.4) rotate(0deg);
+    opacity: 0.2;
+  }
+  50% {
+    transform: scale(1.2) rotate(90deg);
+    opacity: 1;
+  }
+}
+
+#recolourBody.waiting .rc-picked,
+#recolourBody.waiting .rc-count {
+  opacity: 0.5;
+}
+
+#recolourEmpty {
+  margin: 0 0 8px;
+  color: var(--accent-text);
+}
+
+/* When the Recolour tool scrolls the panel into view, leave a gap above
+   its heading (and room for the sparkle border). */
+#recolourPanel {
+  scroll-margin-top: 20px;
+}

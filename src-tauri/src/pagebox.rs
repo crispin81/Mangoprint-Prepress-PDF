@@ -97,7 +97,7 @@ fn array_to_rect(doc: &Document, o: &Object) -> Option<[f64; 4]> {
     None
 }
 
-fn page_id_for(doc: &Document, page: u32) -> Result<ObjectId, String> {
+pub(crate) fn page_id_for(doc: &Document, page: u32) -> Result<ObjectId, String> {
     doc.get_pages()
         .get(&page)
         .copied()
@@ -132,7 +132,7 @@ fn find_own(doc: &Document, page_id: ObjectId, key: &str) -> Option<Object> {
     dict.get(key.as_bytes()).ok().cloned()
 }
 
-fn resolve_box(doc: &Document, page_id: ObjectId, key: &str, fallback: [f64; 4]) -> ([f64; 4], bool) {
+pub(crate) fn resolve_box(doc: &Document, page_id: ObjectId, key: &str, fallback: [f64; 4]) -> ([f64; 4], bool) {
     if let Some((val, explicit)) = find_inherited(doc, page_id, key) {
         if let Some(rect) = array_to_rect(doc, &val) {
             return (rect, explicit);
@@ -150,7 +150,7 @@ fn resolve_box_own(doc: &Document, page_id: ObjectId, key: &str, fallback: [f64;
     (fallback, false)
 }
 
-fn rotate_of(doc: &Document, page_id: ObjectId) -> i32 {
+pub(crate) fn rotate_of(doc: &Document, page_id: ObjectId) -> i32 {
     find_inherited(doc, page_id, "Rotate")
         .and_then(|(o, _)| obj_to_f64(&resolve(doc, &o)))
         .map(|f| (((f as i32) % 360) + 360) % 360)
@@ -160,7 +160,7 @@ fn rotate_of(doc: &Document, page_id: ObjectId) -> i32 {
 /// Rotates a point in a unit square (top-left origin, x right, y down) by
 /// a clockwise page /Rotate of 0/90/180/270 degrees, matching how a PDF
 /// viewer rotates the rendered page.
-fn rotate_point(x: f64, y: f64, rotate: i32) -> (f64, f64) {
+pub(crate) fn rotate_point(x: f64, y: f64, rotate: i32) -> (f64, f64) {
     match rotate {
         90 => (1.0 - y, x),
         180 => (1.0 - x, 1.0 - y),
@@ -173,7 +173,7 @@ fn rotate_point(x: f64, y: f64, rotate: i32) -> (f64, f64) {
 /// [left, top, width, height] rect (0..1, y-down, post-rotation) relative
 /// to the MediaBox — i.e. exactly what's needed to position an overlay
 /// on top of the rendered preview image, whatever DPI it was rendered at.
-fn normalize_rect(rect: [f64; 4], media: [f64; 4], rotate: i32) -> [f64; 4] {
+pub(crate) fn normalize_rect(rect: [f64; 4], media: [f64; 4], rotate: i32) -> [f64; 4] {
     let mw = (media[2] - media[0]).max(1e-6);
     let mh = (media[3] - media[1]).max(1e-6);
 

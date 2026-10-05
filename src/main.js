@@ -207,13 +207,17 @@ async function loadPdf(source) {
     updatePageControls();
     updateRasterDpi();
     state.separationNames = [];
+    resetRecolour();
     loadSpotSwatches(); // real spot colours for the swatches
     loadSeparationsList(); // in the background; the page shows straight away
     await loadPageBoxes();
     view.zoom = "fit";
     await showPage({ reloadDoc: true });
     enableFixes();
+    fontWarningQueued = false;
+    fontDialog.classList.add("hidden");
     checkOverprintOnOpen(); // pop-up warning if any non-black colour overprints
+    loadFonts({ warn: true });
   } catch (err) {
     alert(`Could not open PDF:\n${err}`);
   } finally {
@@ -389,6 +393,44 @@ async function loadPdfjs() {
   return view.lib;
 }
 
+const RANGE_CHUNK = 256 * 1024;
+
+// Gives pdf.js the file a piece at a time (HTTP range requests to the
+// app's own file server), starting with the first chunk.
+async function rangeTransport(lib, src) {
+  const get = async (begin, end) => {
+    const res = await fetch(src, { headers: { Range: `bytes=${begin}-${end - 1}` } });
+    if (res.status !== 206 && res.status !== 200) throw new Error(`HTTP ${res.status}`);
+    return res;
+  };
+  const first = await get(0, RANGE_CHUNK);
+  const total = first.status === 206 ? Number((first.headers.get("content-range") || "").split("/")[1]) : NaN;
+  const initial = new Uint8Array(await first.arrayBuffer());
+  const length = Number.isFinite(total) && total > 0 ? total : initial.length;
+  const transport = new lib.PDFDataRangeTransport(length, initial);
+  transport.length = length;
+  // The file server caps each reply (about 1 MB), so larger requests are
+  // read in chunk-sized parts and handed over together.
+  transport.requestDataRange = (begin, end) => {
+    const parts = [];
+    for (let at = begin; at < end; at += RANGE_CHUNK) {
+      parts.push(get(at, Math.min(end, at + RANGE_CHUNK)).then((res) => res.arrayBuffer()));
+    }
+    Promise.all(parts)
+      .then((bufs) => {
+        const out = new Uint8Array(end - begin);
+        let pos = 0;
+        for (const b of bufs) {
+          out.set(new Uint8Array(b), pos);
+          pos += b.byteLength;
+        }
+        transport.onDataRange(begin, out);
+      })
+      .catch((err) => console.error("Range read failed:", err));
+  };
+  return transport;
+}
+
 // (Re)loads the working copy into pdf.js — on open and after every edit.
 async function loadVectorDoc() {
   const lib = await loadPdfjs();
@@ -401,11 +443,8 @@ async function loadVectorDoc() {
     old.destroy().catch(() => {});
   }
   if (progress.active) setProgress(45, "Reading PDF…");
-  const buf = await invoke("read_pdf", { path: state.path });
-  if (progress.active) setProgress(60, "Parsing PDF…");
   const url = (p) => new URL(p, location.href).href;
-  view.loadingTask = lib.getDocument({
-    data: new Uint8Array(buf),
+  const options = {
     cMapUrl: url("vendor/pdfjs/cmaps/"),
     cMapPacked: true,
     standardFontDataUrl: url("vendor/pdfjs/standard_fonts/"),
@@ -413,8 +452,34 @@ async function loadVectorDoc() {
     iccUrl: url("vendor/pdfjs/iccs/"),
     isEvalSupported: false,
     enableXfa: false,
-  });
-  view.doc = await view.loadingTask.promise;
+  };
+  // Read the working copy straight from disk in pieces (only what the
+  // visible page needs), so big files show quickly. The query string makes
+  // each reload fetch the edited file rather than a cached copy. If that
+  // isn't available, fall back to passing the whole file over.
+  view.docVersion = (view.docVersion || 0) + 1;
+  const forPath = state.path;
+  let doc = null;
+  try {
+    const range = await rangeTransport(lib, `${window.__TAURI__.core.convertFileSrc(forPath)}?v=${view.docVersion}`);
+    view.loadingTask = lib.getDocument({
+      ...options,
+      range,
+      length: range.length,
+      disableAutoFetch: true,
+      disableStream: true,
+      rangeChunkSize: RANGE_CHUNK,
+    });
+    doc = await view.loadingTask.promise;
+  } catch (err) {
+    console.warn("Range loading failed, reading the whole file instead:", err);
+    view.loadingTask?.destroy().catch(() => {});
+    const buf = await invoke("read_pdf", { path: forPath });
+    if (progress.active) setProgress(60, "Parsing PDF…");
+    view.loadingTask = lib.getDocument({ ...options, data: new Uint8Array(buf) });
+    doc = await view.loadingTask.promise;
+  }
+  view.doc = doc;
   if (progress.active) setProgress(80, "Drawing page…");
   buildThumbs();
 }
@@ -567,6 +632,7 @@ function applyLayout() {
   for (const b of [els.zoomIn, els.zoomOut, els.zoomFit, els.zoomActual]) b.disabled = false;
   document.getElementById("textModeBtn").disabled = false;
   document.getElementById("zoomToolBtn").disabled = false;
+  document.getElementById("recolourToolBtn").disabled = false;
   setTextLayerScale();
 }
 
@@ -736,6 +802,7 @@ async function goToPage(delta) {
   } finally {
     hideProgress();
   }
+  recolourFind();
 }
 
 // --- page boxes (MediaBox / CropBox / TrimBox / ArtBox / BleedBox) ---
@@ -914,6 +981,7 @@ async function afterBoxEdit() {
   } finally {
     hideProgress();
   }
+  resetRecolour(); // outlines would be in the old place after a rotation
 }
 
 function renderPageBoxesPanel() {
@@ -1068,6 +1136,7 @@ function drawBoxOverlay() {
 
     svg.appendChild(rect);
   }
+  drawRecolourOverlay(svg);
 }
 
 // --- wiring ---
@@ -1075,6 +1144,42 @@ function drawBoxOverlay() {
 els.winMin.addEventListener("click", () => appWindow.minimize());
 els.winMax.addEventListener("click", () => appWindow.toggleMaximize());
 els.winClose.addEventListener("click", () => appWindow.close());
+
+// Closing the window (the × button, Alt+F4, the taskbar) with edits that
+// haven't been exported asks first.
+const closeDialog = document.getElementById("closeDialog");
+let closeConfirmed = false;
+
+function askBeforeClose() {
+  return new Promise((resolve) => {
+    closeDialog.classList.remove("hidden");
+    const done = (choice) => {
+      closeDialog.classList.add("hidden");
+      for (const [id, fn] of handlers) document.getElementById(id).removeEventListener("click", fn);
+      resolve(choice);
+    };
+    const handlers = [
+      ["closeExport", () => done("export")],
+      ["closeDiscard", () => done("discard")],
+      ["closeCancel", () => done("cancel")],
+    ];
+    for (const [id, fn] of handlers) document.getElementById(id).addEventListener("click", fn);
+  });
+}
+
+appWindow.onCloseRequested(async (event) => {
+  if (!state.edited || closeConfirmed) return;
+  event.preventDefault();
+  const choice = await askBeforeClose();
+  if (choice === "export") {
+    await exportPdf();
+    if (state.edited) return; // export cancelled or failed: stay open
+  } else if (choice !== "discard") {
+    return;
+  }
+  closeConfirmed = true;
+  appWindow.close();
+});
 
 
 // --- eyedropper ---
@@ -1159,6 +1264,10 @@ els.imgWrap.addEventListener("click", (ev) => {
   // In Select text mode a click on text (or finishing a selection) is for
   // the text, not for holding an ink reading.
   if (state.zoomTool) return; // clicks belong to the zoom tool
+  if (state.recolourTool) {
+    if (state.path) recolourPick(...pointerFraction(ev));
+    return;
+  }
   if (state.textMode && (ev.target.closest("#textLayer span") || String(window.getSelection() || "").trim())) return;
   if (!state.path || !state.separationNames.length) return;
   eyedrop.held = !eyedrop.held;
@@ -1321,6 +1430,7 @@ async function runConversion(kind) {
   try {
     await invoke("convert_pdf", { path: state.path, kind, page: editAllPages() ? null : state.page });
     setProgress(60, "Reloading…");
+    resetRecolour();
     state.separationNames = [];
     state.activeSeparations = new Set();
     await loadPageBoxes();
@@ -1330,6 +1440,7 @@ async function runConversion(kind) {
     setEdited(true);
     await showPage({ reloadDoc: true });
     enableFixes();
+    loadFonts();
     // Re-check so the result reflects the converted file.
     await checkRgb();
     const note = document.createElement("li");
@@ -1348,6 +1459,431 @@ document.getElementById("checkRgbBtn").addEventListener("click", checkRgb);
 document.getElementById("convertRgbBtn").addEventListener("click", () => runConversion("rgb"));
 document.getElementById("convertSpotsBtn").addEventListener("click", () => runConversion("spots"));
 document.getElementById("outlineBtn").addEventListener("click", () => runConversion("outlines"));
+
+// --- recolour tool ---
+// Click an object (shape or text) to pick it: the panel shows its fill and
+// stroke. Choose what to change (just it, or everything with the same
+// fill/stroke, on this page or all pages per "Apply edits to"), type the
+// new CMYK values and apply. Matches on the current page are outlined in
+// gold.
+
+const recolour = { picked: null, found: null, findToken: 0 };
+const PROCESS_INKS = ["C", "M", "Y", "K"];
+
+function setRecolourTool(on) {
+  state.recolourTool = on;
+  document.getElementById("recolourToolBtn").classList.toggle("active", on);
+  els.viewport.classList.toggle("recolour-tool", on);
+  if (on) {
+    if (state.zoomTool) setZoomTool(false);
+    state.textModeBeforeRecolour = state.textMode;
+    setTextMode(false);
+    // Bring the Recolour panel into view and make it sparkle for a moment.
+    const panel = document.getElementById("recolourPanel");
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    sparkle(panel);
+    eyedrop.held = false;
+    clearInks();
+  } else {
+    setTextMode(state.textModeBeforeRecolour ?? true);
+  }
+  renderRecolourPanel(); // the hint depends on whether the tool is on
+}
+
+// Spinning CMYK border plus twinkling sparkles around an element for 5 s.
+function sparkle(el) {
+  clearTimeout(el._sparkleTimer);
+  el.querySelectorAll(".rc-spark").forEach((s) => s.remove());
+  el.classList.remove("sparkle");
+  void el.offsetWidth; // restart the animation
+  el.classList.add("sparkle");
+  const colours = ["#00aeef", "#ec008c", "#fff200", "#ffcc33"];
+  for (let i = 0; i < 10; i++) {
+    const s = document.createElement("span");
+    s.className = "rc-spark";
+    s.textContent = "✦";
+    // Around the edge: pick a side, then a spot along it.
+    const t = Math.random() * 100;
+    const side = i % 4;
+    s.style.left = side === 0 ? "-14px" : side === 1 ? "calc(100% + 2px)" : `${t}%`;
+    s.style.top = side === 2 ? "-14px" : side === 3 ? "calc(100% - 4px)" : `${t}%`;
+    s.style.color = colours[i % colours.length];
+    s.style.animationDelay = `${(Math.random() * 0.8).toFixed(2)}s, 0s`;
+    el.appendChild(s);
+  }
+  el._sparkleTimer = setTimeout(() => {
+    el.classList.remove("sparkle");
+    el.querySelectorAll(".rc-spark").forEach((s) => s.remove());
+  }, 5000);
+}
+
+function rcMode() {
+  return document.querySelector('input[name="rcMode"]:checked').value;
+}
+
+// CSS colour for a picked colour (spots use their swatch colour).
+function rcSwatch(info) {
+  if (!info) return "transparent";
+  if (info.hex) return info.hex;
+  return info.inks.length ? plateColour(info.inks[0]) : "#888";
+}
+
+function cmykToCss([c, m, y, k]) {
+  const f = (v) => Math.round(255 * (1 - v / 100) * (1 - k / 100));
+  return `rgb(${f(c)}, ${f(m)}, ${f(y)})`;
+}
+
+function rcInputs(which) {
+  return [...document.querySelectorAll(`.rc-cmyk[data-for="${which}"] input`)];
+}
+
+function rcValues(which) {
+  return rcInputs(which).map((i) => Math.min(100, Math.max(0, Number.parseFloat(i.value) || 0)));
+}
+
+function buildCmykInputs() {
+  for (const box of document.querySelectorAll(".rc-cmyk")) {
+    box.replaceChildren();
+    for (const ink of PROCESS_INKS) {
+      const label = document.createElement("label");
+      label.textContent = `${ink} %`;
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = "0";
+      input.max = "100";
+      input.step = "1";
+      input.value = "0";
+      input.addEventListener("input", updateNewSwatches);
+      label.appendChild(input);
+      box.appendChild(label);
+    }
+  }
+}
+
+function updateNewSwatches() {
+  document.getElementById("rcFillNewSwatch").style.background = cmykToCss(rcValues("fill"));
+  document.getElementById("rcStrokeNewSwatch").style.borderColor = cmykToCss(rcValues("stroke"));
+}
+
+// Which of the new fill / stroke editors apply in the chosen mode.
+function rcChannels() {
+  const p = recolour.picked;
+  const mode = rcMode();
+  return {
+    fill: !!(p && p.fill) && mode !== "stroke",
+    stroke: !!(p && p.stroke) && mode !== "fill",
+  };
+}
+
+function renderRecolourPanel() {
+  // The whole panel is always shown; until an object is picked everything
+  // is greyed out and the hint says what to do.
+  const p = recolour.picked;
+  const empty = document.getElementById("recolourEmpty");
+  empty.classList.toggle("hidden", !!p);
+  empty.innerHTML = state.recolourTool
+    ? "Click a shape or some text on the page to pick its colours."
+    : "Turn on the <strong>Recolour</strong> tool (R) and click a shape or text on the page to pick its colours.";
+  document.getElementById("recolourBody").classList.toggle("waiting", !p);
+  for (const id of ["rcApplyBtn", "rcClearBtn"]) document.getElementById(id).disabled = !p;
+  if (!p) {
+    for (const id of ["rcFillText", "rcStrokeText"]) document.getElementById(id).textContent = "–";
+    for (const id of ["rcFillSwatch", "rcStrokeSwatch"]) document.getElementById(id).style.visibility = "hidden";
+    for (const input of document.querySelectorAll('input[name="rcMode"]')) {
+      input.disabled = true;
+      input.parentElement.classList.add("disabled");
+    }
+    for (const which of ["Fill", "Stroke"]) document.getElementById(`rcNew${which}`).classList.add("disabled");
+    for (const i of [...rcInputs("fill"), ...rcInputs("stroke"), document.getElementById("rcFillOn"), document.getElementById("rcStrokeOn")]) {
+      i.disabled = true;
+    }
+    return;
+  }
+
+  const show = (swatch, text, info, stroke) => {
+    document.getElementById(text).textContent = info ? info.label : "none";
+    const sw = document.getElementById(swatch);
+    sw.style.visibility = info ? "visible" : "hidden";
+    if (stroke) sw.style.borderColor = rcSwatch(info);
+    else sw.style.background = rcSwatch(info);
+  };
+  show("rcFillSwatch", "rcFillText", p.fill, false);
+  show("rcStrokeSwatch", "rcStrokeText", p.stroke, true);
+
+  // Modes that need a colour the object doesn't have are unavailable.
+  const need = { object: true, fill: !!p.fill, stroke: !!p.stroke, both: !!(p.fill && p.stroke) };
+  for (const input of document.querySelectorAll('input[name="rcMode"]')) {
+    input.disabled = !need[input.value];
+    input.parentElement.classList.toggle("disabled", input.disabled);
+  }
+  if (document.querySelector('input[name="rcMode"]:checked').disabled) {
+    document.querySelector('input[name="rcMode"][value="object"]').checked = true;
+  }
+
+  const ch = rcChannels();
+  document.getElementById("rcNewFill").classList.toggle("disabled", !ch.fill);
+  document.getElementById("rcNewStroke").classList.toggle("disabled", !ch.stroke);
+  for (const i of [...rcInputs("fill"), document.getElementById("rcFillOn")]) i.disabled = !ch.fill;
+  for (const i of [...rcInputs("stroke"), document.getElementById("rcStrokeOn")]) i.disabled = !ch.stroke;
+}
+
+function setRcResult(text, cls = "") {
+  const el = document.getElementById("rcResult");
+  el.textContent = text;
+  el.className = `rc-result ${cls}`;
+}
+
+function resetRecolour() {
+  recolour.picked = null;
+  recolour.found = null;
+  recolour.findToken++;
+  document.getElementById("rcCount").textContent = "";
+  setRcResult("");
+  renderRecolourPanel();
+  drawBoxOverlay();
+}
+
+// [1, 2, 3, 5] → "1–3, 5"
+function pageRanges(pages) {
+  const out = [];
+  for (let i = 0; i < pages.length; i++) {
+    let j = i;
+    while (j + 1 < pages.length && pages[j + 1] === pages[j] + 1) j++;
+    out.push(i === j ? `${pages[i]}` : `${pages[i]}–${pages[j]}`);
+    i = j;
+  }
+  return out.join(", ");
+}
+
+// Counts and outlines what the current settings would change.
+async function recolourFind() {
+  const p = recolour.picked;
+  if (!p || !state.path) return;
+  const token = ++recolour.findToken;
+  const count = document.getElementById("rcCount");
+  count.textContent = "Finding matches…";
+  try {
+    const found = await invoke("recolour_find", {
+      path: state.path,
+      page: state.page,
+      target: p.target,
+      mode: rcMode(),
+      allPages: editAllPages(),
+    });
+    if (token !== recolour.findToken) return;
+    recolour.found = found;
+    const n = found.count;
+    count.textContent = n
+      ? `${n} object${n > 1 ? "s" : ""} on page${found.pages.length > 1 ? "s" : ""} ${pageRanges(found.pages)}`
+      : "Nothing matches on the pages in scope.";
+  } catch (err) {
+    if (token !== recolour.findToken) return;
+    recolour.found = null;
+    count.textContent = String(err);
+  }
+  drawBoxOverlay();
+}
+
+async function recolourPick(x, y) {
+  setRcResult("");
+  let picked;
+  try {
+    picked = await invoke("recolour_pick", {
+      path: state.path,
+      page: state.page,
+      x,
+      y,
+      tol: 4 / view.scale, // 4 screen pixels, in points
+    });
+  } catch (err) {
+    setRcResult(String(err), "err");
+    return;
+  }
+  if (!picked) {
+    resetRecolour();
+    setRcResult("Nothing to recolour there. Click a shape or some text.");
+    return;
+  }
+  recolour.picked = picked;
+  // Start the editors from the picked colours.
+  const fillVals = picked.fill ? picked.fill.cmyk : [0, 0, 0, 0];
+  const strokeVals = picked.stroke ? picked.stroke.cmyk : [0, 0, 0, 0];
+  rcInputs("fill").forEach((input, i) => (input.value = String(fillVals[i])));
+  rcInputs("stroke").forEach((input, i) => (input.value = String(strokeVals[i])));
+  updateNewSwatches();
+  renderRecolourPanel();
+  await recolourFind();
+}
+
+async function recolourApply() {
+  const p = recolour.picked;
+  if (!p || !state.path) return;
+  const ch = rcChannels();
+  const fill = ch.fill && document.getElementById("rcFillOn").checked ? rcValues("fill") : null;
+  const stroke = ch.stroke && document.getElementById("rcStrokeOn").checked ? rcValues("stroke") : null;
+  if (!fill && !stroke) {
+    setRcResult("Tick New fill or New stroke first.", "err");
+    return;
+  }
+  const btn = document.getElementById("rcApplyBtn");
+  btn.disabled = true;
+  setProgress(30, "Recolouring…");
+  try {
+    const n = await invoke("recolour_apply", {
+      path: state.path,
+      page: state.page,
+      target: p.target,
+      mode: rcMode(),
+      allPages: editAllPages(),
+      fill,
+      stroke,
+    });
+    setProgress(60, "Reloading…");
+    setEdited(true);
+    resetRecolour();
+    setRcResult(`✓ Recoloured ${n} object${n === 1 ? "" : "s"}`, "ok");
+    state.separationNames = [];
+    state.activeSeparations = new Set();
+    loadSpotSwatches();
+    loadSeparationsList();
+    await showPage({ reloadDoc: true });
+  } catch (err) {
+    setRcResult(String(err), "err");
+  } finally {
+    btn.disabled = false;
+    hideProgress();
+  }
+}
+
+// Gold outlines: every match on this page, plus the picked object.
+function drawRecolourOverlay(svg) {
+  const p = recolour.picked;
+  if (!p) return;
+  const rect = ([x, y, w, h], cls) => {
+    const r = document.createElementNS(SVG_NS, "rect");
+    r.setAttribute("x", x);
+    r.setAttribute("y", y);
+    r.setAttribute("width", Math.max(w, 0.002));
+    r.setAttribute("height", Math.max(h, 0.002));
+    r.setAttribute("class", cls);
+    svg.appendChild(r);
+  };
+  if (recolour.found) for (const n of recolour.found.norms) rect(n, "rc-match");
+  if (p.target.page === state.page) rect(p.norm, "rc-selected");
+}
+
+buildCmykInputs();
+updateNewSwatches();
+renderRecolourPanel();
+for (const input of document.querySelectorAll('input[name="rcMode"]')) {
+  input.addEventListener("change", () => {
+    renderRecolourPanel();
+    recolourFind();
+  });
+}
+document.getElementById("rcApplyBtn").addEventListener("click", recolourApply);
+document.getElementById("rcClearBtn").addEventListener("click", resetRecolour);
+document.getElementById("recolourToolBtn").addEventListener("click", () => setRecolourTool(!state.recolourTool));
+
+// R toggles the recolour tool (ignored while typing in a field).
+window.addEventListener("keydown", (ev) => {
+  if (ev.key.toLowerCase() !== "r" || ev.ctrlKey || ev.altKey || ev.metaKey || !view.page) return;
+  if (ev.target.closest && ev.target.closest("input, textarea, select")) return;
+  ev.preventDefault();
+  setRecolourTool(!state.recolourTool);
+});
+
+// --- fonts ---
+// Lists every font the PDF uses and whether it's embedded. Missing fonts
+// also get a pop-up when the file is opened (after the white overprint
+// warning, if that's showing).
+
+const fontDialog = document.getElementById("fontDialog");
+let fontWarningQueued = false;
+
+function pageList(pages) {
+  return pages.length === 1 ? `page ${pages[0]}` : `pages ${pageRanges(pages)}`;
+}
+
+async function loadFonts({ warn = false } = {}) {
+  const list = document.getElementById("fontList");
+  const summary = document.getElementById("fontSummary");
+  const forPath = state.path;
+  if (!forPath) return;
+  list.innerHTML = '<li class="hint">Checking fonts…</li>';
+  summary.textContent = "";
+  let fonts;
+  try {
+    fonts = await invoke("list_fonts", { path: forPath });
+  } catch (err) {
+    if (forPath !== state.path) return;
+    list.innerHTML = "";
+    const li = document.createElement("li");
+    li.className = "hint";
+    li.textContent = String(err);
+    list.appendChild(li);
+    return;
+  }
+  if (forPath !== state.path) return;
+  list.innerHTML = "";
+  const missing = fonts.filter((f) => !f.embedded);
+  if (!fonts.length) {
+    summary.textContent = "none";
+    list.innerHTML = '<li class="hint">No fonts (no live text, or all outlined).</li>';
+    return;
+  }
+  summary.textContent = missing.length ? `${missing.length} not embedded` : "all embedded";
+  summary.className = missing.length ? "font-summary bad" : "font-summary good";
+  for (const f of fonts) {
+    const li = document.createElement("li");
+    li.className = f.embedded ? "ok" : "bad";
+    li.title = `${f.name}\n${f.kind}${f.subset ? ", subset" : ""}\nUsed on ${pageList(f.pages)}`;
+    const name = document.createElement("span");
+    name.className = "font-name";
+    name.textContent = f.name;
+    const status = document.createElement("span");
+    status.className = "font-status";
+    status.textContent = f.embedded ? (f.subset ? "✓ Embedded (subset)" : "✓ Embedded") : "⚠ Not embedded";
+    const meta = document.createElement("span");
+    meta.className = "font-meta";
+    meta.textContent = `${f.kind} · ${pageList(f.pages)}`;
+    li.append(name, status, meta);
+    list.appendChild(li);
+  }
+  if (warn && missing.length) {
+    const dl = document.getElementById("fontDialogList");
+    dl.innerHTML = "";
+    for (const f of missing) {
+      const li = document.createElement("li");
+      const page = document.createElement("span");
+      page.className = "op-warning__page";
+      page.textContent = f.pages.length === 1 ? `Page ${f.pages[0]}` : `Pages ${pageRanges(f.pages)}`;
+      const name = document.createElement("span");
+      name.className = "op-warning__colour";
+      name.textContent = f.name;
+      const kind = document.createElement("span");
+      kind.className = "op-warning__kind";
+      kind.textContent = f.kind;
+      li.append(page, name, kind);
+      dl.appendChild(li);
+    }
+    if (overprintDialog.classList.contains("hidden")) fontDialog.classList.remove("hidden");
+    else fontWarningQueued = true;
+  }
+}
+
+// Shows a queued font warning once the overprint warning is closed.
+function showQueuedFontWarning() {
+  if (fontWarningQueued && overprintDialog.classList.contains("hidden")) {
+    fontWarningQueued = false;
+    fontDialog.classList.remove("hidden");
+  }
+}
+new MutationObserver(showQueuedFontWarning).observe(overprintDialog, { attributes: true, attributeFilter: ["class"] });
+document.getElementById("fontDialogOk").addEventListener("click", () => fontDialog.classList.add("hidden"));
+window.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && !fontDialog.classList.contains("hidden")) fontDialog.classList.add("hidden");
+});
 
 // --- opening files from outside: double-click / "Open with" / drag and drop ---
 
@@ -1455,17 +1991,29 @@ document.getElementById("textModeBtn").addEventListener("click", () => {
     setZoomTool(false, true);
     return;
   }
+  if (state.recolourTool) {
+    setRecolourTool(false);
+    setTextMode(true);
+    return;
+  }
   setTextMode(!state.textMode);
 });
 els.imgWrap.classList.toggle("text-mode", state.textMode);
 window.addEventListener("keydown", (ev) => {
   if (ev.key !== "Escape") return;
   if (state.zoomTool) setZoomTool(false);
+  else if (state.recolourTool) setRecolourTool(false);
   else if (state.textMode) setTextMode(false);
 });
 
-document.getElementById("scopeAll").addEventListener("click", () => setApplyScope(true));
-document.getElementById("scopePage").addEventListener("click", () => setApplyScope(false));
+document.getElementById("scopeAll").addEventListener("click", () => {
+  setApplyScope(true);
+  recolourFind();
+});
+document.getElementById("scopePage").addEventListener("click", () => {
+  setApplyScope(false);
+  recolourFind();
+});
 
 // --- page navigation: Page Up/Down, Home/End, and the mouse wheel ---
 // The wheel scrolls within a page as normal; once you hit the bottom (or
@@ -1519,6 +2067,7 @@ function setZoomTool(on, textAfter) {
   els.viewport.classList.toggle("zoom-tool", on);
   els.imgWrap.classList.toggle("zoom-tool", on);
   if (on) {
+    if (state.recolourTool) setRecolourTool(false);
     state.textModeBeforeZoom = state.textMode;
     setTextMode(false);
     eyedrop.held = false;
