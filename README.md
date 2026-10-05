@@ -7,7 +7,9 @@ install on Windows.
 
 > **Actively developed: expect frequent updates.**
 
-📺 [Video walkthrough](https://youtu.be/T5qqebtV9_g)
+**New to Mangoprint Prepress PDF? Watch the video:**
+
+[![Mangoprint Prepress PDF video](docs/tutorial-thumbnail.jpg)](https://youtu.be/T5qqebtV9_g)
 
 <details>
 <summary><strong>Recent Changes</strong></summary>
