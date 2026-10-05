@@ -1925,9 +1925,17 @@ window.__TAURI__.webview.getCurrentWebview().onDragDropEvent(async (ev) => {
 
 // --- tutorial link & footer (same as RapidCulling) ---
 
-// Tutorial video for the "New user? Watch this first!" button.
-const TUTORIAL_VIDEO_URL = "https://youtu.be/T5qqebtV9_g";
-const TUTORIAL_DISMISSED_KEY = "mangoprint.tutorialDismissed";
+// The tutorial video's link ("New user? Watch this first!") lives in
+// links.json in the GitHub repo, read at start-up, so it can be set or
+// changed after a release without a new one (same as RapidRetouch). The last
+// link read is remembered for offline starts; before any has been read, the
+// link below is used. A new link brings the button back even if the old one
+// was dismissed.
+const LINKS_URL = "https://raw.githubusercontent.com/crispin81/Mangoprint-Prepress-PDF/main/links.json";
+const LINKS_TIMEOUT_MS = 5000;
+const TUTORIAL_DEFAULT_URL = "https://youtu.be/T5qqebtV9_g";
+const TUTORIAL_URL_KEY = "mangoprint.tutorialUrl";
+const TUTORIAL_DISMISSED_KEY = "mangoprint.tutorialDismissed"; // holds the dismissed link
 const COFFEE_URL = "https://buymeacoffee.com/chriscorkphotography";
 const SITE_URL = "https://mangoprint.co.uk";
 
@@ -1937,24 +1945,51 @@ function openExternal(url) {
 
 {
   const link = document.getElementById("videoLink");
-  let dismissed = false;
-  try {
-    dismissed = localStorage.getItem(TUTORIAL_DISMISSED_KEY) === "1";
-  } catch {
-    // localStorage unavailable - show the link.
-  }
-  link.classList.toggle("hidden", dismissed);
+  const store = {
+    get: (k) => {
+      try {
+        return localStorage.getItem(k);
+      } catch {
+        return null; // localStorage unavailable
+      }
+    },
+    set: (k, v) => {
+      try {
+        localStorage.setItem(k, v);
+      } catch {
+        // Just won't persist across restarts.
+      }
+    },
+  };
+  let tutorialUrl = store.get(TUTORIAL_URL_KEY) || TUTORIAL_DEFAULT_URL;
+  const showTutorial = () => {
+    const dismissed = store.get(TUTORIAL_DISMISSED_KEY);
+    // "1" is how earlier versions recorded a dismissal (of the first video).
+    const isDismissed = dismissed === tutorialUrl || (dismissed === "1" && tutorialUrl === TUTORIAL_DEFAULT_URL);
+    link.classList.toggle("hidden", !tutorialUrl || isDismissed);
+  };
+  showTutorial();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), LINKS_TIMEOUT_MS);
+  fetch(LINKS_URL, { cache: "no-store", signal: ctrl.signal })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((links) => {
+      const url = links && typeof links.tutorial_video === "string" ? links.tutorial_video.trim() : null;
+      if (url && /^https:\/\//.test(url)) {
+        tutorialUrl = url;
+        store.set(TUTORIAL_URL_KEY, url);
+        showTutorial();
+      }
+    })
+    .catch(() => {}) // offline: keep the remembered link
+    .finally(() => clearTimeout(timer));
   document.getElementById("videoLinkCta").addEventListener("click", (ev) => {
     ev.preventDefault();
-    openExternal(TUTORIAL_VIDEO_URL);
+    openExternal(tutorialUrl);
   });
   document.getElementById("videoLinkClose").addEventListener("click", () => {
     link.classList.add("hidden");
-    try {
-      localStorage.setItem(TUTORIAL_DISMISSED_KEY, "1");
-    } catch {
-      // Dismissal just won't persist across restarts.
-    }
+    store.set(TUTORIAL_DISMISSED_KEY, tutorialUrl);
   });
   document.getElementById("coffeeLink").addEventListener("click", (ev) => {
     ev.preventDefault();

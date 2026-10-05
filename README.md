@@ -5,7 +5,20 @@ separations and ink coverage, see and set trim and bleed, find RGB and spot colo
 desktop app (Tauri: Rust backend, plain JavaScript UI) with nothing else to
 install on Windows.
 
+> **Actively developed: expect frequent updates.**
+
 📺 [Video walkthrough](https://youtu.be/T5qqebtV9_g)
+
+<details>
+<summary><strong>Recent Changes</strong></summary>
+
+**[⬇ Download the latest version](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest)**
+
+- **2026-10-05 (v1.0.1):** Faster opening, a new Recolour tool (change one object or every object with the same fill or stroke), a Fonts panel that warns about fonts that aren't embedded, and a warning before closing with unexported changes
+- **2026-10-02 (v0.1.1):** Open PDFs by double-clicking them, with Open with, or by dragging them onto the window
+- **2026-10-01 (v0.1.0):** First public release: overprint preview, separations and ink readings, trim and bleed, RGB and spot colour checks and fixes, text to outlines
+
+</details>
 
 Free and open-source, licensed [AGPL-3.0](LICENSE). Developed and
 maintained by Chris Cork from [Mangoprint.co.uk](https://mangoprint.co.uk).
@@ -17,10 +30,10 @@ Grab the latest build from
 
 **These builds aren't code-signed** (that needs a paid developer
 certificate this project doesn't have yet), so your OS will warn that the
-publisher is unverified on first launch. That's expected for unsigned beta
+publisher is unverified on first launch. That's expected for unsigned
 software, not a sign anything's wrong:
 
-- **macOS**: [Direct download (.dmg, Apple Silicon + Intel)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF_0.1.1_universal.dmg).
+- **macOS**: [Direct download (.dmg, Apple Silicon + Intel)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest/download/Mangoprint-Prepress-PDF_mac_universal.dmg).
   Open the `.dmg`, drag `Mangoprint Prepress PDF.app` into Applications.
   Gatekeeper will refuse to open it the first time — recent macOS versions
   no longer reliably let you bypass this with right-click → Open, so use one
@@ -33,22 +46,22 @@ software, not a sign anything's wrong:
     then go to **System Settings → Privacy & Security**, scroll down to
     the security notice about Mangoprint Prepress PDF, and click
     **Open Anyway**.
-- **Windows (installer)**: [Direct download (setup .exe)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF_0.1.1_x64-setup.exe),
-  or the [.msi](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF_0.1.1_x64_en-US.msi)
+- **Windows (installer)**: [Direct download (setup .exe)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest/download/Mangoprint-Prepress-PDF_windows_x64_setup.exe),
+  or the [.msi](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest/download/Mangoprint-Prepress-PDF_windows_x64.msi)
   if you prefer. SmartScreen will show "Windows protected your PC" — click
   **More info**, then **Run anyway**.
-- **Windows (portable, no install)**: [Direct download (.zip)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF_0.1.1_portable_win64.zip).
+- **Windows (portable, no install)**: [Direct download (.zip)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest/download/Mangoprint-Prepress-PDF_windows_portable.zip).
   Unzip anywhere (a USB stick is fine) and run
   `Mangoprint Prepress PDF.exe`. Keep the `ghostscript` folder next to it.
-- **Linux**: [Direct download (.AppImage)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF_0.1.1_amd64.AppImage).
+- **Linux**: [Direct download (.AppImage)](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest/download/Mangoprint-Prepress-PDF_linux_x86_64.AppImage).
   `chmod +x` the `.AppImage` and run it directly (works on Debian, Ubuntu,
   Arch, Fedora and most others):
   ```
-  chmod +x Mangoprint-Prepress-PDF_0.1.1_amd64.AppImage
-  ./Mangoprint-Prepress-PDF_0.1.1_amd64.AppImage
+  chmod +x Mangoprint-Prepress-PDF_linux_x86_64.AppImage
+  ./Mangoprint-Prepress-PDF_linux_x86_64.AppImage
   ```
-  Or install the [.deb](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF_0.1.1_amd64.deb)
-  / [.rpm](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/download/v0.1.1-beta/Mangoprint-Prepress-PDF-0.1.1-1.x86_64.rpm)
+  Or install the [.deb](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest/download/Mangoprint-Prepress-PDF_linux_amd64.deb)
+  / [.rpm](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest/download/Mangoprint-Prepress-PDF_linux_x86_64.rpm)
   for your distro. On Wayland the AppImage runs natively, falling back to
   X11 automatically if needed.
 
