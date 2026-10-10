@@ -863,6 +863,33 @@ a:hover > .about__logo {
   color: var(--text);
 }
 
+.about__maker {
+  margin: 14px 0 12px;
+}
+
+.about__maker > a {
+  display: block;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.about__photo {
+  display: block;
+  width: 100%;
+  height: auto;
+  transition: transform 0.2s ease-out;
+}
+
+.about__maker > a:hover .about__photo {
+  transform: scale(1.03);
+}
+
+.about__maker p {
+  color: var(--text);
+}
+
 .about__heading {
   margin: 16px 0 6px;
   font-size: 11px;
