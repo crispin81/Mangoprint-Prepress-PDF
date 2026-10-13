@@ -2239,3 +2239,57 @@ a:hover > .about__logo {
   border-bottom: 1px solid var(--field-border);
   border-radius: 6px 6px 0 0;
 }
+
+/* --- mail merge preview --- */
+
+.about.merge-preview {
+  width: auto;
+  max-width: min(92vw, 1100px);
+  text-align: center;
+}
+
+.merge-preview__nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 6px 0 10px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.merge-preview__nav span {
+  max-width: 60ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merge-preview__img {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.merge-preview__img img {
+  display: block;
+  max-height: 70vh;
+  max-width: 100%;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  background: #ffffff;
+}
+
+.merge-preview__loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-text);
+  background: rgba(20, 21, 26, 0.5);
+}
+
+#mergeFont {
+  max-width: 150px;
+}

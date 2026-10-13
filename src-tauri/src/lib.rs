@@ -9,6 +9,7 @@ mod pagebox;
 mod pages;
 mod recolour;
 mod spotcolor;
+mod sysfonts;
 
 use base64::Engine;
 use image::{GrayImage, RgbImage};
@@ -745,6 +746,35 @@ fn merge_read_csv(path: String) -> Result<Vec<Vec<String>>, String> {
     pages::read_csv(Path::new(&path))
 }
 
+/// Mail merge: installed fonts that can be embedded.
+#[tauri::command(async)]
+fn system_fonts() -> Vec<sysfonts::SysFont> {
+    sysfonts::list()
+}
+
+/// Mail merge preview: the page as it would look with one row merged, as
+/// a PNG data URI. The working copy isn't changed.
+#[tauri::command(async)]
+fn merge_preview(
+    path: String,
+    page: u32,
+    row: Vec<String>,
+    spec: pages::MergeSpec,
+    dpi: u32,
+    doc: tauri::State<DocLock>,
+) -> Result<String, String> {
+    let tmp = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
+    let copy = tmp.path().join("preview.pdf");
+    {
+        let _r = read_lock(&doc)?;
+        std::fs::copy(&path, &copy).map_err(|e| format!("Could not copy the PDF: {e}"))?;
+    }
+    pages::mail_merge(&copy, page, &[row], &spec)?;
+    let png = tmp.path().join("preview.png");
+    gs::render_overprint_png(&copy, page, false, dpi, &png)?;
+    png_to_data_uri(&png)
+}
+
 /// Mail merge: replaces the page with one copy per row; returns how many.
 #[tauri::command(async)]
 fn mail_merge(
@@ -867,6 +897,8 @@ pub fn run() {
             undo_counts,
             merge_read_csv,
             mail_merge,
+            system_fonts,
+            merge_preview,
             read_pdf,
             export_pdf,
             render_overprint,

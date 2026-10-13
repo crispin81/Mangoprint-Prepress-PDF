@@ -446,9 +446,14 @@ fn pdfwrite(inputs: &[&Path], output: &Path, extra: &[&str], page_list: Option<&
 }
 
 /// Typesets a PostScript program into a PDF (mail merge text), with every
-/// font embedded so the result is print-ready.
-pub fn postscript_to_pdf(ps: &Path, output: &Path) -> Result<(), String> {
+/// font embedded so the result is print-ready. Fonts in `font_dir` can be
+/// used by their PostScript names.
+pub fn postscript_to_pdf(ps: &Path, output: &Path, font_dir: &Path) -> Result<(), String> {
+    let dir = font_dir.to_string_lossy().to_string();
     let out = gs_command()?
+        .arg(format!("-sFONTPATH={dir}"))
+        .arg(format!("--permit-file-read={dir}{}", std::path::MAIN_SEPARATOR))
+        .arg(format!("--permit-file-read={}/", dir.replace('\\', "/")))
         .args([
             "-q",
             "-dBATCH",

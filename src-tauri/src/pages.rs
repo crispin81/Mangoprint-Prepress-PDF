@@ -299,9 +299,31 @@ struct Placed<'a> {
     size: (f64, f64),
 }
 
+/// The PostScript font name for a field: one of Ghostscript's own fonts,
+/// or (`sys:<path>`) an installed font, which is copied into `font_dir`
+/// so Ghostscript can find and embed it.
+fn font_name(font: &str, font_dir: &Path) -> Result<String, String> {
+    if let Some(path) = font.strip_prefix("sys:") {
+        let p = Path::new(path);
+        let f = crate::sysfonts::read_font(p).ok_or_else(|| format!("The font {path} can't be used for mail merge."))?;
+        let dest = font_dir.join(p.file_name().ok_or("Invalid font path")?);
+        if !dest.exists() {
+            std::fs::copy(p, &dest).map_err(|e| format!("Could not read the font {path}: {e}"))?;
+        }
+        return Ok(f.ps_name);
+    }
+    Ok(match font {
+        "sans-bold" => "NimbusSans-Bold",
+        "serif" => "NimbusRoman-Regular",
+        "mono" => "NimbusMonoPS-Regular",
+        _ => "NimbusSans-Regular",
+    }
+    .to_string())
+}
+
 /// A PostScript program drawing one page per row, each the size of the
 /// template page's MediaBox, with each of the row's values set in its box.
-fn merge_program(rows: &[Vec<String>], placed: &[Placed], media: [f64; 4], rotate: i32) -> String {
+fn merge_program(rows: &[Vec<String>], placed: &[Placed], fonts: &[String], media: [f64; 4], rotate: i32) -> String {
     let f = |v: f64| format!("{v:.4}");
     let mut ps = format!(
         "%!PS\n<< /PageSize [{} {}] >> setpagedevice\n",
@@ -310,12 +332,7 @@ fn merge_program(rows: &[Vec<String>], placed: &[Placed], media: [f64; 4], rotat
     );
     for (j, p) in placed.iter().enumerate() {
         let spec = p.field;
-        let font = match spec.font.as_str() {
-            "sans-bold" => "NimbusSans-Bold",
-            "serif" => "NimbusRoman-Regular",
-            "mono" => "NimbusMonoPS-Regular",
-            _ => "NimbusSans-Regular",
-        };
+        let font = &fonts[j];
         let (bw, bh) = (f(p.size.0), f(p.size.1));
         let x = match spec.align.as_str() {
             "left" => format!("{bw} -2 div"),
@@ -391,9 +408,12 @@ pub fn mail_merge(path: &Path, page: u32, rows: &[Vec<String>], spec: &MergeSpec
     let tmp = tempfile::TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
     let ps_path = tmp.path().join("merge.ps");
     let pdf_path = tmp.path().join("merge.pdf");
-    let program = merge_program(rows, &placed, media, geom.rotate);
+    let font_dir = tmp.path().join("fonts");
+    std::fs::create_dir_all(&font_dir).map_err(|e| format!("Could not create a temp directory: {e}"))?;
+    let fonts = spec.fields.iter().map(|f| font_name(&f.font, &font_dir)).collect::<Result<Vec<_>, _>>()?;
+    let program = merge_program(rows, &placed, &fonts, media, geom.rotate);
     std::fs::write(&ps_path, program).map_err(|e| format!("Could not write the mail merge program: {e}"))?;
-    gs::postscript_to_pdf(&ps_path, &pdf_path)?;
+    gs::postscript_to_pdf(&ps_path, &pdf_path, &font_dir)?;
     let mut text = load(&pdf_path)?;
     let text_pages: Vec<ObjectId> = text.get_pages().into_values().collect();
     if text_pages.len() != rows.len() {
@@ -531,7 +551,13 @@ mod tests {
             shrink: true,
             overprint: false,
         };
-        let spec = MergeSpec { fields: vec![field([0.1, 0.1, 0.5, 0.1], "centre"), field([0.1, 0.25, 0.5, 0.05], "left")] };
+        let mut second = field([0.1, 0.25, 0.5, 0.05], "left");
+        // An installed font, where there is one to try.
+        let georgia = Path::new(r"C:\Windows\Fonts\georgia.ttf");
+        if georgia.exists() {
+            second.font = format!("sys:{}", georgia.display());
+        }
+        let spec = MergeSpec { fields: vec![field([0.1, 0.1, 0.5, 0.1], "centre"), second] };
         let rows: Vec<Vec<String>> = [["Alice", "Leeds"], ["Bob £5", "York"], ["A very long name that will not fit the box at all", ""]]
             .iter()
             .map(|r| r.iter().map(|s| s.to_string()).collect())
