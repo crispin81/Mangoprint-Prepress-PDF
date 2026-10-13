@@ -661,6 +661,7 @@ function applyLayout() {
   document.getElementById("selectToolBtn").disabled = false;
   document.getElementById("mergeToolBtn").disabled = false;
   setTextLayerScale();
+  if (merge.fields.length) renderMergeText();
 }
 
 // Draws the visible part of the page (plus a margin, so small scrolls
@@ -2693,11 +2694,71 @@ function renderMergePanel() {
   }
   const run = mergeEl("mergeRunBtn");
   run.disabled = !merge.fields.some((x) => x.rect) || !rows.length;
-  mergeEl("mergePreviewBtn").disabled = run.disabled;
+  renderMergeText();
   run.textContent = rows.length ? `Create ${rows.length} page${rows.length === 1 ? "" : "s"}` : "Create pages";
 }
 
+// The first row's text shown in each box, in roughly the chosen font,
+// size, colour and position, so the merge can be judged before it's run.
+const MERGE_CSS_FONTS = {
+  sans: ["Helvetica, Arial, sans-serif", "normal"],
+  "sans-bold": ["Helvetica, Arial, sans-serif", "bold"],
+  serif: ["'Times New Roman', Times, serif", "normal"],
+  mono: ["'Courier New', Courier, monospace", "normal"],
+};
+
+function renderMergeText() {
+  let layer = document.getElementById("mergeTextLayer");
+  if (!layer) {
+    layer = document.createElement("div");
+    layer.id = "mergeTextLayer";
+    els.imgWrap.appendChild(layer);
+  }
+  layer.replaceChildren();
+  if (merge.page !== state.page || !view.page) return;
+  const columns = mergeColumns();
+  const first = mergeRows()[0] || [];
+  for (const f of merge.fields) {
+    if (!f.rect) continue;
+    const [x, y, w, h] = f.rect;
+    const box = document.createElement("div");
+    box.className = "merge-text";
+    box.style.left = `${x * 100}%`;
+    box.style.top = `${y * 100}%`;
+    box.style.width = `${w * 100}%`;
+    box.style.height = `${h * 100}%`;
+    box.style.justifyContent = { left: "flex-start", right: "flex-end" }[f.align] || "center";
+    box.style.alignItems = { top: "flex-start", bottom: "flex-end" }[f.valign] || "center";
+    const span = document.createElement("span");
+    const value = first[f.column];
+    span.textContent = value || `«${columns[f.column] || `Column ${f.column + 1}`}»`;
+    if (!value) span.classList.add("placeholder");
+    const opt = [...mergeEl("mergeFont").options].find((o) => o.value === f.font);
+    if (opt && opt.dataset.family) {
+      span.style.fontFamily = `"${opt.dataset.family}"`;
+      span.style.fontWeight = /bold|black|heavy/i.test(opt.dataset.style) ? "bold" : /light|thin/i.test(opt.dataset.style) ? "300" : "normal";
+      span.style.fontStyle = /italic|oblique/i.test(opt.dataset.style) ? "italic" : "normal";
+    } else {
+      const [family, weight] = MERGE_CSS_FONTS[f.font] || MERGE_CSS_FONTS.sans;
+      span.style.fontFamily = family;
+      span.style.fontWeight = weight;
+    }
+    let px = f.size * view.scale;
+    span.style.fontSize = `${px}px`;
+    span.style.color = cmykToCss(f.cmyk);
+    box.appendChild(span);
+    layer.appendChild(box);
+    // Shrink to fit, as the merge will.
+    const room = box.clientWidth;
+    if (f.shrink && span.scrollWidth > room && room > 0) {
+      px *= room / span.scrollWidth;
+      span.style.fontSize = `${px}px`;
+    }
+  }
+}
+
 function drawMergeOverlay(svg) {
+  renderMergeText();
   if (merge.page !== state.page) return;
   merge.fields.forEach((f, i) => {
     if (!f.rect) return;
@@ -2795,55 +2856,6 @@ function mergeJob() {
   return { page, rows, spec };
 }
 
-// --- mail merge preview: the page with one row merged, row by row ---
-
-const mergePreview = { job: null, row: 0, token: 0 };
-const mpDialog = document.getElementById("mergePreviewDialog");
-
-async function showPreviewRow(i) {
-  const job = mergePreview.job;
-  if (!job) return;
-  mergePreview.row = Math.min(Math.max(0, i), job.rows.length - 1);
-  const row = job.rows[mergePreview.row];
-  mergeEl("mpLabel").textContent = `Row ${mergePreview.row + 1} of ${job.rows.length}: ${row.filter((v) => v).join(" · ")}`;
-  mergeEl("mpPrev").disabled = mergePreview.row === 0;
-  mergeEl("mpNext").disabled = mergePreview.row === job.rows.length - 1;
-  mergeEl("mpError").textContent = "";
-  mergeEl("mpLoading").classList.remove("hidden");
-  const token = ++mergePreview.token;
-  // About 70% of the window's height, at screen resolution.
-  const [, h] = pageSizePt();
-  const dpi = Math.round(Math.min(300, Math.max(40, ((window.innerHeight * 0.7) / h) * 72 * (window.devicePixelRatio || 1))));
-  try {
-    const uri = await invoke("merge_preview", { path: state.path, page: job.page, row, spec: job.spec, dpi });
-    if (token !== mergePreview.token) return;
-    mergeEl("mpImg").src = uri;
-  } catch (err) {
-    if (token === mergePreview.token) mergeEl("mpError").textContent = String(err);
-  } finally {
-    if (token === mergePreview.token) mergeEl("mpLoading").classList.add("hidden");
-  }
-}
-
-function openMergePreview() {
-  const job = mergeJob();
-  if (!job) {
-    setMergeResult("Draw a box and choose a CSV file first.", "err");
-    return;
-  }
-  mergePreview.job = job;
-  mergeEl("mpImg").removeAttribute("src");
-  mergeEl("mpCreate").textContent = `Create ${job.rows.length} page${job.rows.length === 1 ? "" : "s"}`;
-  mpDialog.classList.remove("hidden");
-  showPreviewRow(0);
-}
-
-function closeMergePreview() {
-  mpDialog.classList.add("hidden");
-  mergePreview.job = null;
-  mergePreview.token++;
-}
-
 async function runMerge() {
   const job = mergeJob();
   if (!job) return;
@@ -2881,6 +2893,8 @@ async function loadSystemFonts() {
     o.value = `sys:${f.path}`;
     o.textContent = /^(regular|normal|book|roman)$/i.test(f.style) ? f.family : `${f.family} ${f.style}`;
     o.title = f.ps_name;
+    o.dataset.family = f.family;
+    o.dataset.style = f.style;
     group.appendChild(o);
   }
   mergeEl("mergeFont").appendChild(group);
@@ -2896,27 +2910,6 @@ function initMerge() {
   mergeEl("mergeCsvBtn").addEventListener("click", chooseMergeCsv);
   mergeEl("mergeHeader").addEventListener("change", renderMergePanel);
   mergeEl("mergeRunBtn").addEventListener("click", runMerge);
-  mergeEl("mergePreviewBtn").addEventListener("click", openMergePreview);
-  mergeEl("mpPrev").addEventListener("click", () => showPreviewRow(mergePreview.row - 1));
-  mergeEl("mpNext").addEventListener("click", () => showPreviewRow(mergePreview.row + 1));
-  mergeEl("mpClose").addEventListener("click", closeMergePreview);
-  mergeEl("mpDone").addEventListener("click", closeMergePreview);
-  mergeEl("mpCreate").addEventListener("click", () => {
-    closeMergePreview();
-    runMerge();
-  });
-  mpDialog.addEventListener("click", (ev) => {
-    if (ev.target === mpDialog) closeMergePreview();
-  });
-  window.addEventListener("keydown", (ev) => {
-    if (mpDialog.classList.contains("hidden")) return;
-    if (ev.key === "Escape") closeMergePreview();
-    else if (ev.key === "ArrowLeft") showPreviewRow(mergePreview.row - 1);
-    else if (ev.key === "ArrowRight") showPreviewRow(mergePreview.row + 1);
-    else return;
-    ev.preventDefault();
-    ev.stopImmediatePropagation();
-  }, true);
   loadSystemFonts();
   mergeEl("mergeAddBtn").addEventListener("click", () => {
     merge.fields.push(newMergeField());
@@ -2937,8 +2930,9 @@ function initMerge() {
   };
   for (const id of ["mergeColumn", "mergeFont", "mergeSize", "mergeAlign", "mergeValign", "mergeShrink", "mergeOverprint"]) {
     mergeEl(id).addEventListener("change", save);
+    mergeEl(id).addEventListener("input", save);
   }
-  for (const input of rcInputs("merge")) input.addEventListener("change", save);
+  for (const input of rcInputs("merge")) input.addEventListener("input", save);
   renderMergePanel();
 }
 

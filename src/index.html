@@ -175,7 +175,6 @@
           <div class="merge-bar__row">
             <span class="merge-bar__spacer"></span>
             <button id="mergeClearBtn" type="button">Clear boxes</button>
-            <button id="mergePreviewBtn" type="button" title="See how the merged pages will look, row by row">Preview</button>
             <button id="mergeRunBtn" type="button" class="btn-primary">Create pages</button>
           </div>
         </div>
@@ -408,27 +407,6 @@
           <button type="button" id="closeExport" class="btn-primary">Save PDF as…</button>
           <button type="button" id="closeDiscard">Close without saving</button>
           <button type="button" id="closeCancel">Cancel</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="mergePreviewDialog" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="mergePreviewTitle">
-      <div class="about merge-preview">
-        <button type="button" id="mpClose" class="about__close" title="Close">×</button>
-        <h1 id="mergePreviewTitle" class="about__title">Mail merge preview</h1>
-        <div class="merge-preview__nav">
-          <button type="button" id="mpPrev" title="Previous row">‹</button>
-          <span id="mpLabel"></span>
-          <button type="button" id="mpNext" title="Next row">›</button>
-        </div>
-        <div class="merge-preview__img">
-          <img id="mpImg" alt="How the merged page will look" />
-          <div id="mpLoading" class="merge-preview__loading hidden">Drawing…</div>
-        </div>
-        <p id="mpError" class="rc-result err"></p>
-        <div class="op-warning__actions">
-          <button type="button" id="mpCreate" class="btn-primary">Create pages</button>
-          <button type="button" id="mpDone">Close</button>
         </div>
       </div>
     </div>
