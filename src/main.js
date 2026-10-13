@@ -261,6 +261,7 @@ async function updateRasterDpi() {
 function setEdited(edited) {
   state.edited = edited;
   els.exportBtn.disabled = !state.path;
+  document.getElementById("printBtn").disabled = !state.path;
   if (activeTab) {
     activeTab.edited = edited;
     renderTabs();
@@ -507,6 +508,8 @@ async function loadVectorDoc() {
 
 async function loadVectorPage() {
   view.page = await view.doc.getPage(state.page);
+  // Remember the page's own (crop box) view for printing.
+  if (view.page._pageInfo && !view.page._cropView) view.page._cropView = [...view.page._pageInfo.view];
   // pdf.js shows the CropBox by default; show the whole MediaBox instead so
   // bleed is visible and the view lines up with Ghostscript and the box
   // overlay (both MediaBox based).
@@ -2269,7 +2272,7 @@ function setSelResult(text, cls = "") {
   el.className = `rc-result ${cls}`;
 }
 
-const KIND_NAMES = { path: "shape", text: "text run", image: "image", form: "placed graphic" };
+const KIND_NAMES = { path: "shape", text: "text run", image: "image", form: "placed graphic", group: "framed group" };
 
 function renderSelectPanel() {
   const n = sel.items.length;
@@ -3155,6 +3158,69 @@ new ResizeObserver(() => {
   scheduleRender(isVectorMode() ? 80 : 250);
 }).observe(els.viewport);
 
+// --- print ---
+// Every page is drawn (as the crop box shows it, with edits) into a
+// print-only area, then the system print dialog opens.
+
+let printing = false;
+const printArea = document.getElementById("printArea");
+
+function clearPrintArea() {
+  for (const img of printArea.querySelectorAll("img")) URL.revokeObjectURL(img.src);
+  printArea.replaceChildren();
+}
+window.addEventListener("afterprint", clearPrintArea);
+
+async function printPdf() {
+  const doc = view.doc;
+  if (!doc || printing) return;
+  printing = true;
+  clearPrintArea();
+  // Big documents print at a lower resolution to keep memory in check.
+  const dpi = doc.numPages > 40 ? 150 : 250;
+  try {
+    for (let n = 1; n <= doc.numPages; n++) {
+      setProgress(Math.round(((n - 1) / doc.numPages) * 90), `Preparing page ${n} of ${doc.numPages} to print…`);
+      const page = await doc.getPage(n);
+      // The current page shows its whole MediaBox on screen; print the crop.
+      const shown = page._pageInfo && page._cropView ? page._pageInfo.view : null;
+      if (shown) page._pageInfo.view = page._cropView;
+      try {
+        const base = page.getViewport({ scale: 1 });
+        if (n === 1) {
+          document.getElementById("printPageStyle").textContent = `@page { size: ${base.width}pt ${base.height}pt; margin: 0; }`;
+        }
+        const vp = page.getViewport({ scale: dpi / 72 });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil(vp.width);
+        canvas.height = Math.ceil(vp.height);
+        await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp, background: "white" }).promise;
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        canvas.width = canvas.height = 0;
+        const img = document.createElement("img");
+        img.className = "print-page";
+        img.style.width = `${base.width}pt`;
+        img.style.height = `${base.height}pt`;
+        img.src = URL.createObjectURL(blob);
+        printArea.appendChild(img);
+      } finally {
+        if (shown) page._pageInfo.view = shown;
+      }
+    }
+    await Promise.all([...printArea.querySelectorAll("img")].map((i) => i.decode().catch(() => {})));
+    hideProgress();
+    window.print();
+  } catch (err) {
+    clearPrintArea();
+    alert(`Could not print:\n${err}`);
+  } finally {
+    hideProgress();
+    printing = false;
+  }
+}
+
+document.getElementById("printBtn").addEventListener("click", printPdf);
+
 // --- undo / redo ---
 // Every edit keeps a copy of the PDF from before it, so Ctrl+Z steps back
 // (a deleted page or object, a recolour, a page box…) and Ctrl+Y or
@@ -3193,7 +3259,8 @@ window.addEventListener("keydown", (ev) => {
   if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
   const k = ev.key.toLowerCase();
   if ((k === "z" || k === "y") && typingIn(ev)) return;
-  if (k === "z") undoStep(!ev.shiftKey);
+  if (k === "p") printPdf();
+  else if (k === "z") undoStep(!ev.shiftKey);
   else if (k === "y") undoStep(false);
   else if (k === "s") exportPdf();
   else if (k === "o") openPdf();

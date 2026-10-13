@@ -2180,3 +2180,38 @@ a:hover > .about__logo {
 .merge-bar > .merge-bar__row:first-child {
   padding-right: 20px;
 }
+
+/* --- printing: only the prepared pages print --- */
+
+#printArea {
+  display: none;
+}
+
+@media print {
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+    background: #ffffff !important;
+  }
+
+  body > *:not(#printArea) {
+    display: none !important;
+  }
+
+  #printArea {
+    display: block;
+  }
+
+  .print-page {
+    display: block;
+    break-after: page;
+    page-break-after: always;
+  }
+}
+
+#printBtn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}

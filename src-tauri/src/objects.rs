@@ -21,19 +21,36 @@ use std::path::Path;
 struct Obj {
     top: TopObj,
     paints: Vec<usize>,
+    /// For a clipping group: the clip's outline in page space.
+    clip: Option<[f64; 4]>,
 }
 
-/// The page's objects in drawing order.
-fn objects(walk: &PageWalk) -> Vec<Obj> {
+/// The page's objects in drawing order. Anything inside a clipping group
+/// (a logo or image in its frame) belongs to the innermost such group, so
+/// the frame moves with it; clips covering most of the page (artboard or
+/// page clips) don't count.
+fn objects(walk: &PageWalk, media: [f64; 4]) -> Vec<Obj> {
+    let page_area = ((media[2] - media[0]) * (media[3] - media[1])).abs();
+    let groups: Vec<_> = walk
+        .groups
+        .iter()
+        .filter(|g| ((g.clip[2] - g.clip[0]).max(0.0) * (g.clip[3] - g.clip[1]).max(0.0)) < 0.9 * page_area)
+        .collect();
     let mut out: Vec<Obj> = Vec::new();
     let mut index: HashMap<(usize, usize), usize> = HashMap::new();
     for (i, p) in walk.paints.iter().enumerate() {
-        let key = (p.top.start, p.top.end);
+        let mut top = p.top;
+        let mut clip = None;
+        if let Some(g) = groups.iter().filter(|g| g.start <= top.start && top.end <= g.end).min_by_key(|g| g.end - g.start) {
+            top = TopObj { start: g.start, end: g.end, kind: Kind::Group, ctm: g.ctm, ovp: g.ovp };
+            clip = Some(g.clip);
+        }
+        let key = (top.start, top.end);
         match index.get(&key) {
             Some(&k) => out[k].paints.push(i),
             None => {
                 index.insert(key, out.len());
-                out.push(Obj { top: p.top, paints: vec![i] });
+                out.push(Obj { top, paints: vec![i], clip });
             }
         }
     }
@@ -67,7 +84,14 @@ impl Obj {
                 Some(a) => [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])],
             });
         }
-        acc
+        // Only what shows through the clip.
+        match (acc, self.clip) {
+            (Some(a), Some(c)) => {
+                let b = [a[0].max(c[0]), a[1].max(c[1]), a[2].min(c[2]), a[3].min(c[3])];
+                Some(if b[0] < b[2] && b[1] < b[3] { b } else { c })
+            }
+            _ => acc,
+        }
     }
 
     fn overprint(&self, walk: &PageWalk) -> bool {
@@ -78,7 +102,7 @@ impl Obj {
                 (p.fills && o.fill) || (p.strokes && o.stroke)
             }
             Kind::Image => o.fill,
-            Kind::Form => o.fill || o.stroke,
+            Kind::Form | Kind::Group => o.fill || o.stroke,
         }
     }
 
@@ -110,7 +134,7 @@ fn load(path: &Path, page: u32) -> Result<Loaded, String> {
     let page_id = pagebox::page_id_for(&doc, page)?;
     let geom = page_geom(&doc, page_id);
     let walk = walk_page(&doc, page_id, true);
-    let objs = objects(&walk);
+    let objs = objects(&walk, geom.media);
     Ok(Loaded { doc, page_id, geom, walk, objs })
 }
 
@@ -209,11 +233,16 @@ fn advance(adv: f64, font_size: f64, h_scale: f64) -> String {
 pub fn pick(path: &Path, page: u32, x: f64, y: f64, tol: f64) -> Result<Option<ObjInfo>, String> {
     let l = load(path, page)?;
     let (px, py) = l.geom.to_pdf(x, y);
-    for p in l.walk.paints.iter().rev() {
+    for (pi, p) in l.walk.paints.iter().enumerate().rev() {
         if !p.hit(px, py, tol) {
             continue;
         }
-        let Some(i) = l.objs.iter().position(|o| o.top.start == p.top.start && o.top.end == p.top.end) else { continue };
+        let Some(i) = l.objs.iter().position(|o| o.paints.contains(&pi)) else { continue };
+        if let Some(c) = l.objs[i].clip {
+            if px < c[0] - tol || px > c[2] + tol || py < c[1] - tol || py > c[3] + tol {
+                continue; // that part is clipped away
+            }
+        }
         return Ok(l.objs[i].info(i, &l.walk, &l.geom));
     }
     Ok(None)
@@ -453,6 +482,27 @@ mod tests {
         delete_objects(&p, 1, &[purple.index]).unwrap();
         assert_eq!(in_rect(&p, 1, [0.0, 0.0, 1.0, 1.0]).unwrap().len(), before - 1);
         if let Ok(out) = std::env::var("MP_OBJECTS_OUT") {
+            std::fs::copy(&p, out).unwrap();
+        }
+    }
+
+    /// `MP_CLIP_PDF=file.pdf MP_CLIP_OUT=out.pdf cargo test clip_file -- --nocapture`
+    /// (a red disc clipped to x 100–300, y 600–700 of 595x842).
+    #[test]
+    fn clip_file() {
+        let Ok(src) = std::env::var("MP_CLIP_PDF") else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("t.pdf");
+        std::fs::copy(&src, &p).unwrap();
+        let hit = pick(&p, 1, 200.0 / 595.0, 1.0 - 650.0 / 842.0, 2.0).unwrap().expect("hit");
+        println!("{hit:?}");
+        assert_eq!(hit.kind, Kind::Group);
+        // Outside the clip the background is what's hit.
+        let bg = pick(&p, 1, 200.0 / 595.0, 1.0 - 750.0 / 842.0, 2.0).unwrap().expect("bg");
+        assert_ne!(bg.index, hit.index);
+        let moved = move_objects(&p, 1, &[hit.index], 0.2, 0.3).unwrap();
+        println!("{:?}", moved.objects);
+        if let Ok(out) = std::env::var("MP_CLIP_OUT") {
             std::fs::copy(&p, out).unwrap();
         }
     }

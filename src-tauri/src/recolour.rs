@@ -500,6 +500,20 @@ pub(crate) enum Kind {
     Image,
     /// A form XObject (a placed graphic) drawn with `Do`.
     Form,
+    /// A `q … Q` group with a clipping path, e.g. a logo or image inside
+    /// its frame: moved as one so the frame moves with it.
+    Group,
+}
+
+/// A `q … Q` group in the page's own content stream that sets a clip.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ClipGroup {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) ctm: Matrix,
+    pub(crate) ovp: Ovp,
+    /// The clip's outline in page space.
+    pub(crate) clip: [f64; 4],
 }
 
 /// Overprint settings in force: fill (`op`), stroke (`OP`) and mode (`OPM`).
@@ -718,6 +732,8 @@ struct Walker<'a> {
     geometry: bool,
     /// While walking a form drawn from the page: that `Do`, as an object.
     top: Option<TopObj>,
+    /// Clipping groups in the page's own content stream.
+    groups: Vec<ClipGroup>,
 }
 
 impl<'a> Walker<'a> {
@@ -800,13 +816,26 @@ impl<'a> Walker<'a> {
         let mut font: Option<std::rc::Rc<Font>> = None;
         // Distance along the line from the line matrix to the text position.
         let mut u = 0.0;
+        // Page-level q groups still open: start, transformation, overprint
+        // and the outline of any clip set inside them.
+        let mut open: Vec<(usize, Matrix, Ovp, Option<[f64; 4]>)> = Vec::new();
 
         for op in &ops {
             let v = nums(&op.args);
             let bytes = &data[op.start..op.end];
             match op.name.as_str() {
-                "q" => stack.push(g.clone()),
+                "q" => {
+                    if depth == 0 {
+                        open.push((op.start, g.ctm, g.ovp, None));
+                    }
+                    stack.push(g.clone())
+                }
                 "Q" => {
+                    if depth == 0 {
+                        if let Some((start, ctm, ovp, Some(clip))) = open.pop() {
+                            self.groups.push(ClipGroup { start, end: op.end, ctm, ovp, clip });
+                        }
+                    }
                     if let Some(s) = stack.pop() {
                         g = s;
                     }
@@ -934,6 +963,22 @@ impl<'a> Walker<'a> {
                     }
                     if cur.len() > 1 {
                         subpaths.push(std::mem::take(&mut cur));
+                    }
+                    // A clip inside a page-level group marks that group.
+                    if clip_in_path && depth == 0 {
+                        let pts: Vec<&(f64, f64)> = subpaths.iter().flatten().collect();
+                        if let Some((_, _, _, clip)) = open.last_mut().filter(|_| !pts.is_empty()) {
+                            let b = [
+                                pts.iter().map(|p| p.0).fold(f64::INFINITY, f64::min),
+                                pts.iter().map(|p| p.1).fold(f64::INFINITY, f64::min),
+                                pts.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max),
+                                pts.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max),
+                            ];
+                            *clip = Some(match *clip {
+                                None => b,
+                                Some(a) => [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])],
+                            });
+                        }
                     }
                     let fills = matches!(op.name.as_str(), "f" | "F" | "f*" | "B" | "B*" | "b" | "b*");
                     let strokes = matches!(op.name.as_str(), "S" | "s" | "B" | "B*" | "b" | "b*");
@@ -1142,6 +1187,7 @@ impl<'a> Walker<'a> {
 
 pub(crate) struct PageWalk {
     pub(crate) paints: Vec<Paint>,
+    pub(crate) groups: Vec<ClipGroup>,
     pub(crate) streams: Vec<StreamId>,
     /// Decoded data of every stream, by index (pages and forms).
     pub(crate) data: Vec<Vec<u8>>,
@@ -1167,10 +1213,10 @@ fn stream_data(doc: &Document, id: StreamId) -> Vec<u8> {
 pub(crate) fn walk_page(doc: &Document, page_id: ObjectId, geometry: bool) -> PageWalk {
     let resources = page_resources(doc, page_id);
     let content = doc.get_page_content(page_id);
-    let mut w = Walker { doc, streams: Vec::new(), paints: Vec::new(), fonts: HashMap::new(), geometry, top: None };
+    let mut w = Walker { doc, streams: Vec::new(), paints: Vec::new(), fonts: HashMap::new(), geometry, top: None, groups: Vec::new() };
     w.walk(&content, &resources, StreamId::Page(page_id), Gfx::default(), 0);
     let data = w.streams.iter().map(|s| stream_data(doc, *s)).collect();
-    PageWalk { paints: w.paints, streams: w.streams, data }
+    PageWalk { paints: w.paints, groups: w.groups, streams: w.streams, data }
 }
 
 // ---------------------------------------------------------------------------
