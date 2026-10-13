@@ -395,6 +395,11 @@ fn advance(adv: f64, font_size: f64, h_scale: f64) -> String {
 pub fn pick(path: &Path, page: u32, x: f64, y: f64, tol: f64) -> Result<Option<ObjInfo>, String> {
     let l = load(path, page)?;
     let (px, py) = l.geom.to_pdf(x, y);
+    let m = l.geom.media;
+    let page_area = ((m[2] - m[0]) * (m[3] - m[1])).abs();
+    // Something covering (nearly) the whole page, such as a background,
+    // is only picked when there's nothing else at that point.
+    let mut background: Option<usize> = None;
     for (pi, p) in l.walk.paints.iter().enumerate().rev() {
         if !p.hit(px, py, tol) {
             continue;
@@ -405,9 +410,14 @@ pub fn pick(path: &Path, page: u32, x: f64, y: f64, tol: f64) -> Result<Option<O
                 continue; // that part is clipped away
             }
         }
+        let big = l.objs[i].bbox(&l.walk).is_some_and(|b| (b[2] - b[0]) * (b[3] - b[1]) >= 0.8 * page_area);
+        if big {
+            background.get_or_insert(i);
+            continue;
+        }
         return Ok(l.objs[i].info(i, &l.walk, &l.geom));
     }
-    Ok(None)
+    Ok(background.and_then(|i| l.objs[i].info(i, &l.walk, &l.geom)))
 }
 
 /// Objects lying wholly inside `rect` ([left, top, width, height] of the
@@ -910,7 +920,8 @@ mod tests {
         let after = &moved.objects[0];
         assert!((after.norm[0] - boxed.norm[0] - 0.1).abs() < 1e-3 && (after.norm[1] - boxed.norm[1] - 0.05).abs() < 1e-3, "{after:?}");
         let op = set_overprint(&p, 1, &[boxed.index], true).unwrap();
-        assert!(op.objects[0].overprint);
+        // A red box is neither 100% black nor a spot colour: refused.
+        assert!(!op.objects[0].overprint && op.skipped == 1);
         let (tx, ty) = at(80.0, 410.0);
         let text = pick(&p, 1, tx, ty, 2.0).unwrap().expect("text");
         println!("text {text:?}");

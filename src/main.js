@@ -2527,6 +2527,22 @@ els.viewport.addEventListener("mousedown", (ev) => {
       .then((hit) => (d.hit = hit));
     return;
   }
+  // Pressing anywhere inside something already selected grabs the
+  // selection, so a drag moves it rather than whatever is underneath
+  // (such as the background between letters).
+  const wrap = els.imgWrap.getBoundingClientRect();
+  const mx = 4 / wrap.width;
+  const my = 4 / wrap.height;
+  const grabbed = !d.shift && sel.items.find((o) => {
+    const [x, y, w, h] = o.norm;
+    return fx >= x - mx && fx <= x + w + mx && fy >= y - my && fy <= y + h + my;
+  });
+  if (grabbed) {
+    d.hit = grabbed;
+    // A click without moving still picks exactly what's under the pointer.
+    d.pick = invoke("object_pick", { path: state.path, page: state.page, x: fx, y: fy, tol: 4 / view.scale }).catch(() => null);
+    return;
+  }
   d.pick = invoke("object_pick", { path: state.path, page: state.page, x: fx, y: fy, tol: 4 / view.scale })
     .catch((err) => {
       setSelResult(String(err), "err");
