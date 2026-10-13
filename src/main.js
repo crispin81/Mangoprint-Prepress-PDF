@@ -1486,7 +1486,6 @@ function setRecolourTool(on) {
   els.viewport.classList.toggle("recolour-tool", on);
   if (on) {
     toolsOff("recolour");
-    state.textModeBeforeRecolour = state.textMode;
     setTextMode(false);
     // Bring the Recolour panel into view and make it sparkle for a moment.
     const panel = document.getElementById("recolourPanel");
@@ -1494,7 +1493,7 @@ function setRecolourTool(on) {
     sparkle(panel);
     clearInks();
   } else {
-    setTextMode(state.textModeBeforeRecolour ?? true);
+    setTextMode(true); // back to the default: text can be selected
   }
   renderRecolourPanel(); // the hint depends on whether the tool is on
 }
@@ -2216,13 +2215,12 @@ function setSelectTool(on) {
   document.getElementById("selectToolBtn").classList.toggle("active", on);
   els.viewport.classList.toggle("select-tool", on);
   if (on) {
-    state.textModeBeforeSelect = state.textMode;
     setTextMode(false);
     clearInks();
     document.getElementById("selectPanel").scrollIntoView({ behavior: "smooth", block: "start" });
   } else {
     clearSelection();
-    setTextMode(state.textModeBeforeSelect ?? true);
+    setTextMode(true); // back to the default: text can be selected
   }
   renderSelectPanel();
 }
@@ -2490,11 +2488,10 @@ function setMergeTool(on) {
   document.getElementById("mergeToolBtn").classList.toggle("active", on);
   els.viewport.classList.toggle("merge-tool", on);
   if (on) {
-    state.textModeBeforeMerge = state.textMode;
     setTextMode(false);
     clearInks();
   } else {
-    setTextMode(state.textModeBeforeMerge ?? true);
+    setTextMode(true); // back to the default: text can be selected
   }
   document.getElementById("mergeBar").classList.toggle("hidden", !on);
   if (!on && merge.dropper) setMergeDropper(false);
@@ -3334,22 +3331,11 @@ function openExternal(url) {
   });
 }
 
+// With no tool on, hovering text gives the text cursor and text can be
+// selected. The Select text button turns any tool off to get back to that.
 document.getElementById("textModeBtn").addEventListener("click", () => {
-  if (state.zoomTool) {
-    setZoomTool(false, true);
-    return;
-  }
-  if (state.selectTool || state.mergeTool) {
-    toolsOff();
-    setTextMode(true);
-    return;
-  }
-  if (state.recolourTool) {
-    setRecolourTool(false);
-    setTextMode(true);
-    return;
-  }
-  setTextMode(!state.textMode);
+  toolsOff();
+  setTextMode(true);
 });
 els.imgWrap.classList.toggle("text-mode", state.textMode);
 window.addEventListener("keydown", (ev) => {
@@ -3364,7 +3350,6 @@ window.addEventListener("keydown", (ev) => {
     else setMergeTool(false);
   }
   else if (state.recolourTool) setRecolourTool(false);
-  else if (state.textMode) setTextMode(false);
 });
 
 document.getElementById("scopeAll").addEventListener("click", () => {
@@ -3422,18 +3407,17 @@ window.addEventListener("keydown", (ev) => {
 const marquee = document.getElementById("marquee");
 const zoomDrag = { active: false, x0: 0, y0: 0 };
 
-function setZoomTool(on, textAfter) {
+function setZoomTool(on) {
   state.zoomTool = on;
   document.getElementById("zoomToolBtn").classList.toggle("active", on);
   els.viewport.classList.toggle("zoom-tool", on);
   els.imgWrap.classList.toggle("zoom-tool", on);
   if (on) {
     toolsOff("zoom");
-    state.textModeBeforeZoom = state.textMode;
     setTextMode(false);
     clearInks();
   } else {
-    setTextMode(textAfter ?? state.textModeBeforeZoom ?? true);
+    setTextMode(true); // back to the default: text can be selected
   }
 }
 
