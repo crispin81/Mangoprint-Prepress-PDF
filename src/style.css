@@ -1564,7 +1564,7 @@ a:hover > .about__logo {
   flex-shrink: 0;
 }
 
-@media (max-width: 1500px) {
+@media (max-width: 1800px) {
   .tool-label {
     display: none;
   }
@@ -1919,4 +1919,23 @@ a:hover > .about__logo {
 #openBtn {
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+/* The toolbar never overlaps itself: when the window is too narrow for
+   one row, the tools move onto a second row instead. */
+#toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  row-gap: 8px;
+}
+
+.toolbar__centre {
+  flex-shrink: 0;
+}
+
+.toolbar__left,
+.toolbar__right {
+  flex: 1 1 0;
+  min-width: max-content;
 }
