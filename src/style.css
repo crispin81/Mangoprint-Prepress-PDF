@@ -2437,3 +2437,31 @@ a:hover > .about__logo {
   opacity: 0.45;
   cursor: default;
 }
+
+/* Every editable field: white with black text, so it's clear what can be typed in. */
+input[type="text"],
+input[type="number"],
+input:not([type]),
+textarea,
+select,
+.rc-cmyk input,
+.box-fields input,
+.merge-grid input,
+.merge-grid select,
+.merge-bar select,
+.merge-bar input[type="number"],
+.sel-spot__row input {
+  background: #ffffff !important;
+  color: #111111 !important;
+  border-color: #9a9ba5 !important;
+}
+
+select option,
+select optgroup {
+  background: #ffffff;
+  color: #111111;
+}
+
+input::placeholder {
+  color: #777777;
+}
