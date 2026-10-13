@@ -2483,6 +2483,12 @@ async function runObjectEdit(args, label) {
     });
     sel.items = res.objects;
     sel.offset = null;
+    // The edit is saved: let the next move or delete start straight away,
+    // without waiting for the page to finish redrawing (slow in the
+    // simulated overprint view).
+    sel.busy = false;
+    renderSelectPanel();
+    drawBoxOverlay();
     if (res.changed) setEdited(true);
     // The normal view can't show overprint (only the simulated view mixes
     // inks), so switch simulation on to show the result.
@@ -2554,6 +2560,17 @@ function drawMarqueeBox(x0, y0, x1, y1) {
   marquee.style.height = `${Math.abs(y1 - y0)}px`;
   marquee.classList.remove("hidden");
 }
+
+// Clicking the page takes the keyboard away from any sidebar field, so
+// Delete and the arrow keys act on the selection rather than the field.
+els.viewport.addEventListener(
+  "mousedown",
+  () => {
+    const f = document.activeElement;
+    if (f && f !== document.body && f.closest && f.closest("input, textarea, select")) f.blur();
+  },
+  true,
+);
 
 els.viewport.addEventListener("mousedown", (ev) => {
   if (!state.selectTool || !view.page || ev.button !== 0 || sel.busy) return;
