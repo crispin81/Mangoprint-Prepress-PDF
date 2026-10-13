@@ -893,6 +893,7 @@ async function loadPageBoxes() {
 
 function renderRotationPanel() {
   const container = els.pageRotation;
+  if (!container) return; // rotation is done from the Pages panel now
   container.innerHTML = "";
   const current = state.pageBoxes ? state.pageBoxes.rotate : null;
   els.rotationCurrent.textContent = current === null ? "" : `${current}°`;
