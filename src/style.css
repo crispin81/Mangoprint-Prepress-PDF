@@ -2386,3 +2386,11 @@ a:hover > .about__logo {
 .thumbs .thumbs__bar {
   top: 26px;
 }
+
+/* The tool that's on is yellow, like the others. */
+#selectToolBtn.active,
+#mergeToolBtn.active {
+  background: var(--accent);
+  color: var(--panel);
+  border-color: var(--accent);
+}
