@@ -1879,7 +1879,9 @@ function drawRecolourOverlay(svg) {
     r.setAttribute("class", cls);
     svg.appendChild(r);
   };
-  if (recolour.found) for (const n of recolour.found.norms) rect(n, "rc-match");
+  // Only while the pointer is over Global Colour Change, so the outlines
+  // don't get in the way of selecting.
+  if (recolour.found && recolour.showMatches) for (const n of recolour.found.norms) rect(n, "rc-match");
 
 }
 
@@ -1888,6 +1890,17 @@ updateNewSwatches();
 renderRecolourPanel();
 for (const input of document.querySelectorAll('input[name="gMode"]')) input.addEventListener("change", recolourFind);
 document.getElementById("gApplyBtn").addEventListener("click", globalApply);
+{
+  const panel = document.getElementById("globalPanel");
+  panel.addEventListener("mouseenter", () => {
+    recolour.showMatches = true;
+    drawBoxOverlay();
+  });
+  panel.addEventListener("mouseleave", () => {
+    recolour.showMatches = false;
+    drawBoxOverlay();
+  });
+}
 for (const input of rcInputs("global")) {
   input.addEventListener("input", () => {
     document.getElementById("gNewSwatch").style.background = cmykToCss(rcValues("global"));
