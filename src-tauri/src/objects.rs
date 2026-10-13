@@ -139,7 +139,7 @@ impl Obj {
             overprintable: self.paints.iter().all(|&i| {
                 let p = &walk.paints[i];
                 (!p.fills || overprintable_colour(&p.fill)) && (!p.strokes || overprintable_colour(&p.stroke))
-            }),
+            }) && self.paints.iter().all(|&i| walk.paints[i].fills || walk.paints[i].strokes),
             cmyk: self.paints.iter().find_map(|&i| {
                 let p = &walk.paints[i];
                 let c = if p.fills { &p.fill } else if p.strokes { &p.stroke } else { return None };

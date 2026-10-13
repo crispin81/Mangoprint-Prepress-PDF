@@ -2296,11 +2296,14 @@ function renderSelectPanel() {
   const box = document.getElementById("selOverprint");
   box.checked = n > 0 && on === n;
   box.indeterminate = on > 0 && on < n;
-  // Overprint is only applied to 100% black, spot colours and images; the
-  // label says so, and anything else is reported when it's ticked.
-  box.disabled = !n;
-  box.parentElement.classList.remove("disabled");
-  document.getElementById("selOverprintNote").textContent = "";
+  // Overprint can only be ticked for 100% black and spot colours (it can
+  // always be turned off again).
+  const allowed = n > 0 && sel.items.every((o) => o.overprintable);
+  box.disabled = !allowed && on === 0;
+  box.parentElement.classList.toggle("disabled", box.disabled);
+  document.getElementById("selOverprintNote").textContent = n && !allowed
+    ? "Only 100% black or spot colours can overprint. Convert the colour to a spot colour below first."
+    : "";
 }
 
 // Blue outlines round the selection (moved by `sel.offset` while dragging).
