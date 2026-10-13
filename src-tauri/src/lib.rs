@@ -237,7 +237,8 @@ fn render_separation_composite(
     path: String,
     page: u32,
     dpi: u32,
-    active: Vec<String>,
+    // The plates to show; None = all of them.
+    active: Option<Vec<String>>,
     // Spot name -> "#rrggbb" display colour (from spot_swatches); spots
     // without one are shown as a neutral darkening.
     spot_colours: Option<HashMap<String, String>>,
@@ -258,6 +259,7 @@ fn render_separation_composite(
         let _r = read_lock(&doc)?;
         separations(&cache, &path, page, dpi)?
     };
+    let active = active.unwrap_or_else(|| plates.iter().map(|(n, _)| n.clone()).collect());
     let active_set: std::collections::HashSet<&str> = active.iter().map(|s| s.as_str()).collect();
 
     let mut process: HashMap<&str, GrayImage> = HashMap::new();

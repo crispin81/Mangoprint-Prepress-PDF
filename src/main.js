@@ -70,6 +70,8 @@ async function loadSpotSwatches() {
     const found = await invoke("spot_swatches", { path: forPath });
     if (forPath !== state.path) return;
     state.spotSwatches = found;
+    // The simulated view draws spot inks in these colours.
+    if (Object.keys(found).length && view.page && !isVectorMode()) renderRaster();
     // Recolour any swatches already on screen.
     for (const li of els.separationsList.querySelectorAll("li")) {
       const name = li.querySelector(".ink-value[data-plate]")?.dataset.plate;
@@ -741,7 +743,8 @@ async function renderRaster() {
       path: state.path,
       page: state.page,
       dpi,
-      active: [...state.activeSeparations],
+      // All plates while the plate list is (re)loading after an edit.
+      active: allPlatesOn() ? null : [...state.activeSeparations],
       spotColours: state.spotSwatches || {},
       opaqueSpots: true,
     });
