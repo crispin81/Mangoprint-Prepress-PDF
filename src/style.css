@@ -2438,7 +2438,7 @@ a:hover > .about__logo {
   cursor: default;
 }
 
-/* Every editable field: 20% grey with black text, so it's clear what can be typed in without the glare of white. */
+/* Every editable field: 80% grey with pale yellow text, easy on the eye and clearly typeable. */
 input[type="text"],
 input[type="number"],
 input:not([type]),
@@ -2451,19 +2451,19 @@ select,
 .merge-bar select,
 .merge-bar input[type="number"],
 .sel-spot__row input {
-  background: #cccccc !important;
-  color: #111111 !important;
-  border-color: #9a9ba5 !important;
+  background: #333333 !important;
+  color: #f3e6a8 !important;
+  border-color: #5a5b66 !important;
 }
 
 select option,
 select optgroup {
-  background: #cccccc;
-  color: #111111;
+  background: #333333;
+  color: #f3e6a8;
 }
 
 input::placeholder {
-  color: #555555;
+  color: #9a9078;
 }
 
 /* Pages picked with Ctrl / Shift click (e.g. to delete several). */
