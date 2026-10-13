@@ -2465,3 +2465,13 @@ select optgroup {
 input::placeholder {
   color: #555555;
 }
+
+/* Pages picked with Ctrl / Shift click (e.g. to delete several). */
+.thumb.picked .thumb__img {
+  border-color: #2d7dff;
+  background: rgba(45, 125, 255, 0.15);
+}
+
+.thumb.picked.current .thumb__img {
+  border-color: var(--accent);
+}

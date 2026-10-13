@@ -204,6 +204,8 @@ async function loadPdf(source) {
 async function showTab(tab, fresh) {
   activeTab = tab;
   renderTabs();
+  pages.picked = new Set();
+  pages.anchor = null;
   toolsOff();
   clearSelection();
   clearMergeBoxes();
@@ -559,7 +561,7 @@ function buildThumbs() {
     item.addEventListener("click", (ev) => {
       const rot = ev.target.closest(".thumb__rot");
       if (rot) rotatePageBy(n, Number(rot.dataset.dir) * 90);
-      else goToPageNumber(n);
+      else pickPage(n, ev);
     });
     list.appendChild(item);
     observer.observe(item);
@@ -587,10 +589,42 @@ async function renderThumb(doc, item) {
 function markCurrentThumb() {
   const box = document.getElementById("thumbs");
   for (const el of box.querySelectorAll(".thumb")) {
-    const current = Number(el.dataset.page) === state.page;
+    const n = Number(el.dataset.page);
+    const current = n === state.page;
     el.classList.toggle("current", current);
+    el.classList.toggle("picked", pages.picked.has(n));
     if (current) el.scrollIntoView({ block: "nearest" });
   }
+  const del = document.getElementById("deletePageBtn");
+  del.title = pages.picked.size > 1
+    ? `Delete the ${pages.picked.size} selected pages (Delete key after clicking in this panel)`
+    : "Delete this page (Delete key after clicking in this panel). Ctrl-click or Shift-click pages to select several";
+}
+
+// Selected pages in the Pages panel: a click selects one page (and shows
+// it), Ctrl-click adds or removes a page, Shift-click selects a run.
+const pages = { picked: new Set(), anchor: null };
+
+function pickPage(n, ev) {
+  if (ev.ctrlKey || ev.metaKey) {
+    if (!pages.picked.size) pages.picked.add(state.page);
+    if (pages.picked.has(n) && pages.picked.size > 1) pages.picked.delete(n);
+    else pages.picked.add(n);
+    pages.anchor = n;
+    markCurrentThumb();
+    return;
+  }
+  if (ev.shiftKey) {
+    const from = pages.anchor ?? state.page;
+    pages.picked = new Set();
+    for (let i = Math.min(from, n); i <= Math.max(from, n); i++) pages.picked.add(i);
+    markCurrentThumb();
+    return;
+  }
+  pages.picked = new Set([n]);
+  pages.anchor = n;
+  if (n !== state.page) goToPageNumber(n);
+  else markCurrentThumb();
 }
 
 // --- text layer ---
@@ -822,6 +856,7 @@ async function goToPage(delta) {
   const next = state.page + delta;
   if (next < 1 || next > state.pageCount) return;
   state.page = next;
+  if (!pages.picked.has(next)) pages.picked = new Set(); // moved on by other means
   updatePageControls();
   updateRasterDpi();
   loadSeparationsList();
@@ -2065,6 +2100,8 @@ async function afterPagesChanged(count, page) {
   clearSelection();
   clearMergeBoxes(); // its page may have moved
   renderMergePanel();
+  pages.picked = new Set();
+  pages.anchor = null;
   resetRecolour();
   state.separationNames = [];
   state.activeSeparations = new Set();
@@ -2093,16 +2130,24 @@ async function insertPagesFrom(sources, at) {
   }
 }
 
+// Deletes the selected pages, or the current page when none are selected.
 async function deleteCurrentPage() {
   if (!state.path) return;
+  const doomed = pages.picked.size ? [...pages.picked].sort((a, b) => a - b) : [state.page];
   if (state.pageCount <= 1) {
     alert("This is the only page, so it can't be deleted.");
     return;
   }
-  setProgress(30, `Deleting page ${state.page}…`);
+  if (doomed.length >= state.pageCount) {
+    alert("A PDF needs at least one page, so not every page can be deleted.");
+    return;
+  }
+  setProgress(30, doomed.length > 1 ? `Deleting ${doomed.length} pages…` : `Deleting page ${doomed[0]}…`);
   try {
-    const count = await invoke("delete_page", { path: state.path, page: state.page });
-    await afterPagesChanged(count, state.page);
+    const count = await invoke("delete_page", { path: state.path, pages: doomed });
+    pages.picked = new Set();
+    pages.anchor = null;
+    await afterPagesChanged(count, doomed[0]);
   } catch (err) {
     alert(`Could not delete the page:\n${err}`);
   } finally {

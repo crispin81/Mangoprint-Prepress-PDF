@@ -746,11 +746,11 @@ fn move_page(
     Ok(())
 }
 
-/// Deletes a page; returns the new page count.
+/// Deletes pages; returns the new page count.
 #[tauri::command(async)]
 fn delete_page(
     path: String,
-    page: u32,
+    pages: Vec<u32>,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
     hist: tauri::State<history::History>,
@@ -758,7 +758,7 @@ fn delete_page(
 ) -> Result<u32, String> {
     let _w = write_lock(&doc)?;
     hist.snapshot(&path)?;
-    let n = pages::delete_page(Path::new(&path), page)?;
+    let n = pages::delete_pages(Path::new(&path), &pages)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
     Ok(n)

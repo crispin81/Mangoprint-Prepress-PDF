@@ -177,15 +177,27 @@ pub fn move_page(path: &Path, from: u32, to: u32) -> Result<(), String> {
 
 /// Deletes one page. Returns the new page count.
 pub fn delete_page(path: &Path, page: u32) -> Result<u32, String> {
+    delete_pages(path, &[page])
+}
+
+/// Deletes several pages (numbers as they are before deleting). Returns
+/// the new page count.
+pub fn delete_pages(path: &Path, pages: &[u32]) -> Result<u32, String> {
     let mut doc = load(path)?;
     let count = doc.get_pages().len() as u32;
-    if count <= 1 {
-        return Err("A PDF needs at least one page, so the last page can't be deleted.".into());
+    let mut pages: Vec<u32> = pages.to_vec();
+    pages.sort_unstable();
+    pages.dedup();
+    if pages.len() as u32 >= count {
+        return Err("A PDF needs at least one page, so not every page can be deleted.".into());
     }
-    pagebox::page_id_for(&doc, page)?;
-    doc.delete_pages(&[page]);
+    for &p in &pages {
+        pagebox::page_id_for(&doc, p)?;
+    }
+    doc.delete_pages(&pages);
+    let left = doc.get_pages().len() as u32;
     save(doc, path)?;
-    Ok(count - 1)
+    Ok(left)
 }
 
 // ---------------------------------------------------------------------------
@@ -529,6 +541,7 @@ mod tests {
         assert_eq!(n1, n0 * 2);
         let n2 = delete_page(&p, 1).unwrap();
         assert_eq!(n2, n1 - 1);
+        assert!(delete_pages(&p, &(1..=n2).collect::<Vec<_>>()).is_err());
         let ids = |p: &Path| -> Vec<Vec<u8>> {
             let d = Document::load(p).unwrap();
             d.get_pages().values().map(|id| d.get_page_content(*id)).collect()
