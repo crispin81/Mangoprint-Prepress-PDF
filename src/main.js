@@ -2597,9 +2597,31 @@ function showFieldInBar(f) {
   updateNewSwatches();
 }
 
-// A new box takes the current settings and the next column along.
+// A new box takes the current settings and the next column along. Its
+// colour is chosen to show up against the page until the user picks one.
 function newMergeField() {
-  return { ...readMergeInputs(), rect: null, column: merge.fields.length };
+  return { ...readMergeInputs(), rect: null, column: merge.fields.length, autoColour: true };
+}
+
+// White text on a dark background, black on a light one: reads the inks
+// in the middle of the box.
+async function autoMergeColour(f) {
+  const [x, y, w, h] = f.rect;
+  let inks;
+  try {
+    inks = await invoke("sample_inks", { path: state.path, page: state.page, dpi: SAMPLE_DPI, x: x + w / 2, y: y + h / 2 });
+  } catch (err) {
+    console.error(err);
+    return;
+  }
+  if (!f.autoColour) return; // the user chose a colour meanwhile
+  const v = (n) => (inks.find((s) => s.name === n)?.percent || 0) / 100;
+  const [c, m, ye, k] = ["Cyan", "Magenta", "Yellow", "Black"].map(v);
+  let light = ((1 - c) * 0.3 + (1 - m) * 0.59 + (1 - ye) * 0.11) * (1 - k);
+  for (const s of inks) if (!["Cyan", "Magenta", "Yellow", "Black"].includes(s.name)) light *= 1 - 0.7 * (s.percent / 100);
+  f.cmyk = light < 0.5 ? [0, 0, 0, 0] : [0, 0, 0, 100];
+  if (f === activeField()) showFieldInBar(f);
+  renderMergePanel();
 }
 
 function activateField(i) {
@@ -2812,7 +2834,10 @@ async function dropperPick(fx, fy) {
   rcInputs("merge").forEach((input, i) => (input.value = String(Math.round(cmyk[i]))));
   updateNewSwatches();
   const f = activeField();
-  if (f) f.cmyk = rcValues("merge");
+  if (f) {
+    f.cmyk = rcValues("merge");
+    f.autoColour = false;
+  }
   setMergeResult(`Colour set to C${cmyk[0]} M${cmyk[1]} Y${cmyk[2]} K${cmyk[3]}`, "ok");
   renderMergePanel();
 }
@@ -2880,8 +2905,10 @@ window.addEventListener("mouseup", (ev) => {
     merge.fields.push(f);
     merge.active = merge.fields.length - 1;
   }
+  const firstDraw = !f.rect;
   f.rect = rect;
   merge.page = state.page;
+  if (firstDraw && f.autoColour) autoMergeColour(f);
   setMergeResult("");
   renderMergePanel();
   drawBoxOverlay();
@@ -3004,7 +3031,12 @@ function initMerge() {
     mergeEl(id).addEventListener("change", save);
     mergeEl(id).addEventListener("input", save);
   }
-  for (const input of rcInputs("merge")) input.addEventListener("input", save);
+  for (const input of rcInputs("merge")) {
+    input.addEventListener("input", () => {
+      if (activeField()) activeField().autoColour = false;
+      save();
+    });
+  }
   renderMergePanel();
 }
 
