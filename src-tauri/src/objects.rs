@@ -417,7 +417,23 @@ pub fn pick(path: &Path, page: u32, x: f64, y: f64, tol: f64) -> Result<Option<O
         }
         return Ok(l.objs[i].info(i, &l.walk, &l.geom));
     }
-    Ok(background.and_then(|i| l.objs[i].info(i, &l.walk, &l.geom)))
+    // Between the letters of an outlined line (a group of separate letter
+    // shapes) there's no shape under the pointer: the smallest group whose
+    // outline contains the point wins over the background.
+    let in_box = l
+        .objs
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| o.top.kind == Kind::Group)
+        .filter_map(|(i, o)| o.bbox(&l.walk).map(|b| (i, b)))
+        .filter(|(_, b)| px >= b[0] - tol && px <= b[2] + tol && py >= b[1] - tol && py <= b[3] + tol)
+        .filter(|(_, b)| (b[2] - b[0]) * (b[3] - b[1]) < 0.8 * page_area)
+        .min_by(|a, b| {
+            let area = |r: &[f64; 4]| (r[2] - r[0]) * (r[3] - r[1]);
+            area(&a.1).total_cmp(&area(&b.1))
+        })
+        .map(|(i, _)| i);
+    Ok(in_box.or(background).and_then(|i| l.objs[i].info(i, &l.walk, &l.geom)))
 }
 
 /// Objects lying wholly inside `rect` ([left, top, width, height] of the
@@ -1171,6 +1187,27 @@ mod tests {
         if let Ok(o) = std::env::var("MP_OUTLINE_OUT") {
             std::fs::copy(&out, o).unwrap();
         }
+    }
+
+    /// `MP_CARD_PDF=file.pdf cargo test card_outline_pick -- --nocapture`:
+    /// after outlining, clicks along a line pick the line, not the background.
+    #[test]
+    fn card_outline_pick() {
+        let Ok(src) = std::env::var("MP_CARD_PDF") else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let grouped = dir.path().join("g.pdf");
+        let out = dir.path().join("o.pdf");
+        group_text_blocks(Path::new(&src), &grouped).unwrap();
+        crate::gs::convert_pdf(&grouped, &out, crate::gs::Conversion::Outlines).unwrap();
+        // "Richard Moss" on page 2 sits around y 0.25 from x 0.11 to 0.43.
+        let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
+        for i in 0..40 {
+            let x = 0.115 + i as f64 * 0.008;
+            if let Some(h) = pick(&out, 2, x, 0.27, 1.0).unwrap() {
+                *kinds.entry(format!("{:?} #{} {:.2}x{:.2}", h.kind, h.index, h.norm[2], h.norm[3])).or_default() += 1;
+            }
+        }
+        println!("{kinds:#?}");
     }
 
     /// `MP_OBJECTS_PDF=file.pdf cargo test spot_file -- --nocapture`
