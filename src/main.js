@@ -3857,9 +3857,10 @@ function makeInfoCollapsible() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "info-toggle";
+    btn.innerHTML = '<span class="info-icon">i</span><span class="info-arrow"></span>';
     const show = (open) => {
       p.classList.toggle("info-folded", !open);
-      btn.textContent = open ? "▾ Info" : "▸ Info";
+      btn.classList.toggle("open", open);
       btn.title = open ? "Hide this explanation" : "Show the explanation";
       btn.setAttribute("aria-expanded", String(open));
     };
@@ -3873,6 +3874,26 @@ function makeInfoCollapsible() {
     });
     p.before(btn);
   }
+
+  // "Hide info" at the top of the sidebar hides every explanation (and
+  // its button); unticking brings back each panel's own setting.
+  const HIDE = "mangoprint.hideInfo";
+  const box = document.getElementById("hideInfo");
+  const apply = () => document.getElementById("sidebar").classList.toggle("info-hidden", box.checked);
+  try {
+    box.checked = localStorage.getItem(HIDE) === "1";
+  } catch {
+    box.checked = false;
+  }
+  apply();
+  box.addEventListener("change", () => {
+    try {
+      localStorage.setItem(HIDE, box.checked ? "1" : "0");
+    } catch {
+      // Just won't be remembered.
+    }
+    apply();
+  });
 }
 makeInfoCollapsible();
 

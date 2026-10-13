@@ -2513,3 +2513,57 @@ input::placeholder {
 .hint.info-folded {
   display: none;
 }
+
+/* Info button: a yellow circled "i" with a small arrow. */
+.info-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--accent);
+  border-radius: 50%;
+  color: var(--accent);
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.info-arrow::before {
+  content: "▸";
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.info-toggle.open .info-arrow::before {
+  content: "▾";
+}
+
+.info-toggle:not(.open) .info-icon {
+  opacity: 0.6;
+}
+
+/* "Hide info" hides every explanation and its button. */
+#sidebar.info-hidden .info-toggle,
+#sidebar.info-hidden p.hint:not([id]) {
+  display: none;
+}
+
+#sidebar.info-hidden .panel p.hint.sel-note-colour {
+  display: block;
+}
+
+.hide-info-row {
+  justify-content: flex-end;
+  padding: 6px 14px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
