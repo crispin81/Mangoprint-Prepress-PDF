@@ -2229,3 +2229,13 @@ a:hover > .about__logo {
 .merge-bar.dragging .merge-bar__handle {
   cursor: grabbing;
 }
+
+/* The whole top strip of the mail merge panel is its drag handle. */
+.merge-bar > .merge-bar__handle {
+  display: flex;
+  margin: -8px -10px 0;
+  padding: 7px 34px 7px 10px;
+  background: rgba(236, 0, 140, 0.1);
+  border-bottom: 1px solid var(--field-border);
+  border-radius: 6px 6px 0 0;
+}

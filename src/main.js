@@ -2550,7 +2550,7 @@ new ResizeObserver(positionMergeBar).observe(els.viewport);
 {
   let drag = null;
   document.getElementById("mergeHandle").addEventListener("mousedown", (ev) => {
-    if (ev.button !== 0) return;
+    if (ev.button !== 0 || ev.target.closest("#mergeCloseBtn")) return;
     ev.preventDefault();
     const bar = document.getElementById("mergeBar");
     drag = { dx: ev.clientX - bar.offsetLeft, dy: ev.clientY - bar.offsetTop };
