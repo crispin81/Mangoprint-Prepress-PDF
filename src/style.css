@@ -2596,3 +2596,8 @@ input::placeholder {
   color: #ffffff;
   font-weight: 700;
 }
+
+/* Mail merge panel: solid, no see-through. */
+.merge-bar {
+  background: var(--panel);
+}
