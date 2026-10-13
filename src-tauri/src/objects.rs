@@ -11,7 +11,7 @@
 
 use crate::imageres::Matrix;
 use crate::pagebox;
-use crate::recolour::{page_geom, walk_page, Kind, PageGeom, PageWalk, Paint, TopObj};
+use crate::recolour::{page_geom, walk_page, Kind, PageGeom, PageWalk, Paint, StreamId, TopObj};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -139,7 +139,7 @@ impl Obj {
             overprintable: self.paints.iter().all(|&i| {
                 let p = &walk.paints[i];
                 (!p.fills || overprintable_colour(&p.fill)) && (!p.strokes || overprintable_colour(&p.stroke))
-            }) && self.paints.iter().any(|&i| walk.paints[i].fills || walk.paints[i].strokes),
+            }),
             cmyk: self.paints.iter().find_map(|&i| {
                 let p = &walk.paints[i];
                 let c = if p.fills { &p.fill } else if p.strokes { &p.stroke } else { return None };
@@ -184,21 +184,143 @@ impl Loaded {
     }
 
     /// Splices `edits` into the page stream and saves.
-    fn save(mut self, path: &Path, edits: Edits) -> Result<(), String> {
-        let old = &self.walk.data[0];
-        let mut out = Vec::with_capacity(old.len() + 64 * edits.len());
-        let mut pos = 0;
-        for ((at, _), (end, bytes)) in edits {
-            let at = at.min(old.len()).max(pos);
-            out.extend_from_slice(&old[pos..at]);
-            out.extend_from_slice(&bytes);
-            pos = end.min(old.len()).max(at);
+    fn save(self, path: &Path, edits: Edits) -> Result<(), String> {
+        self.save_all(path, BTreeMap::from([(0, edits)]))
+    }
+
+    /// Splices edits into the page stream (stream 0) and any form streams
+    /// (by their index in the walk), then saves.
+    fn save_all(mut self, path: &Path, streams: StreamEdits) -> Result<(), String> {
+        for (sidx, edits) in streams {
+            if edits.is_empty() {
+                continue;
+            }
+            let out = splice(&self.walk.data[sidx], edits);
+            match self.walk.streams[sidx] {
+                StreamId::Page(_) => replace_page_content(&mut self.doc, self.page_id, out)?,
+                StreamId::Form(oid) => {
+                    let s = self
+                        .doc
+                        .get_object_mut(oid)
+                        .and_then(|o| o.as_stream_mut())
+                        .map_err(|e| format!("Could not update a graphic: {e}"))?;
+                    s.dict.remove(b"DecodeParms");
+                    s.set_plain_content(out);
+                    let _ = s.compress();
+                }
+            }
         }
-        out.extend_from_slice(&old[pos..]);
-        replace_page_content(&mut self.doc, self.page_id, out)?;
         self.doc.save(path).map_err(|e| format!("Could not save the PDF: {e}"))?;
         Ok(())
     }
+
+    /// A form's stream can be edited only when nothing else draws it, so
+    /// the change doesn't spread to other copies.
+    fn editable(&self, sidx: usize) -> bool {
+        match self.walk.streams[sidx] {
+            StreamId::Page(_) => true,
+            StreamId::Form(oid) => references(&self.doc, oid) == 1,
+        }
+    }
+}
+
+fn splice(old: &[u8], edits: Edits) -> Vec<u8> {
+    let mut out = Vec::with_capacity(old.len() + 64 * edits.len());
+    let mut pos = 0;
+    for ((at, _), (end, bytes)) in edits {
+        let at = at.min(old.len()).max(pos);
+        out.extend_from_slice(&old[pos..at]);
+        out.extend_from_slice(&bytes);
+        pos = end.min(old.len()).max(at);
+    }
+    out.extend_from_slice(&old[pos..]);
+    out
+}
+
+/// How many times the document refers to object `id`.
+fn references(doc: &Document, id: ObjectId) -> usize {
+    fn count(o: &Object, id: ObjectId) -> usize {
+        match o {
+            Object::Reference(r) => (*r == id) as usize,
+            Object::Array(a) => a.iter().map(|x| count(x, id)).sum(),
+            Object::Dictionary(d) => d.iter().map(|(_, x)| count(x, id)).sum(),
+            Object::Stream(s) => s.dict.iter().map(|(_, x)| count(x, id)).sum(),
+            _ => 0,
+        }
+    }
+    doc.objects.values().map(|o| count(o, id)).sum()
+}
+
+/// Removes a transparency group from a form that has nothing transparent
+/// in it. An isolated group is drawn on its own and then pasted over the
+/// page, so its contents can never overprint what's underneath; without
+/// any transparency inside, the group makes no other difference.
+fn drop_needless_group(doc: &mut Document, oid: ObjectId) {
+    let Ok(Object::Stream(s)) = doc.get_object(oid) else { return };
+    if !s.dict.has(b"Group") {
+        return;
+    }
+    let res = s.dict.get(b"Resources").ok().and_then(|r| doc.dereference(r).ok()).and_then(|(_, o)| o.as_dict().ok());
+    let transparent = res.is_some_and(|res| {
+        let gs_alpha = res
+            .get(b"ExtGState")
+            .ok()
+            .and_then(|o| doc.dereference(o).ok())
+            .and_then(|(_, o)| o.as_dict().ok())
+            .is_some_and(|gss| {
+                gss.iter().any(|(_, g)| {
+                    let Some(g) = doc.dereference(g).ok().and_then(|(_, o)| o.as_dict().ok()) else { return false };
+                    let alpha = |k: &[u8]| g.get(k).ok().and_then(|v| v.as_float().ok().or(v.as_i64().ok().map(|i| i as f32))).is_some_and(|a| a < 0.999);
+                    let smask = g.get(b"SMask").ok().is_some_and(|m| m.as_name().map_or(true, |n| n != b"None"));
+                    let blend = g.get(b"BM").ok().is_some_and(|b| b.as_name().map_or(true, |n| n != b"Normal" && n != b"Compatible"));
+                    alpha(b"CA") || alpha(b"ca") || smask || blend
+                })
+            });
+        let masked_image = res
+            .get(b"XObject")
+            .ok()
+            .and_then(|o| doc.dereference(o).ok())
+            .and_then(|(_, o)| o.as_dict().ok())
+            .is_some_and(|xs| {
+                xs.iter().any(|(_, x)| matches!(doc.dereference(x).map(|(_, o)| o), Ok(Object::Stream(st)) if st.dict.has(b"SMask") || st.dict.has(b"Group")))
+            });
+        gs_alpha || masked_image
+    });
+    if !transparent {
+        if let Ok(Object::Stream(s)) = doc.get_object_mut(oid) {
+            s.dict.remove(b"Group");
+        }
+    }
+}
+
+/// Adds a resource to a form's own resources (creating them if needed).
+fn add_form_resource(doc: &mut Document, oid: ObjectId, category: &[u8], name: &[u8], value: Object) -> Result<(), String> {
+    let err = |e: lopdf::Error| format!("Could not update a graphic's resources: {e}");
+    let own = doc.get_object(oid).and_then(|o| o.as_stream()).map_err(err)?.dict.get(b"Resources").ok().cloned();
+    let res: &mut Dictionary = match own {
+        Some(Object::Reference(id)) => doc.get_dictionary_mut(id).map_err(err)?,
+        _ => {
+            let s = doc.get_object_mut(oid).and_then(|o| o.as_stream_mut()).map_err(err)?;
+            if !matches!(s.dict.get(b"Resources"), Ok(Object::Dictionary(_))) {
+                s.dict.set("Resources", Object::Dictionary(Dictionary::new()));
+            }
+            s.dict.get_mut(b"Resources").and_then(Object::as_dict_mut).map_err(err)?
+        }
+    };
+    match res.get(category).ok().cloned() {
+        Some(Object::Reference(cid)) => {
+            doc.get_dictionary_mut(cid).map_err(err)?.set(name.to_vec(), value);
+        }
+        Some(Object::Dictionary(_)) => {
+            res.get_mut(category).and_then(Object::as_dict_mut).map_err(err)?.set(name.to_vec(), value);
+        }
+        _ => {
+            let mut d = Dictionary::new();
+            d.set(name.to_vec(), value);
+            res.set(category.to_vec(), Object::Dictionary(d));
+        }
+    }
+    Ok(())
 }
 
 /// Page stream edits: (offset, order) → (end of the replaced bytes, new
@@ -206,6 +328,9 @@ impl Loaded {
 /// one object's closing bytes (order 0) go before the next one's opening
 /// bytes (order 1).
 type Edits = BTreeMap<(usize, u8), (usize, Vec<u8>)>;
+
+/// Edits for several streams: the page's (0) and forms', by walk index.
+type StreamEdits = BTreeMap<usize, Edits>;
 
 fn insert(edits: &mut Edits, at: usize, order: u8, bytes: String) {
     edits.entry((at, order)).or_insert((at, Vec::new())).1.extend(bytes.into_bytes());
@@ -413,26 +538,29 @@ pub fn to_spot(path: &Path, page: u32, indices: &[usize], name: &str, cmyk: [f64
         return Err("Give the spot colour a name.".into());
     }
     let mut l = load(path, page)?;
-    let mut edits = Edits::new();
+    let mut edits = StreamEdits::new();
     let (mut changed, mut skipped) = (0, 0);
     // A resource name of our own for this spot.
     let key = format!("MPspot{}", name.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32)));
+    let mut forms: BTreeSet<ObjectId> = BTreeSet::new();
     for o in l.selected(indices)? {
         let mut any = false;
         for &i in &o.paints {
             let p = &l.walk.paints[i];
-            if p.stream != 0 || !matches!(p.top.kind, Kind::Path | Kind::Text) {
+            if (!p.fills && !p.strokes) || !l.editable(p.stream) {
                 continue;
             }
             let (set, restore) = if p.fills {
                 (format!("/{key} cs 1 scn "), p.fill_restore.clone())
-            } else if p.strokes {
-                (format!("/{key} CS 1 SCN "), p.stroke_restore.clone())
             } else {
-                continue;
+                (format!("/{key} CS 1 SCN "), p.stroke_restore.clone())
             };
-            insert(&mut edits, p.top.start, 1, set);
-            insert(&mut edits, p.top.end, 0, format!(" {}\n", String::from_utf8_lossy(&restore)));
+            let e = edits.entry(p.stream).or_default();
+            insert(e, p.start, 1, set);
+            insert(e, p.end, 0, format!(" {}\n", String::from_utf8_lossy(&restore)));
+            if let StreamId::Form(oid) = l.walk.streams[p.stream] {
+                forms.insert(oid);
+            }
             any = true;
         }
         if any { changed += 1 } else { skipped += 1 }
@@ -452,8 +580,11 @@ pub fn to_spot(path: &Path, page: u32, indices: &[usize], name: &str, cmyk: [f64
             Object::Dictionary(tint),
         ]);
         let page_id = l.page_id;
-        add_resource(&mut l.doc, page_id, b"ColorSpace", key.as_bytes(), space)?;
-        l.save(path, edits)?;
+        add_resource(&mut l.doc, page_id, b"ColorSpace", key.as_bytes(), space.clone())?;
+        for oid in forms {
+            add_form_resource(&mut l.doc, oid, b"ColorSpace", key.as_bytes(), space.clone())?;
+        }
+        l.save_all(path, edits)?;
     }
     Ok(EditResult { changed, skipped, objects: info(path, page, indices)? })
 }
@@ -466,9 +597,11 @@ fn ovp_name(fill: bool, stroke: bool, mode: i64) -> String {
 /// Turns overprint on (fill and stroke, overprint mode 1) or off.
 pub fn set_overprint(path: &Path, page: u32, indices: &[usize], on: bool) -> Result<EditResult, String> {
     let mut l = load(path, page)?;
-    let mut edits = Edits::new();
+    let mut edits = StreamEdits::new();
     let mut names: BTreeSet<(bool, bool, i64)> = BTreeSet::new();
     let mut changed = 0;
+    let mut groups: BTreeSet<ObjectId> = BTreeSet::new();
+    let mut multiply = false;
     // Objects that may not overprint (not 100% black or a spot colour).
     let mut rgb = 0;
     for o in l.selected(indices)? {
@@ -485,12 +618,30 @@ pub fn set_overprint(path: &Path, page: u32, indices: &[usize], on: bool) -> Res
         let back = (was.fill, was.stroke, was.mode.clamp(0, 1));
         names.insert(want);
         names.insert(back);
-        let mut pre = format!("/{} gs ", ovp_name(want.0, want.1, want.2));
-        let mut post = format!(" /{} gs", ovp_name(back.0, back.1, back.2));
+        // An image can't overprint (overprint only applies to flat
+        // colours), so images get the Multiply blend instead, which has
+        // the same effect: the colours underneath show through.
+        let has_image = o.paints.iter().any(|&i| !l.walk.paints[i].fills && !l.walk.paints[i].strokes);
+        let image_mode = on && has_image && o.top.kind != Kind::Path && o.top.kind != Kind::Text;
+        let (mut pre, mut post) = if image_mode {
+            multiply = true;
+            (format!("q /{} gs /MPmultiply gs ", ovp_name(want.0, want.1, want.2)), " Q".to_string())
+        } else {
+            (format!("/{} gs ", ovp_name(want.0, want.1, want.2)), format!(" /{} gs", ovp_name(back.0, back.1, back.2)))
+        };
+        // Forms drawn by the object: their isolated groups would stop the
+        // overprint reaching the page.
+        if on {
+            for &i in &o.paints {
+                if let StreamId::Form(oid) = l.walk.streams[l.walk.paints[i].stream] {
+                    groups.insert(oid);
+                }
+            }
+        }
         // Colour conversions: around the object itself, or around each
         // shape and text run inside a clipping group (a placed graphic's
         // own content can't be changed without changing every copy).
-        let mut inner: Vec<(usize, usize, String, String)> = Vec::new();
+        let mut inner: Vec<(usize, usize, usize, String, String)> = Vec::new();
         if on
             && o.paints.iter().any(|&i| {
                 let p = &l.walk.paints[i];
@@ -503,7 +654,7 @@ pub fn set_overprint(path: &Path, page: u32, indices: &[usize], on: bool) -> Res
         if on {
             for &i in &o.paints {
                 let p = &l.walk.paints[i];
-                if p.stream != 0 || !matches!(p.top.kind, Kind::Path | Kind::Text) {
+                if (!p.fills && !p.strokes) || !l.editable(p.stream) {
                     continue;
                 }
                 let conv = [
@@ -518,22 +669,26 @@ pub fn set_overprint(path: &Path, page: u32, indices: &[usize], on: bool) -> Res
                     restore.push_str(&r);
                 }
                 if !set.is_empty() {
-                    inner.push((p.top.start, p.top.end, set, restore));
+                    inner.push((p.stream, p.start, p.end, set, restore));
                 }
             }
         }
-        if o.top.kind == Kind::Group {
-            for (start, end, set, restore) in inner {
-                insert(&mut edits, start, 1, set);
-                insert(&mut edits, end, 0, format!("{restore}\n"));
+        if matches!(o.top.kind, Kind::Path | Kind::Text) {
+            if let Some((_, _, _, set, restore)) = inner.into_iter().next() {
+                pre.push_str(&set);
+                post.push_str(&restore);
             }
-        } else if let Some((_, _, set, restore)) = inner.into_iter().next() {
-            pre.push_str(&set);
-            post.push_str(&restore);
+        } else {
+            for (sidx, start, end, set, restore) in inner {
+                let e = edits.entry(sidx).or_default();
+                insert(e, start, 1, set);
+                insert(e, end, 0, format!("{restore}\n"));
+            }
         }
         post.push('\n');
-        insert(&mut edits, o.top.start, 1, pre);
-        insert(&mut edits, o.top.end, 0, post);
+        let page_edits = edits.entry(0).or_default();
+        insert(page_edits, o.top.start, 1, pre);
+        insert(page_edits, o.top.end, 0, post);
         changed += 1;
     }
     if changed > 0 {
@@ -546,7 +701,16 @@ pub fn set_overprint(path: &Path, page: u32, indices: &[usize], on: bool) -> Res
             gs.set("OPM", Object::Integer(m));
             add_resource(&mut l.doc, page_id, b"ExtGState", ovp_name(f, s, m).as_bytes(), Object::Dictionary(gs))?;
         }
-        l.save(path, edits)?;
+        if multiply {
+            let mut gs = Dictionary::new();
+            gs.set("Type", Object::Name(b"ExtGState".to_vec()));
+            gs.set("BM", Object::Name(b"Multiply".to_vec()));
+            add_resource(&mut l.doc, page_id, b"ExtGState", b"MPmultiply", Object::Dictionary(gs))?;
+        }
+        for oid in groups {
+            drop_needless_group(&mut l.doc, oid);
+        }
+        l.save_all(path, edits)?;
     }
     Ok(EditResult { changed, skipped: rgb, objects: info(path, page, indices)? })
 }
@@ -747,6 +911,91 @@ mod tests {
         let doc = Document::load(&p).unwrap();
         let id = pagebox::page_id_for(&doc, 1).unwrap();
         println!("{}", String::from_utf8_lossy(&doc.get_page_content(id)));
+    }
+
+    /// `MP_DUMP_PDF=file.pdf cargo test dump_objects -- --nocapture`:
+    /// every object on page 1 and the start of the page stream.
+    #[test]
+    fn dump_objects() {
+        let Ok(src) = std::env::var("MP_DUMP_PDF") else { return };
+        let page: u32 = std::env::var("MP_DUMP_PAGE").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+        let l = load(Path::new(&src), page).unwrap();
+        println!("media {:?} rotate {}", l.geom.media, l.geom.rotate);
+        println!("groups {:?}", l.walk.groups);
+        for (i, o) in l.objs.iter().enumerate() {
+            let info = o.info(i, &l.walk, &l.geom);
+            let p = o.first(&l.walk);
+            println!(
+                "#{i} {:?} paints={} ovp={:?} fill={:?} stroke={:?} fills={} strokes={} {:?}",
+                o.top.kind, o.paints.len(), o.top.ovp, p.fill, p.stroke, p.fills, p.strokes, info.map(|x| x.norm)
+            );
+        }
+        // XObjects on the page, without their data.
+        if let Ok((Some(res), _)) = l.doc.get_page_resources(l.page_id) {
+            if let Ok(Object::Dictionary(x)) = res.get_deref(b"XObject", &l.doc) {
+                for (name, r) in x.iter() {
+                    if let Ok(Object::Stream(s)) = l.doc.dereference(r).map(|(_, o)| o) {
+                        let mut d = s.dict.clone();
+                        d.remove(b"Length");
+                        println!("XObject {} = {:?}", String::from_utf8_lossy(name), d);
+                        if let Ok(g) = s.dict.get(b"Group") {
+                            println!("  Group {:?}", l.doc.dereference(g).map(|(_, o)| o.clone()));
+                            let c = s.decompressed_content().unwrap_or_default();
+                            println!("  content: {}", String::from_utf8_lossy(&c[..c.len().min(400)]));
+                        }
+                        if let Ok(sm) = s.dict.get(b"SMask") {
+                            if let Ok(Object::Stream(m)) = l.doc.dereference(sm).map(|(_, o)| o) {
+                                println!("  SMask {:?}", m.dict);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let data = &l.walk.data[0];
+        println!("--- page stream ({} bytes) ---\n{}", data.len(), String::from_utf8_lossy(&data[..data.len().min(3000)]));
+    }
+
+    /// `MP_CARD_PDF=file.pdf MP_CARD_OUT=out.pdf cargo test card_overprint -- --nocapture`:
+    /// a line of text inside an isolated transparency group on page 2,
+    /// made a spot colour and overprinted, over a rich black background.
+    #[test]
+    fn card_overprint() {
+        let Ok(src) = std::env::var("MP_CARD_PDF") else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("t.pdf");
+        std::fs::copy(&src, &p).unwrap();
+        let gaps2 = |p: &Path, norm: [f64; 4]| {
+            let plates = tempfile::TempDir::new().unwrap();
+            let found = crate::gs::ensure_separations(p, 2, 150, plates.path()).unwrap();
+            let cyan = found.iter().find(|(n, _)| n == "Cyan").map(|(_, f)| image::open(f).unwrap().to_luma8()).unwrap();
+            let [x, y, w, h] = norm;
+            let (iw, ih) = (cyan.width() as f64, cyan.height() as f64);
+            let mut gaps = 0;
+            for py in (y * ih) as u32..((y + h) * ih) as u32 {
+                for px in (x * iw) as u32..((x + w) * iw) as u32 {
+                    if cyan.get_pixel(px, py).0[0] > 200 {
+                        gaps += 1;
+                    }
+                }
+            }
+            gaps
+        };
+        let hit = pick(&p, 2, 0.2, 0.8, 1.0).unwrap().expect("text line");
+        println!("{hit:?} gaps before {}", gaps2(&p, hit.norm));
+        let r = to_spot(&p, 2, &[hit.index], "Spot Gold", hit.cmyk.unwrap()).unwrap();
+        println!("spot changed {} skipped {}", r.changed, r.skipped);
+        let after = info(&p, 2, &[hit.index]).unwrap();
+        println!("after spot {:?} gaps {}", after, gaps2(&p, hit.norm));
+        let r = set_overprint(&p, 2, &[hit.index], true).unwrap();
+        println!("overprint changed {} skipped {}", r.changed, r.skipped);
+        println!("gaps after {}", gaps2(&p, hit.norm));
+        // The logo on page 1 is an image with transparency.
+        let logo = pick(&p, 1, 0.45, 0.5, 1.0).unwrap().expect("logo");
+        println!("logo {logo:?}");
+        if let Ok(out) = std::env::var("MP_CARD_OUT") {
+            std::fs::copy(&p, out).unwrap();
+        }
     }
 
     /// `MP_OBJECTS_PDF=file.pdf cargo test spot_file -- --nocapture`
