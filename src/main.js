@@ -211,6 +211,7 @@ async function showTab(tab, fresh) {
   setProgress(30, "Reading page boxes…");
   state.path = tab.path;
   state.sourcePath = tab.sourcePath;
+  state.guides = tab.guides || (tab.guides = []);
   setEdited(tab.edited);
   state.page = Math.min(Math.max(1, tab.page || 1), pageCount);
   state.pageCount = pageCount;
@@ -646,7 +647,7 @@ function applyLayout() {
   if (!view.page) return;
   const [w, h] = pageSizePt();
   if (view.zoom === "fit") {
-    const pad = 48; // #viewport padding, both sides
+    const pad = 48 + RULER; // #viewport padding, both sides, plus the ruler
     view.scale = Math.max(0.02, Math.min((els.viewport.clientWidth - pad) / w, (els.viewport.clientHeight - pad) / h));
   } else {
     view.scale = view.zoom * CSS_PX_PER_PT;
@@ -661,6 +662,8 @@ function applyLayout() {
   document.getElementById("selectToolBtn").disabled = false;
   document.getElementById("mergeToolBtn").disabled = false;
   setTextLayerScale();
+  drawRulers();
+  renderGuides();
   if (merge.fields.length) renderMergeText();
 }
 
@@ -2029,6 +2032,7 @@ function showNoFile() {
   clearMergeBoxes();
   state.path = null;
   state.sourcePath = null;
+  state.guides = null;
   setEdited(false);
   state.page = 1;
   state.pageCount = 1;
@@ -2050,6 +2054,8 @@ function showNoFile() {
   document.getElementById("textStatus").textContent = "";
   document.getElementById("emptyState").classList.remove("hidden");
   els.zoomLabel.textContent = "–";
+  drawRulers();
+  renderGuides();
   for (const b of [els.zoomIn, els.zoomOut, els.zoomFit, els.zoomActual]) b.disabled = true;
   for (const id of ["textModeBtn", "zoomToolBtn", "recolourToolBtn", "selectToolBtn", "mergeToolBtn"]) {
     document.getElementById(id).disabled = true;
@@ -2540,7 +2546,7 @@ function positionMergeBar() {
   if (bar.classList.contains("hidden")) return;
   const main = bar.parentElement.getBoundingClientRect();
   const port = els.viewport.getBoundingClientRect();
-  let [x, y] = mergeBarPos.moved || [port.left - main.left + 12, port.top - main.top + 10];
+  let [x, y] = mergeBarPos.moved || [port.left - main.left + 12 + RULER, port.top - main.top + 10 + RULER];
   x = Math.min(Math.max(0, x), Math.max(0, main.width - bar.offsetWidth));
   y = Math.min(Math.max(0, y), Math.max(0, main.height - 40));
   bar.style.left = `${x}px`;
@@ -3039,6 +3045,188 @@ function initMerge() {
   }
   renderMergePanel();
 }
+
+// --- rulers and guides ---
+// Rulers in mm run along the top and left of the page view, measured from
+// the page's top left corner as shown. Drag from a ruler onto the page to
+// add a guide; drag a guide back onto a ruler to remove it. Guides belong
+// to the tab and show on every page. The corner button clears them.
+
+const RULER = 18; // px
+const rulerTop = document.getElementById("rulerTop");
+const rulerLeft = document.getElementById("rulerLeft");
+const rulerCorner = document.getElementById("rulerCorner");
+const guideLabel = document.getElementById("guideLabel");
+
+function positionRulers() {
+  const main = rulerTop.parentElement.getBoundingClientRect();
+  const port = els.viewport.getBoundingClientRect();
+  const x = port.left - main.left;
+  const y = port.top - main.top;
+  const w = els.viewport.clientWidth;
+  const h = els.viewport.clientHeight;
+  Object.assign(rulerTop.style, { left: `${x + RULER}px`, top: `${y}px`, width: `${Math.max(0, w - RULER)}px`, height: `${RULER}px` });
+  Object.assign(rulerLeft.style, { left: `${x}px`, top: `${y + RULER}px`, width: `${RULER}px`, height: `${Math.max(0, h - RULER)}px` });
+  Object.assign(rulerCorner.style, { left: `${x}px`, top: `${y}px` });
+}
+
+const pxPerMm = () => view.scale / MM_PER_PT;
+
+function drawRuler(canvas, horizontal) {
+  const r = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const len = horizontal ? r.width : r.height;
+  if (len <= 0) return;
+  canvas.width = Math.round(r.width * dpr);
+  canvas.height = Math.round(r.height * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#1b1c22";
+  ctx.fillRect(0, 0, r.width, r.height);
+  const wrap = els.imgWrap.getBoundingClientRect();
+  const ppm = pxPerMm();
+  const [wPt, hPt] = pageSizePt();
+  const pageMm = toMm(horizontal ? wPt : hPt);
+  const origin = horizontal ? wrap.left - r.left : wrap.top - r.top; // px of 0 mm
+  // The page's extent is a shade lighter.
+  ctx.fillStyle = "#23242c";
+  if (horizontal) ctx.fillRect(origin, 0, pageMm * ppm, r.height);
+  else ctx.fillRect(0, origin, r.width, pageMm * ppm);
+  // Labelled steps at least 50 px apart, with smaller ticks between.
+  const major = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000].find((s) => s * ppm >= 50) || 5000;
+  const minor = major / (String(major)[0] === "2" ? 4 : 5);
+  const mm0 = -origin / ppm;
+  const mm1 = mm0 + len / ppm;
+  ctx.strokeStyle = "#6a6b76";
+  ctx.fillStyle = "#a5a6b0";
+  ctx.font = "9px Poppins, sans-serif";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = Math.floor(mm0 / minor); i * minor <= mm1; i++) {
+    const v = i * minor;
+    const p = Math.round(origin + v * ppm) + 0.5;
+    const isMajor = Math.abs(v / major - Math.round(v / major)) < 1e-6;
+    const t = isMajor ? RULER : RULER * 0.3;
+    if (horizontal) {
+      ctx.moveTo(p, RULER);
+      ctx.lineTo(p, RULER - t);
+    } else {
+      ctx.moveTo(RULER, p);
+      ctx.lineTo(RULER - t, p);
+    }
+    if (isMajor) {
+      const label = String(Math.round(v));
+      if (horizontal) ctx.fillText(label, p + 3, 9);
+      else {
+        ctx.save();
+        ctx.translate(9, p + 3);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = "right";
+        ctx.fillText(label, 0, 0);
+        ctx.restore();
+      }
+    }
+  }
+  ctx.stroke();
+  // Edge line against the page view.
+  ctx.strokeStyle = "#2a2b33";
+  ctx.beginPath();
+  if (horizontal) {
+    ctx.moveTo(0, r.height - 0.5);
+    ctx.lineTo(r.width, r.height - 0.5);
+  } else {
+    ctx.moveTo(r.width - 0.5, 0);
+    ctx.lineTo(r.width - 0.5, r.height);
+  }
+  ctx.stroke();
+}
+
+function drawRulers() {
+  const show = !!view.page;
+  for (const el of [rulerTop, rulerLeft, rulerCorner]) el.classList.toggle("hidden", !show);
+  if (!show) return;
+  positionRulers();
+  drawRuler(rulerTop, true);
+  drawRuler(rulerLeft, false);
+}
+
+let guideLayer = null;
+
+function renderGuides() {
+  if (!guideLayer) {
+    guideLayer = document.createElement("div");
+    guideLayer.id = "guideLayer";
+    els.imgWrap.appendChild(guideLayer);
+  }
+  guideLayer.replaceChildren();
+  if (!view.page || !state.guides) return;
+  const [wPt, hPt] = pageSizePt();
+  const size = { h: toMm(hPt), v: toMm(wPt) };
+  for (const g of state.guides) {
+    const el = document.createElement("div");
+    el.className = `guide guide--${g.axis}`;
+    el.style[g.axis === "h" ? "top" : "left"] = `${(g.mm / size[g.axis]) * 100}%`;
+    el.title = `${g.mm.toFixed(1)} mm from the ${g.axis === "h" ? "top" : "left"} · drag onto a ruler to remove`;
+    el.addEventListener("mousedown", (ev) => startGuideDrag(g, ev));
+    guideLayer.appendChild(el);
+  }
+}
+
+let guideDrag = null;
+
+function startGuideDrag(guide, ev) {
+  if (ev.button !== 0 || !state.guides) return;
+  ev.preventDefault();
+  ev.stopPropagation(); // not a click for the page tools
+  guideDrag = { guide };
+  moveGuide(ev);
+}
+
+function moveGuide(ev) {
+  const g = guideDrag.guide;
+  const wrap = els.imgWrap.getBoundingClientRect();
+  const raw = g.axis === "h" ? (ev.clientY - wrap.top) / pxPerMm() : (ev.clientX - wrap.left) / pxPerMm();
+  g.mm = Math.round(raw * 10) / 10;
+  renderGuides();
+  guideLabel.textContent = `${g.mm.toFixed(1)} mm`;
+  guideLabel.style.left = `${ev.clientX + 14}px`;
+  guideLabel.style.top = `${ev.clientY + 12}px`;
+  guideLabel.classList.remove("hidden");
+}
+
+for (const [ruler, axis] of [[rulerTop, "h"], [rulerLeft, "v"]]) {
+  ruler.addEventListener("mousedown", (ev) => {
+    if (ev.button !== 0 || !view.page || !state.guides) return;
+    const guide = { axis, mm: 0 };
+    state.guides.push(guide);
+    startGuideDrag(guide, ev);
+  });
+}
+
+window.addEventListener("mousemove", (ev) => {
+  if (guideDrag) moveGuide(ev);
+});
+
+window.addEventListener("mouseup", (ev) => {
+  if (!guideDrag) return;
+  const g = guideDrag.guide;
+  guideDrag = null;
+  guideLabel.classList.add("hidden");
+  // Dropped back on a ruler, or off the page view: remove it.
+  const port = els.viewport.getBoundingClientRect();
+  const inside = ev.clientX > port.left + RULER && ev.clientY > port.top + RULER && ev.clientX < port.right && ev.clientY < port.bottom;
+  if (!inside) state.guides.splice(state.guides.indexOf(g), 1);
+  renderGuides();
+});
+
+rulerCorner.addEventListener("click", () => {
+  if (!state.guides) return;
+  state.guides.length = 0;
+  renderGuides();
+});
+
+els.viewport.addEventListener("scroll", drawRulers);
+new ResizeObserver(drawRulers).observe(els.viewport);
 
 // --- opening files from outside: double-click / "Open with" / drag and drop ---
 

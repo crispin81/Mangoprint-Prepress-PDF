@@ -113,6 +113,11 @@
           <div id="loadingOverlay" class="hidden">Rendering…</div>
         </div>
       </section>
+      <!-- Rulers along the page view; drag from them to add guides. -->
+      <canvas id="rulerTop" class="ruler hidden" title="Drag down onto the page to add a guide"></canvas>
+      <canvas id="rulerLeft" class="ruler hidden" title="Drag across onto the page to add a guide"></canvas>
+      <button id="rulerCorner" type="button" class="ruler-corner hidden" title="Clear all guides">×</button>
+      <div id="guideLabel" class="guide-label hidden"></div>
       <!-- Mail merge options, floating over the page while the tool is on
            (like a text tool's options bar). -->
       <div id="mergeBar" class="merge-bar hidden" role="toolbar" aria-label="Mail merge">
