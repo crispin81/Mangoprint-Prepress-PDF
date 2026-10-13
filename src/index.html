@@ -231,6 +231,46 @@
           </p>
         </div>
 
+        <div class="panel" id="recolourPanel">
+          <h2>Recolour</h2>
+          <p id="recolourEmpty" class="hint">
+            Select a shape, text or logo with the <strong>Select</strong> tool (V)
+            to change its colour.
+          </p>
+          <div id="recolourBody">
+            <div class="rc-picked">
+              <div class="rc-current" id="rcFillRow">
+                <span class="rc-label">Current fill</span>
+                <span class="swatch" id="rcFillSwatch"></span>
+                <span id="rcFillText"></span>
+              </div>
+              <div class="rc-current" id="rcStrokeRow">
+                <span class="rc-label">Current stroke</span>
+                <span class="swatch rc-swatch-stroke" id="rcStrokeSwatch"></span>
+                <span id="rcStrokeText"></span>
+              </div>
+            </div>
+            <p id="rcCount" class="rc-count"></p>
+            <div class="rc-new" id="rcNewFill">
+              <label class="rc-new__head"><input type="checkbox" id="rcFillOn" checked /> New fill <span class="swatch" id="rcFillNewSwatch"></span></label>
+              <div class="rc-cmyk" data-for="fill"></div>
+            </div>
+            <div class="rc-new" id="rcNewStroke">
+              <label class="rc-new__head"><input type="checkbox" id="rcStrokeOn" checked /> New stroke <span class="swatch rc-swatch-stroke" id="rcStrokeNewSwatch"></span></label>
+              <div class="rc-cmyk" data-for="stroke"></div>
+            </div>
+            <div class="fix-row">
+              <button id="rcApplyBtn" class="btn-primary">Apply recolour</button>
+              <button id="rcClearBtn">Clear selection</button>
+            </div>
+            <p id="rcResult" class="rc-result"></p>
+          </div>
+          <p class="hint">
+            Recolours the selected objects on this page in CMYK. To change a
+            colour everywhere it's used, see Global Colour Change.
+          </p>
+        </div>
+
         <div class="panel" id="selectPanel">
           <h2>Selected Objects</h2>
           <p id="selEmpty" class="hint">
@@ -244,7 +284,7 @@
               Set to overprint (opaque colours only)
             </label>
             <p id="selOverprintNote" class="hint sel-note"></p>
-            <p class="hint sel-note-colour">To change the colour of everything selected, use the <strong>Recolour</strong> panel below.</p>
+            <p class="hint sel-note-colour">To change the colour of everything selected, use the <strong>Recolour</strong> panel above.</p>
             <div class="sel-spot">
               <span class="sel-spot__label">Convert to spot colour</span>
               <div class="sel-spot__row">
@@ -274,6 +314,40 @@
             <button id="scopePage" type="button" disabled>This page</button>
           </div>
 
+          <div class="panel" id="globalPanel">
+            <h2>Global Colour Change</h2>
+            <p id="gEmpty" class="hint">
+              Select an object with the <strong>Select</strong> tool (V) to
+              change every object that shares its colour.
+            </p>
+            <div id="gBody">
+              <div class="rc-current">
+                <span class="rc-label">Colour to find</span>
+                <span class="swatch" id="gSwatch"></span>
+                <span id="gText">–</span>
+              </div>
+              <div class="rc-modes" role="radiogroup" aria-label="Match">
+                <label><input type="radio" name="gMode" value="fill" checked /> Everything with the same fill</label>
+                <label><input type="radio" name="gMode" value="stroke" /> Everything with the same stroke</label>
+                <label><input type="radio" name="gMode" value="both" /> Same fill and stroke</label>
+              </div>
+              <p id="gCount" class="rc-count"></p>
+              <div class="rc-new">
+                <span class="rc-new__head">Replace with <span class="swatch" id="gNewSwatch"></span></span>
+                <div class="rc-cmyk" data-for="global"></div>
+              </div>
+              <div class="fix-row">
+                <button id="gApplyBtn" class="btn-primary">Replace colour</button>
+              </div>
+              <p id="gResult" class="rc-result"></p>
+            </div>
+            <p class="hint">
+              Finds every object whose colour matches the first selected
+              object, on this page or all pages (Apply edits to), and gives
+              them the new CMYK colour. Matches are outlined in gold.
+            </p>
+          </div>
+
           <div class="panel">
             <h2>Colour &amp; Fonts</h2>
             <div class="fix-row">
@@ -293,52 +367,6 @@
               keep full resolution and existing CMYK values, overprint and page
               boxes are kept. Converting spot colours also converts any RGB,
               because both go through the same CMYK conversion.
-            </p>
-          </div>
-
-          <div class="panel" id="recolourPanel">
-            <h2>Recolour</h2>
-            <p id="recolourEmpty" class="hint">
-              Select a shape, text or logo with the <strong>Select</strong> tool (V)
-              to change its colour.
-            </p>
-            <div id="recolourBody">
-              <div class="rc-picked">
-                <div class="rc-current" id="rcFillRow">
-                  <span class="rc-label">Current fill</span>
-                  <span class="swatch" id="rcFillSwatch"></span>
-                  <span id="rcFillText"></span>
-                </div>
-                <div class="rc-current" id="rcStrokeRow">
-                  <span class="rc-label">Current stroke</span>
-                  <span class="swatch rc-swatch-stroke" id="rcStrokeSwatch"></span>
-                  <span id="rcStrokeText"></span>
-                </div>
-              </div>
-              <div class="rc-modes" role="radiogroup" aria-label="Select">
-                <label><input type="radio" name="rcMode" value="object" checked /> Selected objects only</label>
-                <label><input type="radio" name="rcMode" value="fill" /> Everything with the same fill</label>
-                <label><input type="radio" name="rcMode" value="stroke" /> Everything with the same stroke</label>
-                <label><input type="radio" name="rcMode" value="both" /> Same fill and stroke</label>
-              </div>
-              <p id="rcCount" class="rc-count"></p>
-              <div class="rc-new" id="rcNewFill">
-                <label class="rc-new__head"><input type="checkbox" id="rcFillOn" checked /> New fill <span class="swatch" id="rcFillNewSwatch"></span></label>
-                <div class="rc-cmyk" data-for="fill"></div>
-              </div>
-              <div class="rc-new" id="rcNewStroke">
-                <label class="rc-new__head"><input type="checkbox" id="rcStrokeOn" checked /> New stroke <span class="swatch rc-swatch-stroke" id="rcStrokeNewSwatch"></span></label>
-                <div class="rc-cmyk" data-for="stroke"></div>
-              </div>
-              <div class="fix-row">
-                <button id="rcApplyBtn" class="btn-primary">Apply recolour</button>
-                <button id="rcClearBtn">Clear selection</button>
-              </div>
-              <p id="rcResult" class="rc-result"></p>
-            </div>
-            <p class="hint">
-              New colours are CMYK. "Same" options follow the Apply edits to
-              setting (all pages or this page).
             </p>
           </div>
 

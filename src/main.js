@@ -1561,9 +1561,10 @@ function sparkle(el) {
   }, 5000);
 }
 
-function rcMode() {
-  return document.querySelector('input[name="rcMode"]:checked').value;
-}
+// The Recolour panel recolours the selected objects; "same colour"
+// matching is the Global Colour Change panel's.
+const rcMode = () => "object";
+const gMode = () => document.querySelector('input[name="gMode"]:checked').value;
 
 // CSS colour for a picked colour (spots use their swatch colour).
 function rcSwatch(info) {
@@ -1632,10 +1633,6 @@ function renderRecolourPanel() {
   if (!p) {
     for (const id of ["rcFillText", "rcStrokeText"]) document.getElementById(id).textContent = "–";
     for (const id of ["rcFillSwatch", "rcStrokeSwatch"]) document.getElementById(id).style.visibility = "hidden";
-    for (const input of document.querySelectorAll('input[name="rcMode"]')) {
-      input.disabled = true;
-      input.parentElement.classList.add("disabled");
-    }
     for (const which of ["Fill", "Stroke"]) document.getElementById(`rcNew${which}`).classList.add("disabled");
     for (const i of [...rcInputs("fill"), ...rcInputs("stroke"), document.getElementById("rcFillOn"), document.getElementById("rcStrokeOn")]) {
       i.disabled = true;
@@ -1653,15 +1650,8 @@ function renderRecolourPanel() {
   show("rcFillSwatch", "rcFillText", p.fill, false);
   show("rcStrokeSwatch", "rcStrokeText", p.stroke, true);
 
-  // Modes that need a colour the object doesn't have are unavailable.
-  const need = { object: true, fill: !!p.fill, stroke: !!p.stroke, both: !!(p.fill && p.stroke) };
-  for (const input of document.querySelectorAll('input[name="rcMode"]')) {
-    input.disabled = !need[input.value];
-    input.parentElement.classList.toggle("disabled", input.disabled);
-  }
-  if (document.querySelector('input[name="rcMode"]:checked').disabled) {
-    document.querySelector('input[name="rcMode"][value="object"]').checked = true;
-  }
+  const n = sel.items.length;
+  document.getElementById("rcCount").textContent = n ? `${n} selected object${n === 1 ? "" : "s"}` : "";
 
   const ch = rcChannels();
   document.getElementById("rcNewFill").classList.toggle("disabled", !ch.fill);
@@ -1693,8 +1683,12 @@ function syncRecolourFromSelection() {
   recolour.picked = { target: { page: state.page, index: o.paint }, kind: o.kind, fill: o.fill, stroke: o.stroke, norm: o.norm };
   rcInputs("fill").forEach((input, i) => (input.value = String(o.fill ? o.fill.cmyk[i] : 0)));
   rcInputs("stroke").forEach((input, i) => (input.value = String(o.stroke ? o.stroke.cmyk[i] : 0)));
+  const seed = o.fill || o.stroke;
+  rcInputs("global").forEach((input, i) => (input.value = String(seed ? seed.cmyk[i] : 0)));
+  document.getElementById("gNewSwatch").style.background = cmykToCss(rcValues("global"));
   updateNewSwatches();
   setRcResult("");
+  setGResult("");
   renderRecolourPanel();
   recolourFind();
 }
@@ -1707,6 +1701,7 @@ function resetRecolour() {
   document.getElementById("rcCount").textContent = "";
   setRcResult("");
   renderRecolourPanel();
+  renderGlobalPanel();
   drawBoxOverlay();
 }
 
@@ -1722,26 +1717,21 @@ function pageRanges(pages) {
   return out.join(", ");
 }
 
-// Counts and outlines what the current settings would change.
+// Global Colour Change: counts and outlines every object that shares the
+// selection's colour, on the pages in scope.
 async function recolourFind() {
+  renderGlobalPanel();
   const p = recolour.picked;
   if (!p || !state.path) return;
-  if (rcMode() === "object") {
-    recolour.found = null;
-    const n = sel.items.length;
-    document.getElementById("rcCount").textContent = n ? `${n} selected object${n === 1 ? "" : "s"}` : "";
-    drawBoxOverlay();
-    return;
-  }
   const token = ++recolour.findToken;
-  const count = document.getElementById("rcCount");
+  const count = document.getElementById("gCount");
   count.textContent = "Finding matches…";
   try {
     const found = await invoke("recolour_find", {
       path: state.path,
       page: state.page,
       target: p.target,
-      mode: rcMode(),
+      mode: gMode(),
       allPages: editAllPages(),
     });
     if (token !== recolour.findToken) return;
@@ -1799,22 +1789,60 @@ async function recolourApply() {
     setRcResult("Tick New fill or New stroke first.", "err");
     return;
   }
-  // "Selected objects only": everything selected, in one go.
-  if (rcMode() === "object") {
-    await runObjectEdit({ action: "colour", fill, stroke }, "Recolouring…");
-    const res = document.getElementById("selResult");
-    setRcResult(res.textContent, res.classList.contains("err") ? "err" : "ok");
-    return;
+  await runObjectEdit({ action: "colour", fill, stroke }, "Recolouring…");
+  const res = document.getElementById("selResult");
+  setRcResult(res.textContent, res.classList.contains("err") ? "err" : "ok");
+}
+
+// Global Colour Change panel: shows the colour to find and enables the
+// options the selection's colours allow.
+function renderGlobalPanel() {
+  const p = recolour.picked;
+  document.getElementById("gEmpty").classList.toggle("hidden", !!p);
+  document.getElementById("gBody").classList.toggle("waiting", !p);
+  document.getElementById("gApplyBtn").disabled = !p;
+  const radios = [...document.querySelectorAll('input[name="gMode"]')];
+  const need = { fill: !!p?.fill, stroke: !!p?.stroke, both: !!(p?.fill && p?.stroke) };
+  for (const r of radios) {
+    r.disabled = !p || !need[r.value];
+    r.parentElement.classList.toggle("disabled", r.disabled);
   }
-  const btn = document.getElementById("rcApplyBtn");
+  const checked = radios.find((r) => r.checked);
+  if (p && checked?.disabled) {
+    const first = radios.find((r) => !r.disabled);
+    if (first) first.checked = true;
+  }
+  const info = p ? (gMode() === "stroke" ? p.stroke : p.fill || p.stroke) : null;
+  document.getElementById("gText").textContent = info ? info.label : "–";
+  const sw = document.getElementById("gSwatch");
+  sw.style.visibility = info ? "visible" : "hidden";
+  if (info) sw.style.background = rcSwatch(info);
+  if (!p) document.getElementById("gCount").textContent = "";
+}
+
+function setGResult(text, cls = "") {
+  const el = document.getElementById("gResult");
+  el.textContent = text;
+  el.className = `rc-result ${cls}`;
+}
+
+async function globalApply() {
+  const p = recolour.picked;
+  if (!p || !state.path) return;
+  const mode = gMode();
+  const v = rcValues("global");
+  const fill = mode !== "stroke" ? v : null;
+  const stroke = mode !== "fill" ? v : null;
+  const btn = document.getElementById("gApplyBtn");
   btn.disabled = true;
-  setProgress(30, "Recolouring…");
+  setGResult("");
+  setProgress(30, "Replacing colour…");
   try {
     const n = await invoke("recolour_apply", {
       path: state.path,
       page: state.page,
       target: p.target,
-      mode: rcMode(),
+      mode,
       allPages: editAllPages(),
       fill,
       stroke,
@@ -1822,7 +1850,7 @@ async function recolourApply() {
     setProgress(60, "Reloading…");
     setEdited(true);
     resetRecolour();
-    setRcResult(`✓ Recoloured ${n} object${n === 1 ? "" : "s"}`, "ok");
+    setGResult(`✓ Changed ${n} object${n === 1 ? "" : "s"}`, "ok");
     refreshSelection();
     state.separationNames = [];
     state.activeSeparations = new Set();
@@ -1830,7 +1858,7 @@ async function recolourApply() {
     loadSeparationsList();
     await showPage({ reloadDoc: true });
   } catch (err) {
-    setRcResult(String(err), "err");
+    setGResult(String(err), "err");
   } finally {
     btn.disabled = false;
     hideProgress();
@@ -1857,10 +1885,11 @@ function drawRecolourOverlay(svg) {
 buildCmykInputs();
 updateNewSwatches();
 renderRecolourPanel();
-for (const input of document.querySelectorAll('input[name="rcMode"]')) {
-  input.addEventListener("change", () => {
-    renderRecolourPanel();
-    recolourFind();
+for (const input of document.querySelectorAll('input[name="gMode"]')) input.addEventListener("change", recolourFind);
+document.getElementById("gApplyBtn").addEventListener("click", globalApply);
+for (const input of rcInputs("global")) {
+  input.addEventListener("input", () => {
+    document.getElementById("gNewSwatch").style.background = cmykToCss(rcValues("global"));
   });
 }
 document.getElementById("rcApplyBtn").addEventListener("click", recolourApply);
