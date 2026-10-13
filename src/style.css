@@ -2355,3 +2355,17 @@ a:hover > .about__logo {
   font-weight: 600;
   pointer-events: none;
 }
+
+/* Clear-guides button: a red square with a bold × so it reads clearly. */
+.ruler-corner {
+  background: var(--danger);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+  border-color: #b33a3a;
+}
+
+.ruler-corner:hover {
+  background: #ff6b6b;
+  color: #ffffff;
+}
