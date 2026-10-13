@@ -2475,3 +2475,21 @@ input::placeholder {
 .thumb.picked.current .thumb__img {
   border-color: var(--accent);
 }
+
+/* Selected Objects colour editor: compact CMYK boxes in one row. */
+.sel-colour {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sel-colour label {
+  flex: 1;
+  min-width: 0;
+  font-size: 9px;
+}
+
+.sel-colour input {
+  padding: 3px 4px;
+}

@@ -321,6 +321,14 @@
               </label>
               <p id="selOverprintNote" class="hint sel-note"></p>
               <div class="sel-spot">
+                <span class="sel-spot__label">Colour (CMYK %), for everything selected</span>
+                <div class="sel-spot__row">
+                  <span class="swatch" id="selColourSwatch"></span>
+                  <span class="rc-cmyk sel-colour" data-for="sel"></span>
+                  <button id="selColourBtn" title="Repaint everything selected (e.g. a whole line of outlined text) in this CMYK colour">Apply</button>
+                </div>
+              </div>
+              <div class="sel-spot">
                 <span class="sel-spot__label">Convert to spot colour</span>
                 <div class="sel-spot__row">
                   <span class="swatch" id="selSpotSwatch" title="The selected object's colour, used as the spot colour's CMYK equivalent"></span>

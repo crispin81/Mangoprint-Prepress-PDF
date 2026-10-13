@@ -464,9 +464,15 @@ fn convert_pdf(
         "spots" => gs::Conversion::SpotsToCmyk,
         other => return Err(format!("Unknown conversion '{other}'")),
     };
-    let src = Path::new(&path);
     let tmp = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
     let out = tmp.path().join("converted.pdf");
+    // Outlined text stays grouped line by line (see group_text_blocks).
+    let grouped = tmp.path().join("grouped.pdf");
+    let src = if matches!(conv, gs::Conversion::Outlines) && objects::group_text_blocks(Path::new(&path), &grouped).is_ok() {
+        grouped.as_path()
+    } else {
+        Path::new(&path)
+    };
     match page {
         Some(p) => {
             let count = gs::page_count(src).or_else(|_| pagebox::page_count(src))?;
@@ -474,7 +480,7 @@ fn convert_pdf(
         }
         None => gs::convert_pdf(src, &out, conv)?,
     }
-    std::fs::copy(&out, src).map_err(|e| format!("Could not update the working copy: {e}"))?;
+    std::fs::copy(&out, &path).map_err(|e| format!("Could not update the working copy: {e}"))?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
     Ok(())
@@ -687,6 +693,8 @@ fn objects_edit(
     on: Option<bool>,
     name: Option<String>,
     cmyk: Option<[f64; 4]>,
+    fill: Option<[f64; 4]>,
+    stroke: Option<[f64; 4]>,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
     hist: tauri::State<history::History>,
@@ -699,6 +707,7 @@ fn objects_edit(
         "move" => objects::move_objects(p, page, &indices, dx.unwrap_or(0.0), dy.unwrap_or(0.0))?,
         "delete" => objects::delete_objects(p, page, &indices)?,
         "overprint" => objects::set_overprint(p, page, &indices, on.unwrap_or(true))?,
+        "colour" => objects::recolour_objects(p, page, &indices, fill, stroke)?,
         "spot" => objects::to_spot(p, page, &indices, name.as_deref().unwrap_or(""), cmyk.unwrap_or([0.0, 0.0, 0.0, 100.0]))?,
         other => return Err(format!("Unknown edit '{other}'")),
     };

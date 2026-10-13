@@ -2348,6 +2348,9 @@ function renderSelectPanel() {
   if (key !== sel.spotKey) {
     sel.spotKey = key;
     nameInput.value = coloured ? spotNameFor(coloured.cmyk) : "";
+    // The colour editor starts from the selection's colour.
+    rcInputs("sel").forEach((input, i) => (input.value = String(coloured ? Math.round(coloured.cmyk[i]) : 0)));
+    document.getElementById("selColourSwatch").style.background = cmykToCss(rcValues("sel"));
   }
   document.getElementById("selSpotSwatch").style.background = coloured ? cmykToCss(coloured.cmyk) : "transparent";
   document.getElementById("selSpotBtn").disabled = !coloured;
@@ -2407,6 +2410,8 @@ async function runObjectEdit(args, label) {
       on: args.on ?? null,
       name: args.name ?? null,
       cmyk: args.cmyk ?? null,
+      fill: args.fill ?? null,
+      stroke: args.stroke ?? null,
     });
     sel.items = res.objects;
     sel.offset = null;
@@ -2418,6 +2423,7 @@ async function runObjectEdit(args, label) {
       state.simulateOverprint = true;
       setSelResult("✓ Overprint on. Simulate overprinting is now switched on so you can see it.", "ok");
     }
+    if (args.action === "colour" && res.changed) setSelResult(`✓ Recoloured ${res.changed} object${res.changed === 1 ? "" : "s"}`, "ok");
     if (args.action === "spot" && res.changed) setSelResult(`✓ Now in spot colour "${args.name}"`, "ok");
     if (args.action === "delete") setSelResult(`✓ Deleted ${res.changed} object${res.changed === 1 ? "" : "s"}`, "ok");
     if (res.skipped && args.action === "overprint") {
@@ -2561,6 +2567,15 @@ window.addEventListener("mouseup", async (ev) => {
 
 document.getElementById("selectToolBtn").addEventListener("click", () => setSelectTool(!state.selectTool));
 document.getElementById("selDeleteBtn").addEventListener("click", deleteSelection);
+document.getElementById("selColourBtn").addEventListener("click", () => {
+  const v = rcValues("sel");
+  runObjectEdit({ action: "colour", fill: v, stroke: v }, "Recolouring…");
+});
+for (const input of rcInputs("sel")) {
+  input.addEventListener("input", () => {
+    document.getElementById("selColourSwatch").style.background = cmykToCss(rcValues("sel"));
+  });
+}
 document.getElementById("selSpotBtn").addEventListener("click", () => {
   const coloured = sel.items.find((o) => o.cmyk);
   const name = document.getElementById("selSpotName").value.trim();

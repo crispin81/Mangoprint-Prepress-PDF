@@ -507,6 +507,117 @@ pub fn delete_objects(path: &Path, page: u32, indices: &[usize]) -> Result<EditR
     Ok(EditResult { changed, skipped: 0, objects: Vec::new() })
 }
 
+/// Before text is converted to outlines (which turns every letter into a
+/// separate shape), each text block (`BT … ET`) on every page is put in
+/// a group with a clip a little larger than the text, which survives the
+/// conversion. The Select tool then picks up a whole line of outlined text
+/// as one object. Writes the result to `dest`.
+pub fn group_text_blocks(src: &Path, dest: &Path) -> Result<(), String> {
+    let mut doc = Document::load(src).map_err(|e| format!("Could not open PDF: {e}"))?;
+    let pages: Vec<ObjectId> = doc.get_pages().into_values().collect();
+    for page_id in pages {
+        let walk = walk_page(&doc, page_id, true);
+        let data = &walk.data[0];
+        // BT … ET blocks in the page's own stream.
+        let mut blocks: Vec<(usize, usize)> = Vec::new();
+        let mut open: Option<usize> = None;
+        for op in crate::recolour::lex(data) {
+            match op.name.as_str() {
+                "BT" => open = Some(op.start),
+                "ET" => {
+                    if let Some(st) = open.take() {
+                        blocks.push((st, op.end));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut edits = Edits::new();
+        for (st, en) in blocks {
+            // The block's text, in page space, and the transformation it's in.
+            let mut pts: Vec<(f64, f64)> = Vec::new();
+            let mut ctm = None;
+            let mut height: f64 = 0.0;
+            for p in walk.paints.iter().filter(|p| p.stream == 0 && p.text.is_some() && p.start >= st && p.end <= en) {
+                if let crate::recolour::Shape::Quad(q) = &p.shape {
+                    pts.extend_from_slice(q);
+                    height = height.max(((q[3].0 - q[0].0).powi(2) + (q[3].1 - q[0].1).powi(2)).sqrt());
+                }
+                ctm = Some(p.top.ctm);
+            }
+            let (Some(m), false) = (ctm, pts.is_empty()) else { continue };
+            // Generous room for accents, descenders and swashes.
+            let pad = height * 0.6 + 2.0;
+            let x0 = pts.iter().map(|p| p.0).fold(f64::INFINITY, f64::min) - pad;
+            let x1 = pts.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max) + pad;
+            let y0 = pts.iter().map(|p| p.1).fold(f64::INFINITY, f64::min) - pad;
+            let y1 = pts.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max) + pad;
+            // The clip is drawn in the block's own space.
+            let det = m[0] * m[3] - m[1] * m[2];
+            if det.abs() < 1e-12 {
+                continue;
+            }
+            let local = |x: f64, y: f64| {
+                let (dx, dy) = (x - m[4], y - m[5]);
+                ((m[3] * dx - m[2] * dy) / det, (-m[1] * dx + m[0] * dy) / det)
+            };
+            let c = [local(x0, y0), local(x1, y0), local(x1, y1), local(x0, y1)];
+            let path = format!(
+                "q {} {} m {} {} l {} {} l {} {} l h W n ",
+                num(c[0].0), num(c[0].1), num(c[1].0), num(c[1].1), num(c[2].0), num(c[2].1), num(c[3].0), num(c[3].1)
+            );
+            insert(&mut edits, st, 1, path);
+            insert(&mut edits, en, 0, " Q\n".into());
+        }
+        if !edits.is_empty() {
+            replace_page_content(&mut doc, page_id, splice(data, edits))?;
+        }
+    }
+    doc.save(dest).map_err(|e| format!("Could not save the PDF: {e}"))?;
+    Ok(())
+}
+
+/// Recolours the objects (every shape and text run in them) in CMYK
+/// (0–100): fills with `fill`, strokes with `stroke`.
+pub fn recolour_objects(path: &Path, page: u32, indices: &[usize], fill: Option<[f64; 4]>, stroke: Option<[f64; 4]>) -> Result<EditResult, String> {
+    let l = load(path, page)?;
+    let mut edits = StreamEdits::new();
+    let (mut changed, mut skipped) = (0, 0);
+    let op = |v: [f64; 4], k: &str| format!("{} {} {} {} {k} ", num(v[0] / 100.0), num(v[1] / 100.0), num(v[2] / 100.0), num(v[3] / 100.0));
+    for o in l.selected(indices)? {
+        let mut any = false;
+        for &i in &o.paints {
+            let p = &l.walk.paints[i];
+            if (!p.fills && !p.strokes) || !l.editable(p.stream) {
+                continue;
+            }
+            let (mut set, mut restore) = (String::new(), String::new());
+            if let (true, Some(f)) = (p.fills, fill) {
+                set.push_str(&op(f, "k"));
+                restore.push(' ');
+                restore.push_str(&String::from_utf8_lossy(&p.fill_restore));
+            }
+            if let (true, Some(s)) = (p.strokes, stroke) {
+                set.push_str(&op(s, "K"));
+                restore.push(' ');
+                restore.push_str(&String::from_utf8_lossy(&p.stroke_restore));
+            }
+            if set.is_empty() {
+                continue;
+            }
+            let e = edits.entry(p.stream).or_default();
+            insert(e, p.start, 1, set);
+            insert(e, p.end, 0, format!("{restore}\n"));
+            any = true;
+        }
+        if any { changed += 1 } else { skipped += 1 }
+    }
+    if changed > 0 {
+        l.save_all(path, edits)?;
+    }
+    Ok(EditResult { changed, skipped, objects: info(path, page, indices)? })
+}
+
 /// Overprint only keeps the inks underneath when the colour is plain
 /// DeviceCMYK: grey, or CMYK in a colour profile, is painted as a full
 /// colour and knocks out. So an object being set to overprint has such a
@@ -1011,6 +1122,34 @@ mod tests {
             let n = crate::recolour::apply_recolour(&p, 2, picked.target, crate::recolour::Mode::Object, false, Some([0.0, 0.0, 0.0, 100.0]), None).unwrap();
             let hit = pick(&p, 2, x, y, 1.0).unwrap().expect("select pick");
             println!("recoloured {n}: {hit:?}");
+        }
+    }
+
+    /// `MP_OBJECTS_PDF=file.pdf MP_OUTLINE_OUT=out.pdf cargo test outline_groups -- --nocapture`:
+    /// text outlined after grouping is one object per line, recolourable at once.
+    #[test]
+    fn outline_groups() {
+        let Ok(src) = std::env::var("MP_OBJECTS_PDF") else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let grouped = dir.path().join("g.pdf");
+        let out = dir.path().join("o.pdf");
+        group_text_blocks(Path::new(&src), &grouped).unwrap();
+        crate::gs::convert_pdf(&grouped, &out, crate::gs::Conversion::Outlines).unwrap();
+        let fonts = crate::fonts::list_fonts(&out).unwrap();
+        println!("fonts left: {}", fonts.len());
+        // Somewhere on the letters of "Hello World" (36 pt at 72,400).
+        let hit = (0..60)
+            .find_map(|i| pick(&out, 1, (74.0 + i as f64 * 3.0) / 595.0, 1.0 - 412.0 / 842.0, 1.0).unwrap().filter(|h| h.kind == Kind::Group))
+            .expect("outlined text");
+        let l = load(&out, 1).unwrap();
+        println!("{hit:?} paints in it: {}", l.objs[hit.index].paints.len());
+        assert_eq!(hit.kind, Kind::Group);
+        assert!(l.objs[hit.index].paints.len() > 3);
+        let r = recolour_objects(&out, 1, &[hit.index], Some([0.0, 100.0, 0.0, 0.0]), None).unwrap();
+        println!("recoloured {:?}", r.objects[0].cmyk);
+        assert_eq!(r.objects[0].cmyk, Some([0.0, 100.0, 0.0, 0.0]));
+        if let Ok(o) = std::env::var("MP_OUTLINE_OUT") {
+            std::fs::copy(&out, o).unwrap();
         }
     }
 
