@@ -60,10 +60,6 @@
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px"><path d="m4 4 7.07 17 2.51-7.39L21 11.07z" /></svg>
           <span class="tool-label">Select</span>
         </button>
-        <button id="recolourToolBtn" disabled title="Recolour (R): click an object to pick its fill and stroke colours, then change them in the Recolour panel. Esc or R to finish">
-          <svg width="15" height="15" viewBox="0 0 24 24" style="vertical-align: -3px"><rect x="9.5" y="9.5" width="6" height="6" rx="1" fill="#00AEEF" /><rect x="16.5" y="9.5" width="6" height="6" rx="1" fill="#EC008C" /><rect x="9.5" y="16.5" width="6" height="6" rx="1" fill="#FFF200" /><rect x="16.5" y="16.5" width="6" height="6" rx="1" fill="#231F20" stroke="currentColor" stroke-width="1" /><path d="M1.5 1.5 5.5 11.5l1.6-4.4 4.4-1.6z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" /></svg>
-          <span class="tool-label">Recolour</span>
-        </button>
         <button id="mergeToolBtn" disabled title="Mail merge (M): drag a box where the text should go, then choose a CSV file in the Mail Merge panel. Esc or M to finish">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px"><rect width="18" height="14" x="3" y="5" rx="2" /><path d="M7 15V9l2.5 3L12 9v6" /><path d="M15 12h3" /></svg>
           <span class="tool-label">Mail merge</span>
@@ -263,10 +259,9 @@
 
           <div class="panel" id="recolourPanel">
             <h2>Recolour</h2>
-            <p id="rcSelNote" class="rc-count hidden"></p>
             <p id="recolourEmpty" class="hint">
-              Turn on the <strong>Recolour</strong> tool (R) and click a shape or
-              text on the page to pick its colours.
+              Select a shape, text or logo with the <strong>Select</strong> tool (V)
+              to change its colour.
             </p>
             <div id="recolourBody">
               <div class="rc-picked">
@@ -282,7 +277,7 @@
                 </div>
               </div>
               <div class="rc-modes" role="radiogroup" aria-label="Select">
-                <label><input type="radio" name="rcMode" value="object" checked /> This object only</label>
+                <label><input type="radio" name="rcMode" value="object" checked /> Selected objects only</label>
                 <label><input type="radio" name="rcMode" value="fill" /> Everything with the same fill</label>
                 <label><input type="radio" name="rcMode" value="stroke" /> Everything with the same stroke</label>
                 <label><input type="radio" name="rcMode" value="both" /> Same fill and stroke</label>

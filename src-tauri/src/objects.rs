@@ -74,6 +74,12 @@ pub struct ObjInfo {
     /// Every colour it paints is 100% black or a spot colour: the only
     /// colours overprint is offered for.
     pub overprintable: bool,
+    /// Its first coloured shape or text run (position in the page's paint
+    /// order, as the Recolour panel's "same colour" options use), with
+    /// that paint's fill and stroke.
+    pub paint: Option<usize>,
+    pub fill: Option<crate::recolour::ColourInfo>,
+    pub stroke: Option<crate::recolour::ColourInfo>,
 }
 
 /// 100% black (with or without other inks) or a spot colour.
@@ -140,6 +146,9 @@ impl Obj {
                 let p = &walk.paints[i];
                 (!p.fills || overprintable_colour(&p.fill)) && (!p.strokes || overprintable_colour(&p.stroke))
             }) && self.paints.iter().all(|&i| walk.paints[i].fills || walk.paints[i].strokes),
+            paint: self.paints.iter().copied().find(|&i| walk.paints[i].fills || walk.paints[i].strokes),
+            fill: self.paints.iter().find(|&&i| walk.paints[i].fills).and_then(|&i| crate::recolour::colour_info(&walk.paints[i].fill)),
+            stroke: self.paints.iter().find(|&&i| walk.paints[i].strokes).and_then(|&i| crate::recolour::colour_info(&walk.paints[i].stroke)),
             cmyk: self.paints.iter().find_map(|&i| {
                 let p = &walk.paints[i];
                 let c = if p.fills { &p.fill } else if p.strokes { &p.stroke } else { return None };
