@@ -2416,11 +2416,11 @@ function renderSelectPanel() {
   const nameInput = document.getElementById("selSpotName");
   if (key !== sel.spotKey) {
     sel.spotKey = key;
+    sel.spotNameTyped = false;
     nameInput.value = coloured ? spotNameFor(coloured.cmyk) : "";
-    // The Recolour panel's editors start from the selection's colour.
   }
   syncRecolourFromSelection();
-  document.getElementById("selSpotSwatch").style.background = coloured ? cmykToCss(coloured.cmyk) : "transparent";
+  updateSpotPreview();
   document.getElementById("selSpotBtn").disabled = !coloured;
   const on = sel.items.filter((o) => o.overprint).length;
   const box = document.getElementById("selOverprint");
@@ -2655,15 +2655,38 @@ window.addEventListener("mouseup", async (ev) => {
 
 document.getElementById("selectToolBtn").addEventListener("click", () => setSelectTool(!state.selectTool));
 document.getElementById("selDeleteBtn").addEventListener("click", deleteSelection);
-document.getElementById("selSpotBtn").addEventListener("click", () => {
+// The colour a spot conversion uses: what's typed in the Recolour panel
+// (so a changed colour is picked up straight away), otherwise the
+// selection's own colour.
+function spotColour() {
+  const p = recolour.picked;
+  if (p && p.fill) return rcValues("fill");
+  if (p && p.stroke) return rcValues("stroke");
   const coloured = sel.items.find((o) => o.cmyk);
+  return coloured ? coloured.cmyk : null;
+}
+
+// Swatch and suggested name follow that colour, until a name is typed.
+function updateSpotPreview() {
+  const c = sel.items.length ? spotColour() : null;
+  document.getElementById("selSpotSwatch").style.background = c ? cmykToCss(c) : "transparent";
+  if (c && !sel.spotNameTyped) document.getElementById("selSpotName").value = spotNameFor(c);
+}
+
+document.getElementById("selSpotName").addEventListener("input", () => {
+  sel.spotNameTyped = true;
+});
+for (const input of [...rcInputs("fill"), ...rcInputs("stroke")]) input.addEventListener("input", updateSpotPreview);
+
+document.getElementById("selSpotBtn").addEventListener("click", () => {
+  const cmyk = spotColour();
   const name = document.getElementById("selSpotName").value.trim();
-  if (!coloured) return;
+  if (!cmyk) return;
   if (!name) {
     setSelResult("Give the spot colour a name.", "err");
     return;
   }
-  runObjectEdit({ action: "spot", name, cmyk: coloured.cmyk }, `Converting to ${name}…`);
+  runObjectEdit({ action: "spot", name, cmyk }, `Converting to ${name}…`);
 });
 document.getElementById("selClearBtn").addEventListener("click", clearSelection);
 document.getElementById("selOverprint").addEventListener("change", (ev) => {
