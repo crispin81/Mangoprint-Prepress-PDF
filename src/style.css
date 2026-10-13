@@ -2567,3 +2567,10 @@ input::placeholder {
   font-size: 12px;
   color: var(--muted);
 }
+
+/* Info icon: a white filled circle with a dark "i" (yellow read as a warning). */
+.info-icon {
+  background: #e8e8ec;
+  border-color: #e8e8ec;
+  color: #14151a;
+}
