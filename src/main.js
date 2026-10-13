@@ -2291,7 +2291,7 @@ function setSelectTool(on) {
   if (on) {
     setTextMode(false);
     clearInks();
-    document.getElementById("selectPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+    document.getElementById("recolourPanel").scrollIntoView({ behavior: "smooth", block: "start" });
     // Coming back (e.g. after recolouring): the same objects, re-read so
     // the panel shows their new colours.
     const saved = sel.saved;
