@@ -2493,3 +2493,23 @@ input::placeholder {
 .sel-colour input {
   padding: 3px 4px;
 }
+
+/* Fold-away info text under each panel. */
+.info-toggle {
+  display: block;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.info-toggle:hover {
+  color: var(--text);
+}
+
+.hint.info-folded {
+  display: none;
+}

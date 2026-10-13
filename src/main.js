@@ -3832,6 +3832,50 @@ window.addEventListener("keydown", (ev) => {
   ev.preventDefault();
 });
 
+// --- info text that can be folded away ---
+// Each panel's explanation has an arrow; once people know the tools they
+// can fold it away, and it stays folded next time (per panel).
+function makeInfoCollapsible() {
+  const KEY = "mangoprint.infoFolded";
+  let folded = {};
+  try {
+    folded = JSON.parse(localStorage.getItem(KEY) || "{}") || {};
+  } catch {
+    folded = {};
+  }
+  const save = () => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(folded));
+    } catch {
+      // Just won't be remembered.
+    }
+  };
+  for (const p of document.querySelectorAll("#sidebar .panel > p.hint:not([id])")) {
+    const panel = p.closest(".panel");
+    const title = panel.querySelector("h2")?.textContent.trim() || "panel";
+    const key = `${title}#${[...panel.querySelectorAll(":scope > p.hint:not([id])")].indexOf(p)}`;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "info-toggle";
+    const show = (open) => {
+      p.classList.toggle("info-folded", !open);
+      btn.textContent = open ? "▾ Info" : "▸ Info";
+      btn.title = open ? "Hide this explanation" : "Show the explanation";
+      btn.setAttribute("aria-expanded", String(open));
+    };
+    show(!folded[key]);
+    btn.addEventListener("click", () => {
+      const open = p.classList.contains("info-folded");
+      if (open) delete folded[key];
+      else folded[key] = true;
+      save();
+      show(open);
+    });
+    p.before(btn);
+  }
+}
+makeInfoCollapsible();
+
 checkGhostscript();
 renderPageBoxesPanel();
 renderRotationPanel();
