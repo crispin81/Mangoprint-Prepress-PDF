@@ -2438,7 +2438,7 @@ a:hover > .about__logo {
   cursor: default;
 }
 
-/* Every editable field: white with black text, so it's clear what can be typed in. */
+/* Every editable field: 20% grey with black text, so it's clear what can be typed in without the glare of white. */
 input[type="text"],
 input[type="number"],
 input:not([type]),
@@ -2451,17 +2451,17 @@ select,
 .merge-bar select,
 .merge-bar input[type="number"],
 .sel-spot__row input {
-  background: #ffffff !important;
+  background: #cccccc !important;
   color: #111111 !important;
   border-color: #9a9ba5 !important;
 }
 
 select option,
 select optgroup {
-  background: #ffffff;
+  background: #cccccc;
   color: #111111;
 }
 
 input::placeholder {
-  color: #777777;
+  color: #555555;
 }
