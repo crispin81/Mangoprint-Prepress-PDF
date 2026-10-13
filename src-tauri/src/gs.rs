@@ -445,6 +445,33 @@ fn pdfwrite(inputs: &[&Path], output: &Path, extra: &[&str], page_list: Option<&
     Ok(())
 }
 
+/// Typesets a PostScript program into a PDF (mail merge text), with every
+/// font embedded so the result is print-ready.
+pub fn postscript_to_pdf(ps: &Path, output: &Path) -> Result<(), String> {
+    let out = gs_command()?
+        .args([
+            "-q",
+            "-dBATCH",
+            "-dNOPAUSE",
+            "-dSAFER",
+            "-sDEVICE=pdfwrite",
+            "-dAutoRotatePages=/None",
+            "-dEmbedAllFonts=true",
+            "-dSubsetFonts=true",
+            "-dPreserveOverprintSettings=true",
+            "-sColorConversionStrategy=LeaveColorUnchanged",
+        ])
+        .arg(output_file_arg(output))
+        .arg(ps)
+        .output()
+        .map_err(|e| format!("Failed to run Ghostscript: {e}"))?;
+    if !out.status.success() || !output.exists() {
+        let msg = [String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)].concat();
+        return Err(format!("Ghostscript could not set the mail merge text:\n{msg}"));
+    }
+    Ok(())
+}
+
 /// Rewrites `input` to `output` applying `conv` to every page.
 pub fn convert_pdf(input: &Path, output: &Path, conv: Conversion) -> Result<(), String> {
     pdfwrite(&[input], output, conversion_args(conv), None)

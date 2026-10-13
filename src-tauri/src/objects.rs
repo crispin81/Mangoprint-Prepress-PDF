@@ -1,0 +1,468 @@
+//! Select tool: the objects on a page (shapes, text runs, images and placed
+//! graphics), which can be moved, deleted or set to overprint.
+//!
+//! An object is one item in the page's own content stream, so a placed
+//! graphic (a form XObject, e.g. a logo placed in InDesign) is one object
+//! however much it draws. Edits are spliced into the page stream as bytes,
+//! like the recolour tool's: a move wraps the object as `q <shift> cm … Q`
+//! (text, where `q` isn't allowed, gets a new text position and the old one
+//! put back afterwards), a delete takes it out, and overprint sets an
+//! ExtGState before it and restores the previous settings after it.
+
+use crate::imageres::Matrix;
+use crate::pagebox;
+use crate::recolour::{page_geom, walk_page, Kind, PageGeom, PageWalk, Paint, TopObj};
+use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
+use serde::Serialize;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::Path;
+
+/// One selectable object: the top-level item and the paints it draws.
+struct Obj {
+    top: TopObj,
+    paints: Vec<usize>,
+}
+
+/// The page's objects in drawing order.
+fn objects(walk: &PageWalk) -> Vec<Obj> {
+    let mut out: Vec<Obj> = Vec::new();
+    let mut index: HashMap<(usize, usize), usize> = HashMap::new();
+    for (i, p) in walk.paints.iter().enumerate() {
+        let key = (p.top.start, p.top.end);
+        match index.get(&key) {
+            Some(&k) => out[k].paints.push(i),
+            None => {
+                index.insert(key, out.len());
+                out.push(Obj { top: p.top, paints: vec![i] });
+            }
+        }
+    }
+    out
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ObjInfo {
+    /// Position in the page's object order (stable across moves and
+    /// overprint changes; deleting shifts the later ones).
+    pub index: usize,
+    pub kind: Kind,
+    /// Outline as [left, top, width, height] of the displayed page.
+    pub norm: [f64; 4],
+    pub overprint: bool,
+    /// False for a shape that also sets a clipping path.
+    pub movable: bool,
+}
+
+impl Obj {
+    fn first<'a>(&self, walk: &'a PageWalk) -> &'a Paint {
+        &walk.paints[self.paints[0]]
+    }
+
+    fn bbox(&self, walk: &PageWalk) -> Option<[f64; 4]> {
+        let mut acc: Option<[f64; 4]> = None;
+        for &i in &self.paints {
+            let Some(b) = walk.paints[i].bbox() else { continue };
+            acc = Some(match acc {
+                None => b,
+                Some(a) => [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])],
+            });
+        }
+        acc
+    }
+
+    fn overprint(&self, walk: &PageWalk) -> bool {
+        let o = self.top.ovp;
+        match self.top.kind {
+            Kind::Path | Kind::Text => {
+                let p = self.first(walk);
+                (p.fills && o.fill) || (p.strokes && o.stroke)
+            }
+            Kind::Image => o.fill,
+            Kind::Form => o.fill || o.stroke,
+        }
+    }
+
+    fn movable(&self, walk: &PageWalk) -> bool {
+        self.top.kind != Kind::Path || self.first(walk).wrap
+    }
+
+    fn info(&self, index: usize, walk: &PageWalk, geom: &PageGeom) -> Option<ObjInfo> {
+        Some(ObjInfo {
+            index,
+            kind: self.top.kind,
+            norm: geom.norm(self.bbox(walk)?),
+            overprint: self.overprint(walk),
+            movable: self.movable(walk),
+        })
+    }
+}
+
+struct Loaded {
+    doc: Document,
+    page_id: ObjectId,
+    geom: PageGeom,
+    walk: PageWalk,
+    objs: Vec<Obj>,
+}
+
+fn load(path: &Path, page: u32) -> Result<Loaded, String> {
+    let doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
+    let page_id = pagebox::page_id_for(&doc, page)?;
+    let geom = page_geom(&doc, page_id);
+    let walk = walk_page(&doc, page_id, true);
+    let objs = objects(&walk);
+    Ok(Loaded { doc, page_id, geom, walk, objs })
+}
+
+impl Loaded {
+    fn infos(&self, indices: &[usize]) -> Vec<ObjInfo> {
+        indices
+            .iter()
+            .filter_map(|&i| self.objs.get(i).and_then(|o| o.info(i, &self.walk, &self.geom)))
+            .collect()
+    }
+
+    fn selected(&self, indices: &[usize]) -> Result<Vec<&Obj>, String> {
+        let set: BTreeSet<usize> = indices.iter().copied().collect();
+        let objs: Vec<&Obj> = set.iter().filter_map(|&i| self.objs.get(i)).collect();
+        if objs.len() != set.len() {
+            return Err("The selection is out of date. Select the objects again.".into());
+        }
+        Ok(objs)
+    }
+
+    /// Splices `edits` into the page stream and saves.
+    fn save(mut self, path: &Path, edits: Edits) -> Result<(), String> {
+        let old = &self.walk.data[0];
+        let mut out = Vec::with_capacity(old.len() + 64 * edits.len());
+        let mut pos = 0;
+        for ((at, _), (end, bytes)) in edits {
+            let at = at.min(old.len()).max(pos);
+            out.extend_from_slice(&old[pos..at]);
+            out.extend_from_slice(&bytes);
+            pos = end.min(old.len()).max(at);
+        }
+        out.extend_from_slice(&old[pos..]);
+        replace_page_content(&mut self.doc, self.page_id, out)?;
+        self.doc.save(path).map_err(|e| format!("Could not save the PDF: {e}"))?;
+        Ok(())
+    }
+}
+
+/// Page stream edits: (offset, order) → (end of the replaced bytes, new
+/// bytes). An insert replaces nothing (end = offset). At the same offset,
+/// one object's closing bytes (order 0) go before the next one's opening
+/// bytes (order 1).
+type Edits = BTreeMap<(usize, u8), (usize, Vec<u8>)>;
+
+fn insert(edits: &mut Edits, at: usize, order: u8, bytes: String) {
+    edits.entry((at, order)).or_insert((at, Vec::new())).1.extend(bytes.into_bytes());
+}
+
+/// Gives the page a single new content stream (the old one may be shared
+/// with other pages).
+pub(crate) fn replace_page_content(doc: &mut Document, page_id: ObjectId, data: Vec<u8>) -> Result<(), String> {
+    let mut s = Stream::new(Dictionary::new(), data);
+    let _ = s.compress();
+    let id = doc.add_object(s);
+    doc.get_dictionary_mut(page_id)
+        .map_err(|e| format!("Could not update the page: {e}"))?
+        .set("Contents", Object::Reference(id));
+    Ok(())
+}
+
+/// A number for a content stream: up to 4 decimals, no trailing zeros.
+fn num(v: f64) -> String {
+    let s = format!("{:.4}", if v.abs() < 1e-9 { 0.0 } else { v });
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s == "-0" || s.is_empty() { "0".into() } else { s.to_string() }
+}
+
+fn matrix(m: &Matrix) -> String {
+    m.iter().map(|v| num(*v)).collect::<Vec<_>>().join(" ")
+}
+
+/// The shift in an object's own space that moves it by (`dx`, `dy`) on the
+/// page, given the transformation `m` in force there.
+fn local_shift(m: &Matrix, dx: f64, dy: f64) -> Option<(f64, f64)> {
+    let det = m[0] * m[3] - m[1] * m[2];
+    if det.abs() < 1e-12 {
+        return None;
+    }
+    Some(((m[3] * dx - m[2] * dy) / det, (-m[1] * dx + m[0] * dy) / det))
+}
+
+/// `TJ` that moves the text position `adv` along the line without drawing.
+fn advance(adv: f64, font_size: f64, h_scale: f64) -> String {
+    let k = font_size * h_scale;
+    if adv.abs() < 1e-9 || k.abs() < 1e-9 {
+        return String::new();
+    }
+    format!("[{}] TJ", num(-adv * 1000.0 / k))
+}
+
+// ---------------------------------------------------------------------------
+// Commands
+
+/// The topmost object at a point (`x`, `y` fractions of the displayed page,
+/// `tol` hit tolerance in points).
+pub fn pick(path: &Path, page: u32, x: f64, y: f64, tol: f64) -> Result<Option<ObjInfo>, String> {
+    let l = load(path, page)?;
+    let (px, py) = l.geom.to_pdf(x, y);
+    for p in l.walk.paints.iter().rev() {
+        if !p.hit(px, py, tol) {
+            continue;
+        }
+        let Some(i) = l.objs.iter().position(|o| o.top.start == p.top.start && o.top.end == p.top.end) else { continue };
+        return Ok(l.objs[i].info(i, &l.walk, &l.geom));
+    }
+    Ok(None)
+}
+
+/// Objects lying wholly inside `rect` ([left, top, width, height] of the
+/// displayed page).
+pub fn in_rect(path: &Path, page: u32, rect: [f64; 4]) -> Result<Vec<ObjInfo>, String> {
+    let l = load(path, page)?;
+    let [rl, rt, rw, rh] = rect;
+    let eps = 1e-6;
+    Ok((0..l.objs.len())
+        .filter_map(|i| l.objs[i].info(i, &l.walk, &l.geom))
+        .filter(|o| {
+            let [x, y, w, h] = o.norm;
+            x >= rl - eps && y >= rt - eps && x + w <= rl + rw + eps && y + h <= rt + rh + eps
+        })
+        .collect())
+}
+
+/// Current outlines and settings of the given objects.
+pub fn info(path: &Path, page: u32, indices: &[usize]) -> Result<Vec<ObjInfo>, String> {
+    Ok(load(path, page)?.infos(indices))
+}
+
+#[derive(Serialize)]
+pub struct EditResult {
+    /// Objects changed.
+    pub changed: usize,
+    /// Objects that couldn't be changed (e.g. shapes that also clip).
+    pub skipped: usize,
+    /// The selection afterwards (empty after a delete).
+    pub objects: Vec<ObjInfo>,
+}
+
+/// Moves the objects by (`dx`, `dy`), fractions of the displayed page.
+pub fn move_objects(path: &Path, page: u32, indices: &[usize], dx: f64, dy: f64) -> Result<EditResult, String> {
+    let l = load(path, page)?;
+    let (x0, y0) = l.geom.to_pdf(0.0, 0.0);
+    let (x1, y1) = l.geom.to_pdf(dx, dy);
+    let (pdx, pdy) = (x1 - x0, y1 - y0);
+    let mut edits = Edits::new();
+    let (mut changed, mut skipped) = (0, 0);
+    for o in l.selected(indices)? {
+        let Some((tx, ty)) = local_shift(&o.top.ctm, pdx, pdy) else {
+            skipped += 1;
+            continue;
+        };
+        let p = o.first(&l.walk);
+        match (o.top.kind, &p.text) {
+            (Kind::Text, Some(t)) => {
+                let mut m = t.tm;
+                m[4] += tx;
+                m[5] += ty;
+                // `'` and `"` move down a line first: start a line higher.
+                if t.op == "'" || t.op == "\"" {
+                    m[4] += t.leading * m[2];
+                    m[5] += t.leading * m[3];
+                }
+                insert(&mut edits, o.top.start, 1, format!("{} Tm ", matrix(&m)));
+                let adv = advance(t.u_after, t.font_size, t.h_scale);
+                insert(&mut edits, o.top.end, 0, format!(" {} Tm {adv}\n", matrix(&t.tlm)));
+            }
+            _ if o.movable(&l.walk) => {
+                insert(&mut edits, o.top.start, 1, format!("q 1 0 0 1 {} {} cm ", num(tx), num(ty)));
+                insert(&mut edits, o.top.end, 0, " Q\n".into());
+            }
+            _ => {
+                skipped += 1;
+                continue;
+            }
+        }
+        changed += 1;
+    }
+    if changed > 0 {
+        l.save(path, edits)?;
+    }
+    Ok(EditResult { changed, skipped, objects: info(path, page, indices)? })
+}
+
+/// Removes the objects from the page.
+pub fn delete_objects(path: &Path, page: u32, indices: &[usize]) -> Result<EditResult, String> {
+    let l = load(path, page)?;
+    let mut edits = Edits::new();
+    let mut changed = 0;
+    for o in l.selected(indices)? {
+        let p = o.first(&l.walk);
+        let (start, end, with) = match (o.top.kind, &p.text) {
+            (Kind::Text, Some(t)) => {
+                // Keep the text position moving on as before, so the rest
+                // of the line stays where it was.
+                let line = match t.op.as_str() {
+                    "'" => "T* ".to_string(),
+                    "\"" if t.nums.len() >= 2 => format!("{} Tw {} Tc T* ", num(t.nums[0]), num(t.nums[1])),
+                    _ => String::new(),
+                };
+                (o.top.start, o.top.end, format!(" {line}{} ", advance(t.adv, t.font_size, t.h_scale)))
+            }
+            // A shape that also clips keeps its clip: just stop painting it.
+            (Kind::Path, _) if !p.wrap => (p.paint_op.0, p.paint_op.1, " n ".to_string()),
+            _ => (o.top.start, o.top.end, " ".to_string()),
+        };
+        edits.insert((start, 1), (end, with.into_bytes()));
+        changed += 1;
+    }
+    if changed > 0 {
+        l.save(path, edits)?;
+    }
+    Ok(EditResult { changed, skipped: 0, objects: Vec::new() })
+}
+
+/// ExtGState resource name for a set of overprint settings.
+fn ovp_name(fill: bool, stroke: bool, mode: i64) -> String {
+    format!("MPop{}{}{}", fill as u8, stroke as u8, mode.clamp(0, 1))
+}
+
+/// Turns overprint on (fill and stroke, overprint mode 1) or off.
+pub fn set_overprint(path: &Path, page: u32, indices: &[usize], on: bool) -> Result<EditResult, String> {
+    let mut l = load(path, page)?;
+    let mut edits = Edits::new();
+    let mut names: BTreeSet<(bool, bool, i64)> = BTreeSet::new();
+    let mut changed = 0;
+    for o in l.selected(indices)? {
+        let was = o.top.ovp;
+        let want = if on { (true, true, 1) } else { (false, false, was.mode) };
+        if (was.fill, was.stroke, was.mode) == want {
+            continue;
+        }
+        let back = (was.fill, was.stroke, was.mode.clamp(0, 1));
+        names.insert(want);
+        names.insert(back);
+        insert(&mut edits, o.top.start, 1, format!("/{} gs ", ovp_name(want.0, want.1, want.2)));
+        insert(&mut edits, o.top.end, 0, format!(" /{} gs\n", ovp_name(back.0, back.1, back.2)));
+        changed += 1;
+    }
+    if changed > 0 {
+        let page_id = l.page_id;
+        for (f, s, m) in names {
+            let mut gs = Dictionary::new();
+            gs.set("Type", Object::Name(b"ExtGState".to_vec()));
+            gs.set("OP", Object::Boolean(s));
+            gs.set("op", Object::Boolean(f));
+            gs.set("OPM", Object::Integer(m));
+            add_resource(&mut l.doc, page_id, b"ExtGState", ovp_name(f, s, m).as_bytes(), Object::Dictionary(gs))?;
+        }
+        l.save(path, edits)?;
+    }
+    Ok(EditResult { changed, skipped: 0, objects: info(path, page, indices)? })
+}
+
+/// Adds `name` → `value` to one category (ExtGState, XObject, …) of the
+/// page's resources, giving the page its own resources if it only
+/// inherits them.
+pub(crate) fn add_resource(doc: &mut Document, page_id: ObjectId, category: &[u8], name: &[u8], value: Object) -> Result<(), String> {
+    let err = |e: lopdf::Error| format!("Could not update the page resources: {e}");
+    // Where the page's resource dictionary lives.
+    let own = doc.get_dictionary(page_id).map_err(err)?.get(b"Resources").ok().cloned();
+    let res_id = match own {
+        Some(Object::Reference(id)) => Some(id),
+        Some(Object::Dictionary(_)) => None,
+        _ => {
+            // Inherited (or missing): copy the nearest ancestor's onto the page.
+            let mut found = Dictionary::new();
+            let mut id = page_id;
+            while let Ok(Object::Reference(pid)) = doc.get_dictionary(id).map_err(err)?.get(b"Parent").cloned() {
+                id = pid;
+                if let Ok(r) = doc.get_dictionary(id).map_err(err)?.get(b"Resources") {
+                    if let Ok(d) = doc.dereference(r).and_then(|(_, o)| o.as_dict()) {
+                        found = d.clone();
+                    }
+                    break;
+                }
+            }
+            doc.get_dictionary_mut(page_id).map_err(err)?.set("Resources", Object::Dictionary(found));
+            None
+        }
+    };
+    let res: &mut Dictionary = match res_id {
+        Some(id) => doc.get_dictionary_mut(id).map_err(err)?,
+        None => doc.get_dictionary_mut(page_id).map_err(err)?.get_mut(b"Resources").and_then(Object::as_dict_mut).map_err(err)?,
+    };
+    match res.get(category).ok().cloned() {
+        Some(Object::Reference(cid)) => {
+            doc.get_dictionary_mut(cid).map_err(err)?.set(name.to_vec(), value);
+        }
+        Some(Object::Dictionary(_)) => {
+            res.get_mut(category).and_then(Object::as_dict_mut).map_err(err)?.set(name.to_vec(), value);
+        }
+        _ => {
+            let mut d = Dictionary::new();
+            d.set(name.to_vec(), value);
+            res.set(category.to_vec(), Object::Dictionary(d));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numbers() {
+        assert_eq!(num(1.0), "1");
+        assert_eq!(num(-0.00001), "0");
+        assert_eq!(num(12.34567), "12.3457");
+        assert_eq!(num(-3.5), "-3.5");
+    }
+
+    /// `MP_OBJECTS_PDF=file.pdf MP_OBJECTS_OUT=out.pdf cargo test objects_file -- --nocapture`
+    /// (page 1: a box at x 50–200, y 650–750 and text at 72,400 of 595x842).
+    #[test]
+    fn objects_file() {
+        let Ok(src) = std::env::var("MP_OBJECTS_PDF") else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("t.pdf");
+        std::fs::copy(&src, &p).unwrap();
+        let at = |x: f64, y: f64| (x / 595.0, 1.0 - y / 842.0);
+        let (bx, by) = at(100.0, 700.0);
+        let boxed = pick(&p, 1, bx, by, 2.0).unwrap().expect("box");
+        println!("box {boxed:?}");
+        let moved = move_objects(&p, 1, &[boxed.index], 0.1, 0.05).unwrap();
+        let after = &moved.objects[0];
+        assert!((after.norm[0] - boxed.norm[0] - 0.1).abs() < 1e-3 && (after.norm[1] - boxed.norm[1] - 0.05).abs() < 1e-3, "{after:?}");
+        let op = set_overprint(&p, 1, &[boxed.index], true).unwrap();
+        assert!(op.objects[0].overprint);
+        let (tx, ty) = at(80.0, 410.0);
+        let text = pick(&p, 1, tx, ty, 2.0).unwrap().expect("text");
+        println!("text {text:?}");
+        let moved = move_objects(&p, 1, &[text.index], -0.05, -0.1).unwrap();
+        println!("text moved {:?}", moved.objects);
+        let all = in_rect(&p, 1, [0.0, 0.0, 1.0, 1.0]).unwrap();
+        println!("all {}", all.len());
+        let (lx, ly) = at(150.0, 240.0);
+        let purple = pick(&p, 1, lx, ly, 2.0).unwrap().expect("purple");
+        let before = in_rect(&p, 1, [0.0, 0.0, 1.0, 1.0]).unwrap().len();
+        delete_objects(&p, 1, &[purple.index]).unwrap();
+        assert_eq!(in_rect(&p, 1, [0.0, 0.0, 1.0, 1.0]).unwrap().len(), before - 1);
+        if let Ok(out) = std::env::var("MP_OBJECTS_OUT") {
+            std::fs::copy(&p, out).unwrap();
+        }
+    }
+
+    #[test]
+    fn shift_through_scale_and_rotation() {
+        // 2x scale: a 10 pt page move is 5 units locally.
+        assert_eq!(local_shift(&[2.0, 0.0, 0.0, 2.0, 7.0, 9.0], 10.0, 4.0), Some((5.0, 2.0)));
+        // 90° rotation.
+        let (x, y) = local_shift(&[0.0, 1.0, -1.0, 0.0, 0.0, 0.0], 10.0, 0.0).unwrap();
+        assert!((x - 0.0).abs() < 1e-9 && (y + 10.0).abs() < 1e-9);
+    }
+}

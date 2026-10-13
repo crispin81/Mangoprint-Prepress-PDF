@@ -10,7 +10,7 @@ const appWindow = getCurrentWindow();
 const els = {
   exportBtn: document.getElementById("exportBtn"),
   emptyOpenBtn: document.getElementById("emptyOpenBtn"),
-  fileName: document.getElementById("fileName"),
+  openBtn: document.getElementById("openBtn"),
   prevPage: document.getElementById("prevPage"),
   nextPage: document.getElementById("nextPage"),
   pageLabel: document.getElementById("pageLabel"),
@@ -98,7 +98,7 @@ function baseName(path) {
 const state = {
   path: null, // working copy in a temp folder — all rendering and edits use this
   sourcePath: null, // the file the user opened (never modified)
-  edited: false, // geometry changed since open → Export enabled
+  edited: false, // changed since opened or last saved
   page: 1,
   pageCount: 1,
   simulateOverprint: false,
@@ -166,62 +166,72 @@ function hideProgress() {
   }, 250);
 }
 
-// Asks before throwing away unexported edits; true if it's OK to proceed.
-async function okToDiscardEdits() {
-  if (!state.edited) return true;
-  return ask("You have page changes that haven't been exported. Open another PDF and discard them?", {
-    title: "Unexported changes",
-    kind: "warning",
-  });
-}
+const PDF_FILTER = [{ name: "PDF", extensions: ["pdf", "PDF"] }];
 
+// Each chosen PDF opens in its own tab.
 async function openPdf() {
-  if (!(await okToDiscardEdits())) return;
-  const selected = await open({
-    multiple: false,
-    filters: [{ name: "PDF", extensions: ["pdf", "PDF"] }],
-  });
+  const selected = await open({ multiple: true, filters: PDF_FILTER });
   if (!selected) return;
-  await loadPdf(Array.isArray(selected) ? selected[0] : selected);
+  for (const p of Array.isArray(selected) ? selected : [selected]) await loadPdf(p);
 }
 
-// Opens a PDF by path: from the Open dialog, a double-clicked file, or a
-// file dropped on the window.
+// Opens a PDF by path in a new tab (or switches to it if it's already
+// open): from the Open dialog, a double-clicked file, or a file dropped on
+// the window.
 async function loadPdf(source) {
+  const already = tabs.find((t) => t.sourcePath === source);
+  if (already) return switchTab(already);
+  saveTabState();
   setProgress(5, `Opening ${baseName(source)}…`);
+  let tab = null;
   try {
     const path = await invoke("create_working_copy", { path: source });
-    setProgress(15, "Counting pages…");
-    const pageCount = await invoke("open_pdf", { path });
-    setProgress(30, "Reading page boxes…");
-    state.path = path;
-    state.sourcePath = source;
-    setEdited(false);
-    els.fileName.disabled = false;
-    state.page = 1;
-    state.pageCount = pageCount;
-    state.separationNames = [];
-    state.activeSeparations = new Set();
-    els.fileName.textContent = baseName(source);
-    els.fileName.title = `${source}\nClick to open a different PDF`;
-    updatePageControls();
-    updateRasterDpi();
-    state.separationNames = [];
-    resetRecolour();
-    loadSpotSwatches(); // real spot colours for the swatches
-    loadSeparationsList(); // in the background; the page shows straight away
-    await loadPageBoxes();
-    view.zoom = "fit";
-    await showPage({ reloadDoc: true });
-    enableFixes();
+    tab = { path, sourcePath: source, edited: false, page: 1, zoom: "fit" };
+    tabs.push(tab);
+    await showTab(tab, true);
+  } catch (err) {
+    alert(`Could not open PDF:\n${err}`);
+    if (tab) await dropTab(tab);
+  } finally {
+    hideProgress();
+  }
+}
+
+// Shows a tab's PDF: its working copy, at the page and zoom it was left
+// at. `fresh` = just opened, so run the on-open checks.
+async function showTab(tab, fresh) {
+  activeTab = tab;
+  renderTabs();
+  toolsOff();
+  clearSelection();
+  merge.box = null;
+  renderMergePanel();
+  setProgress(fresh ? 15 : 20, "Counting pages…");
+  const pageCount = await invoke("open_pdf", { path: tab.path });
+  setProgress(30, "Reading page boxes…");
+  state.path = tab.path;
+  state.sourcePath = tab.sourcePath;
+  setEdited(tab.edited);
+  state.page = Math.min(Math.max(1, tab.page || 1), pageCount);
+  state.pageCount = pageCount;
+  state.separationNames = [];
+  state.activeSeparations = new Set();
+  updatePageControls();
+  updateRasterDpi();
+  resetRecolour();
+  loadSpotSwatches(); // real spot colours for the swatches
+  loadSeparationsList(); // in the background; the page shows straight away
+  await loadPageBoxes();
+  view.zoom = tab.zoom || "fit";
+  await showPage({ reloadDoc: true });
+  enableFixes();
+  if (fresh) {
     fontWarningQueued = false;
     fontDialog.classList.add("hidden");
     checkOverprintOnOpen(); // pop-up warning if any non-black colour overprints
     loadFonts({ warn: true });
-  } catch (err) {
-    alert(`Could not open PDF:\n${err}`);
-  } finally {
-    hideProgress();
+  } else {
+    loadFonts();
   }
 }
 
@@ -250,12 +260,18 @@ async function updateRasterDpi() {
 
 function setEdited(edited) {
   state.edited = edited;
-  els.exportBtn.disabled = !edited;
+  els.exportBtn.disabled = !state.path;
+  if (activeTab) {
+    activeTab.edited = edited;
+    renderTabs();
+  }
 }
 
+// Save PDF as (Ctrl+S): writes the working copy to a file of the user's
+// choosing; the tab then carries that file's name.
 async function exportPdf() {
-  if (!state.path || !state.edited) return;
-  const suggested = state.sourcePath.replace(/(\.pdf)?$/i, "_edited.pdf");
+  if (!state.path) return;
+  const suggested = state.edited ? state.sourcePath.replace(/(\.pdf)?$/i, "_edited.pdf") : state.sourcePath;
   const dest = await save({
     defaultPath: suggested,
     filters: [{ name: "PDF", extensions: ["pdf"] }],
@@ -263,9 +279,11 @@ async function exportPdf() {
   if (!dest) return;
   try {
     await invoke("export_pdf", { from: state.path, dest });
+    state.sourcePath = dest;
+    if (activeTab) activeTab.sourcePath = dest;
     setEdited(false);
   } catch (err) {
-    alert(`Export failed:\n${err}`);
+    alert(`Save failed:\n${err}`);
   }
 }
 
@@ -501,9 +519,10 @@ const THUMB_SIZE = 120; // CSS px, longest side
 
 function buildThumbs() {
   const box = document.getElementById("thumbs");
+  const list = document.getElementById("thumbList");
   const scroll = box.scrollTop;
   if (view.thumbObserver) view.thumbObserver.disconnect();
-  box.replaceChildren();
+  list.replaceChildren();
   box.classList.toggle("hidden", !view.doc);
   if (!view.doc) return;
   const doc = view.doc;
@@ -535,7 +554,7 @@ function buildThumbs() {
       if (rot) rotatePageBy(n, Number(rot.dataset.dir) * 90);
       else goToPageNumber(n);
     });
-    box.appendChild(item);
+    list.appendChild(item);
     observer.observe(item);
   }
   box.scrollTop = scroll;
@@ -633,6 +652,8 @@ function applyLayout() {
   document.getElementById("textModeBtn").disabled = false;
   document.getElementById("zoomToolBtn").disabled = false;
   document.getElementById("recolourToolBtn").disabled = false;
+  document.getElementById("selectToolBtn").disabled = false;
+  document.getElementById("mergeToolBtn").disabled = false;
   setTextLayerScale();
 }
 
@@ -794,6 +815,7 @@ async function goToPage(delta) {
   updatePageControls();
   updateRasterDpi();
   loadSeparationsList();
+  clearSelection();
   setProgress(40, `Loading page ${next}…`);
   try {
     await loadPageBoxes();
@@ -1137,6 +1159,8 @@ function drawBoxOverlay() {
     svg.appendChild(rect);
   }
   drawRecolourOverlay(svg);
+  drawMergeOverlay(svg);
+  drawSelectionOverlay(svg);
 }
 
 // --- wiring ---
@@ -1150,7 +1174,11 @@ els.winClose.addEventListener("click", () => appWindow.close());
 const closeDialog = document.getElementById("closeDialog");
 let closeConfirmed = false;
 
-function askBeforeClose() {
+// Asks what to do with `name`'s unsaved changes: "export", "discard" or
+// "cancel".
+function askBeforeClose(name, discardLabel = "Close without saving") {
+  document.getElementById("closeDialogFile").textContent = name;
+  document.getElementById("closeDiscard").textContent = discardLabel;
   return new Promise((resolve) => {
     closeDialog.classList.remove("hidden");
     const done = (choice) => {
@@ -1168,14 +1196,18 @@ function askBeforeClose() {
 }
 
 appWindow.onCloseRequested(async (event) => {
-  if (!state.edited || closeConfirmed) return;
+  saveTabState();
+  if (closeConfirmed || !tabs.some((t) => t.edited)) return;
   event.preventDefault();
-  const choice = await askBeforeClose();
-  if (choice === "export") {
-    await exportPdf();
-    if (state.edited) return; // export cancelled or failed: stay open
-  } else if (choice !== "discard") {
-    return;
+  for (const tab of tabs.filter((t) => t.edited)) {
+    await switchTab(tab);
+    const choice = await askBeforeClose(baseName(tab.sourcePath), "Don't save");
+    if (choice === "export") {
+      await exportPdf();
+      if (state.edited) return; // save cancelled or failed: stay open
+    } else if (choice !== "discard") {
+      return;
+    }
   }
   closeConfirmed = true;
   appWindow.close();
@@ -1263,7 +1295,7 @@ els.imgWrap.addEventListener("mouseleave", () => {
 els.imgWrap.addEventListener("click", (ev) => {
   // In Select text mode a click on text (or finishing a selection) is for
   // the text, not for holding an ink reading.
-  if (state.zoomTool) return; // clicks belong to the zoom tool
+  if (state.zoomTool || state.selectTool || state.mergeTool) return; // clicks belong to the tool
   if (state.recolourTool) {
     if (state.path) recolourPick(...pointerFraction(ev));
     return;
@@ -1277,7 +1309,7 @@ els.imgWrap.addEventListener("click", (ev) => {
 });
 
 els.emptyOpenBtn.addEventListener("click", openPdf);
-els.fileName.addEventListener("click", openPdf);
+els.openBtn.addEventListener("click", openPdf);
 els.exportBtn.addEventListener("click", exportPdf);
 els.prevPage.addEventListener("click", () => goToPage(-1));
 els.nextPage.addEventListener("click", () => goToPage(1));
@@ -1475,7 +1507,7 @@ function setRecolourTool(on) {
   document.getElementById("recolourToolBtn").classList.toggle("active", on);
   els.viewport.classList.toggle("recolour-tool", on);
   if (on) {
-    if (state.zoomTool) setZoomTool(false);
+    toolsOff("recolour");
     state.textModeBeforeRecolour = state.textMode;
     setTextMode(false);
     // Bring the Recolour panel into view and make it sparkle for a moment.
@@ -1563,6 +1595,7 @@ function buildCmykInputs() {
 function updateNewSwatches() {
   document.getElementById("rcFillNewSwatch").style.background = cmykToCss(rcValues("fill"));
   document.getElementById("rcStrokeNewSwatch").style.borderColor = cmykToCss(rcValues("stroke"));
+  document.getElementById("mergeSwatch").style.background = cmykToCss(rcValues("merge"));
 }
 
 // Which of the new fill / stroke editors apply in the chosen mode.
@@ -1885,6 +1918,683 @@ window.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape" && !fontDialog.classList.contains("hidden")) fontDialog.classList.add("hidden");
 });
 
+// --- tabs: one per open PDF ---
+// Every open PDF has its own working copy and a tab named after its file.
+// Switching tabs loads that PDF's working copy again and goes back to the
+// page and zoom it was left at.
+
+const tabs = [];
+let activeTab = null;
+let tabSwitching = false;
+const tabBar = document.getElementById("tabBar");
+
+function renderTabs() {
+  tabBar.replaceChildren();
+  tabBar.classList.toggle("hidden", !tabs.length);
+  for (const tab of tabs) {
+    const el = document.createElement("div");
+    el.className = `tab${tab === activeTab ? " active" : ""}`;
+    el.title = tab.sourcePath;
+    const name = document.createElement("span");
+    name.className = "tab__name";
+    name.textContent = baseName(tab.sourcePath);
+    el.appendChild(name);
+    if (tab.edited) {
+      const dot = document.createElement("span");
+      dot.className = "tab__dirty";
+      dot.textContent = "●";
+      dot.title = "Unsaved changes";
+      el.appendChild(dot);
+    }
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "tab__close";
+    close.textContent = "×";
+    close.title = "Close (Ctrl+W)";
+    el.appendChild(close);
+    el.addEventListener("click", (ev) => {
+      if (ev.target === close) closeTab(tab);
+      else switchTab(tab);
+    });
+    el.addEventListener("auxclick", (ev) => {
+      if (ev.button === 1) closeTab(tab); // middle click
+    });
+    tabBar.appendChild(el);
+  }
+}
+
+// Remembers where the current tab was left.
+function saveTabState() {
+  if (!activeTab) return;
+  activeTab.page = state.page;
+  activeTab.zoom = view.zoom;
+  activeTab.edited = state.edited;
+}
+
+async function switchTab(tab) {
+  if (tab === activeTab || tabSwitching) return;
+  tabSwitching = true;
+  saveTabState();
+  setProgress(10, `Opening ${baseName(tab.sourcePath)}…`);
+  try {
+    await showTab(tab, false);
+  } catch (err) {
+    alert(`Could not show ${baseName(tab.sourcePath)}:\n${err}`);
+  } finally {
+    tabSwitching = false;
+    hideProgress();
+  }
+}
+
+// Closes a tab, asking first if it has unsaved changes.
+async function closeTab(tab) {
+  if (tab.edited) {
+    if (tab !== activeTab) await switchTab(tab);
+    const choice = await askBeforeClose(baseName(tab.sourcePath));
+    if (choice === "cancel") return;
+    if (choice === "export") {
+      await exportPdf();
+      if (state.edited) return; // save cancelled or failed
+    }
+  }
+  await dropTab(tab);
+}
+
+// Removes a tab and its working copy, showing a neighbour (or nothing).
+async function dropTab(tab) {
+  const i = tabs.indexOf(tab);
+  if (i < 0) return;
+  tabs.splice(i, 1);
+  invoke("close_working_copy", { path: tab.path }).catch((err) => console.error(err));
+  if (tab === activeTab) {
+    activeTab = null;
+    const next = tabs[Math.min(i, tabs.length - 1)];
+    if (next) await switchTab(next);
+    else showNoFile();
+  }
+  renderTabs();
+}
+
+// Back to the empty start screen after the last tab closes.
+function showNoFile() {
+  toolsOff();
+  clearSelection();
+  merge.box = null;
+  state.path = null;
+  state.sourcePath = null;
+  setEdited(false);
+  state.page = 1;
+  state.pageCount = 1;
+  state.pageBoxes = null;
+  state.separationNames = [];
+  state.activeSeparations = new Set();
+  state.rasterKey = null;
+  if (view.loadingTask) view.loadingTask.destroy().catch(() => {});
+  view.loadingTask = null;
+  view.doc = null;
+  view.page = null;
+  buildThumbs();
+  els.vectorLayer.replaceChildren();
+  els.preview.classList.add("hidden");
+  els.imgWrap.classList.add("empty");
+  els.imgWrap.style.width = "";
+  els.imgWrap.style.height = "";
+  document.getElementById("textLayer").replaceChildren();
+  document.getElementById("textStatus").textContent = "";
+  document.getElementById("emptyState").classList.remove("hidden");
+  els.zoomLabel.textContent = "–";
+  for (const b of [els.zoomIn, els.zoomOut, els.zoomFit, els.zoomActual]) b.disabled = true;
+  for (const id of ["textModeBtn", "zoomToolBtn", "recolourToolBtn", "selectToolBtn", "mergeToolBtn"]) {
+    document.getElementById(id).disabled = true;
+  }
+  for (const b of fixBtns) b.disabled = true;
+  rgbResult.innerHTML = "";
+  updatePageControls();
+  updateRasterDpi();
+  renderPageBoxesPanel();
+  renderRotationPanel();
+  drawBoxOverlay();
+  resetRecolour();
+  renderMergePanel();
+  els.separationsList.innerHTML = '<li class="hint">Open a PDF to see its separations.</li>';
+  document.getElementById("fontList").innerHTML = '<li class="hint">Open a PDF to see its fonts.</li>';
+  document.getElementById("fontSummary").textContent = "";
+}
+
+// --- pages panel: insert and delete pages ---
+// The + button (or dropping PDFs onto the panel) inserts other PDFs'
+// pages; the red × (or Delete, after clicking in the panel) deletes the
+// current page.
+
+const thumbsBox = document.getElementById("thumbs");
+
+function setPagesFocus(on) {
+  state.pagesFocused = on;
+  thumbsBox.classList.toggle("focused", on);
+}
+
+document.addEventListener("mousedown", (ev) => setPagesFocus(!!ev.target.closest("#thumbs")), true);
+
+// The page count or order changed: reload everything that depends on it.
+async function afterPagesChanged(count, page) {
+  state.pageCount = count;
+  state.page = Math.min(Math.max(1, page), count);
+  setEdited(true);
+  clearSelection();
+  resetRecolour();
+  state.separationNames = [];
+  state.activeSeparations = new Set();
+  updatePageControls();
+  updateRasterDpi();
+  loadSpotSwatches();
+  loadSeparationsList();
+  setProgress(60, "Reloading…");
+  await loadPageBoxes();
+  await showPage({ reloadDoc: true });
+  loadFonts();
+  updateSpotButton();
+}
+
+// Inserts every page of `sources` so that `at` pages come before them.
+async function insertPagesFrom(sources, at) {
+  if (!state.path || !sources.length) return;
+  setProgress(30, `Inserting ${sources.length === 1 ? baseName(sources[0]) : `${sources.length} PDFs`}…`);
+  try {
+    const count = await invoke("insert_pages", { path: state.path, sources, at });
+    await afterPagesChanged(count, at + 1);
+  } catch (err) {
+    alert(`Could not insert pages:\n${err}`);
+  } finally {
+    hideProgress();
+  }
+}
+
+async function deleteCurrentPage() {
+  if (!state.path) return;
+  if (state.pageCount <= 1) {
+    alert("This is the only page, so it can't be deleted.");
+    return;
+  }
+  setProgress(30, `Deleting page ${state.page}…`);
+  try {
+    const count = await invoke("delete_page", { path: state.path, page: state.page });
+    await afterPagesChanged(count, state.page);
+  } catch (err) {
+    alert(`Could not delete the page:\n${err}`);
+  } finally {
+    hideProgress();
+  }
+}
+
+document.getElementById("insertPagesBtn").addEventListener("click", async () => {
+  if (!state.path) return;
+  const selected = await open({ multiple: true, filters: PDF_FILTER, title: "Insert pages from" });
+  if (!selected) return;
+  await insertPagesFrom(Array.isArray(selected) ? selected : [selected], state.page);
+});
+document.getElementById("deletePageBtn").addEventListener("click", deleteCurrentPage);
+
+// Where dropped PDFs would go in the Pages panel: { at, thumb, after },
+// or null when the pointer isn't over the panel. `position` is in
+// physical pixels.
+function pageDropTarget(position) {
+  if (!state.path || !position) return null;
+  const dpr = window.devicePixelRatio || 1;
+  const x = position.x / dpr;
+  const y = position.y / dpr;
+  const el = document.elementFromPoint(x, y);
+  if (!el || !el.closest("#thumbs")) return null;
+  const thumb = el.closest(".thumb");
+  if (!thumb) return { at: state.pageCount, thumb: null, after: true };
+  const n = Number(thumb.dataset.page);
+  const r = thumb.getBoundingClientRect();
+  const after = y > r.top + r.height / 2;
+  return { at: after ? n : n - 1, thumb, after };
+}
+
+function showPageDropTarget(target) {
+  thumbsBox.classList.toggle("drop-target", !!target);
+  for (const el of thumbsBox.querySelectorAll(".drop-before, .drop-after")) el.classList.remove("drop-before", "drop-after");
+  if (target && target.thumb) target.thumb.classList.add(target.after ? "drop-after" : "drop-before");
+}
+
+// --- select tool: move, delete and overprint objects ---
+// Click an object to select it (Shift-click adds or removes), drag to
+// move the selection, or drag on an empty spot (Ctrl-drag anywhere) to
+// select everything inside a box. Edits apply to the current page only.
+
+const sel = { items: [], busy: false, offset: null, nudge: [0, 0], nudgeTimer: null };
+let selDrag = null;
+
+function toolsOff(except) {
+  if (except !== "zoom" && state.zoomTool) setZoomTool(false);
+  if (except !== "recolour" && state.recolourTool) setRecolourTool(false);
+  if (except !== "select" && state.selectTool) setSelectTool(false);
+  if (except !== "merge" && state.mergeTool) setMergeTool(false);
+}
+
+function setSelectTool(on) {
+  if (on) toolsOff("select");
+  state.selectTool = on;
+  document.getElementById("selectToolBtn").classList.toggle("active", on);
+  els.viewport.classList.toggle("select-tool", on);
+  if (on) {
+    state.textModeBeforeSelect = state.textMode;
+    setTextMode(false);
+    eyedrop.held = false;
+    clearInks();
+    document.getElementById("selectPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+  } else {
+    clearSelection();
+    setTextMode(state.textModeBeforeSelect ?? true);
+  }
+  renderSelectPanel();
+}
+
+function clearSelection() {
+  clearTimeout(sel.nudgeTimer);
+  sel.nudge = [0, 0];
+  sel.items = [];
+  sel.offset = null;
+  setSelResult("");
+  renderSelectPanel();
+  drawBoxOverlay();
+}
+
+const isSelected = (o) => sel.items.some((s) => s.index === o.index);
+
+function setSelResult(text, cls = "") {
+  const el = document.getElementById("selResult");
+  el.textContent = text;
+  el.className = `rc-result ${cls}`;
+}
+
+const KIND_NAMES = { path: "shape", text: "text run", image: "image", form: "placed graphic" };
+
+function renderSelectPanel() {
+  const n = sel.items.length;
+  const empty = document.getElementById("selEmpty");
+  empty.classList.toggle("hidden", n > 0);
+  empty.innerHTML = state.selectTool
+    ? "Click a shape, text or image on the page, or drag a box around several."
+    : "Turn on the <strong>Select</strong> tool (V) and click a shape, text or image on the page.";
+  document.getElementById("selBody").classList.toggle("waiting", !n);
+  document.getElementById("selCount").textContent =
+    n === 1 ? `1 ${KIND_NAMES[sel.items[0].kind] || "object"} selected` : n ? `${n} objects selected` : "";
+  const on = sel.items.filter((o) => o.overprint).length;
+  const box = document.getElementById("selOverprint");
+  box.checked = n > 0 && on === n;
+  box.indeterminate = on > 0 && on < n;
+}
+
+// Blue outlines round the selection (moved by `sel.offset` while dragging).
+function drawSelectionOverlay(svg) {
+  if (!sel.items.length) return;
+  const g = document.createElementNS(SVG_NS, "g");
+  g.id = "selGroup";
+  for (const o of sel.items) {
+    const [x, y, w, h] = o.norm;
+    const r = document.createElementNS(SVG_NS, "rect");
+    r.setAttribute("x", x);
+    r.setAttribute("y", y);
+    r.setAttribute("width", Math.max(w, 0.002));
+    r.setAttribute("height", Math.max(h, 0.002));
+    r.setAttribute("class", "sel-box");
+    g.appendChild(r);
+  }
+  if (sel.offset) g.setAttribute("transform", `translate(${sel.offset[0]} ${sel.offset[1]})`);
+  svg.appendChild(g);
+}
+
+function setSelOffset(dx, dy) {
+  sel.offset = dx || dy ? [dx, dy] : null;
+  const g = document.getElementById("selGroup");
+  if (g) g.setAttribute("transform", sel.offset ? `translate(${dx} ${dy})` : "");
+}
+
+// Runs a move / delete / overprint edit on the selection and redraws.
+async function runObjectEdit(args, label) {
+  if (!sel.items.length || sel.busy) return;
+  sel.busy = true;
+  setSelResult("");
+  setProgress(30, label);
+  try {
+    const res = await invoke("objects_edit", {
+      path: state.path,
+      page: state.page,
+      indices: sel.items.map((o) => o.index),
+      action: args.action,
+      dx: args.dx ?? null,
+      dy: args.dy ?? null,
+      on: args.on ?? null,
+    });
+    sel.items = res.objects;
+    sel.offset = null;
+    if (res.changed) setEdited(true);
+    if (args.action === "delete") setSelResult(`✓ Deleted ${res.changed} object${res.changed === 1 ? "" : "s"}`, "ok");
+    if (res.skipped) {
+      setSelResult(`${res.skipped} object${res.skipped === 1 ? "" : "s"} couldn't be moved: a shape that also clips other artwork has to stay put.`, "err");
+    }
+    if (recolour.picked) resetRecolour(); // its object numbers may have changed
+    state.separationNames = [];
+    state.activeSeparations = new Set();
+    loadSpotSwatches();
+    loadSeparationsList();
+    updateRasterDpi();
+    setProgress(60, "Redrawing…");
+    await showPage({ reloadDoc: true });
+  } catch (err) {
+    sel.offset = null;
+    setSelResult(String(err), "err");
+  } finally {
+    sel.busy = false;
+    hideProgress();
+    renderSelectPanel();
+    drawBoxOverlay();
+  }
+}
+
+function moveSelection(dx, dy) {
+  if (!dx && !dy) {
+    setSelOffset(0, 0);
+    return Promise.resolve();
+  }
+  return runObjectEdit({ action: "move", dx, dy }, "Moving…");
+}
+
+const deleteSelection = () => runObjectEdit({ action: "delete" }, "Deleting…");
+
+// Draws the shared marquee between two client points.
+function drawMarqueeBox(x0, y0, x1, y1) {
+  marquee.style.left = `${Math.min(x0, x1)}px`;
+  marquee.style.top = `${Math.min(y0, y1)}px`;
+  marquee.style.width = `${Math.abs(x1 - x0)}px`;
+  marquee.style.height = `${Math.abs(y1 - y0)}px`;
+  marquee.classList.remove("hidden");
+}
+
+els.viewport.addEventListener("mousedown", (ev) => {
+  if (!state.selectTool || !view.page || ev.button !== 0 || sel.busy) return;
+  ev.preventDefault();
+  const [fx, fy] = pointerFraction(ev);
+  const d = { x0: ev.clientX, y0: ev.clientY, fx0: fx, fy0: fy, moved: false, shift: ev.shiftKey, hit: undefined, marquee: ev.ctrlKey };
+  selDrag = d;
+  if (d.marquee) {
+    d.hit = null;
+    d.pick = Promise.resolve(null);
+    return;
+  }
+  d.pick = invoke("object_pick", { path: state.path, page: state.page, x: fx, y: fy, tol: 4 / view.scale })
+    .catch((err) => {
+      setSelResult(String(err), "err");
+      return null;
+    })
+    .then((hit) => {
+      d.hit = hit;
+      if (!hit) d.marquee = true;
+      else if (!d.shift && !isSelected(hit)) {
+        // Pressing on an unselected object selects it, ready to drag.
+        sel.items = [hit];
+        renderSelectPanel();
+        drawBoxOverlay();
+      }
+      return hit;
+    });
+});
+
+window.addEventListener("mousemove", (ev) => {
+  const d = selDrag;
+  if (!d) return;
+  if (!d.moved && Math.abs(ev.clientX - d.x0) + Math.abs(ev.clientY - d.y0) > 4) d.moved = true;
+  if (!d.moved || d.hit === undefined) return;
+  if (d.marquee) drawMarqueeBox(d.x0, d.y0, ev.clientX, ev.clientY);
+  else {
+    const [fx, fy] = pointerFraction(ev);
+    setSelOffset(fx - d.fx0, fy - d.fy0);
+  }
+});
+
+window.addEventListener("mouseup", async (ev) => {
+  const d = selDrag;
+  if (!d) return;
+  selDrag = null;
+  marquee.classList.add("hidden");
+  const hit = await d.pick;
+  const [fx, fy] = pointerFraction(ev);
+  if (!d.moved) {
+    // A click: select, add / remove with Shift, or clear on empty space.
+    setSelOffset(0, 0);
+    if (hit) {
+      if (!d.shift) sel.items = [hit];
+      else if (isSelected(hit)) sel.items = sel.items.filter((s) => s.index !== hit.index);
+      else sel.items.push(hit);
+    } else if (!d.shift) sel.items = [];
+    setSelResult("");
+    renderSelectPanel();
+    drawBoxOverlay();
+    return;
+  }
+  if (d.marquee) {
+    const rect = [Math.min(d.fx0, fx), Math.min(d.fy0, fy), Math.abs(fx - d.fx0), Math.abs(fy - d.fy0)];
+    try {
+      const found = await invoke("objects_in_rect", { path: state.path, page: state.page, rect });
+      sel.items = d.shift ? [...sel.items, ...found.filter((o) => !isSelected(o))] : found;
+      setSelResult(found.length ? "" : "Nothing lies wholly inside that box.");
+    } catch (err) {
+      setSelResult(String(err), "err");
+    }
+    renderSelectPanel();
+    drawBoxOverlay();
+    return;
+  }
+  if (d.shift && hit && !isSelected(hit)) sel.items.push(hit);
+  await moveSelection(fx - d.fx0, fy - d.fy0);
+});
+
+document.getElementById("selectToolBtn").addEventListener("click", () => setSelectTool(!state.selectTool));
+document.getElementById("selDeleteBtn").addEventListener("click", deleteSelection);
+document.getElementById("selClearBtn").addEventListener("click", clearSelection);
+document.getElementById("selOverprint").addEventListener("change", (ev) => {
+  runObjectEdit({ action: "overprint", on: ev.target.checked }, ev.target.checked ? "Setting overprint…" : "Removing overprint…");
+});
+
+const typingIn = (ev) => ev.target.closest && ev.target.closest("input, textarea, select");
+
+window.addEventListener("keydown", (ev) => {
+  if (!view.page || ev.ctrlKey || ev.altKey || ev.metaKey || typingIn(ev)) return;
+  const key = ev.key.toLowerCase();
+  if (key === "v") {
+    setSelectTool(!state.selectTool);
+  } else if (key === "m") {
+    setMergeTool(!state.mergeTool);
+  } else if (ev.key === "Delete" || ev.key === "Backspace") {
+    // Objects first; with nothing selected, Delete in the Pages panel
+    // deletes the page.
+    if (state.selectTool && sel.items.length) deleteSelection();
+    else if (state.pagesFocused && ev.key === "Delete") deleteCurrentPage();
+    else return;
+  } else if (state.selectTool && sel.items.length && !sel.busy && ev.key.startsWith("Arrow")) {
+    // Nudge 0.5 mm (Shift: 5 mm); quick presses add up into one move.
+    const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
+    if (!dir) return;
+    const [w, h] = pageSizePt();
+    const step = fromMm(ev.shiftKey ? 5 : 0.5);
+    sel.nudge = [sel.nudge[0] + (dir[0] * step) / w, sel.nudge[1] + (dir[1] * step) / h];
+    setSelOffset(...sel.nudge);
+    clearTimeout(sel.nudgeTimer);
+    sel.nudgeTimer = setTimeout(() => {
+      const [dx, dy] = sel.nudge;
+      sel.nudge = [0, 0];
+      moveSelection(dx, dy);
+    }, 400);
+  } else return;
+  ev.preventDefault();
+});
+
+// --- mail merge ---
+// Drag a box on the page, choose a CSV file, and the page is replaced by
+// one copy per row of the CSV's first column, each with that row's text
+// set in the box (font embedded, CMYK colour).
+
+const merge = { box: null, values: null, csvName: "" };
+let mergeDrag = null;
+
+function setMergeTool(on) {
+  if (on) toolsOff("merge");
+  state.mergeTool = on;
+  document.getElementById("mergeToolBtn").classList.toggle("active", on);
+  els.viewport.classList.toggle("merge-tool", on);
+  if (on) {
+    state.textModeBeforeMerge = state.textMode;
+    setTextMode(false);
+    eyedrop.held = false;
+    clearInks();
+    document.getElementById("mergePanel").scrollIntoView({ behavior: "smooth", block: "start" });
+  } else {
+    setTextMode(state.textModeBeforeMerge ?? true);
+  }
+  renderMergePanel();
+}
+
+function mergeValues() {
+  if (!merge.values) return [];
+  return document.getElementById("mergeHeader").checked ? merge.values.slice(1) : merge.values;
+}
+
+function setMergeResult(text, cls = "") {
+  const el = document.getElementById("mergeResult");
+  el.textContent = text;
+  el.className = `rc-result ${cls}`;
+}
+
+function renderMergePanel() {
+  const box = merge.box;
+  const empty = document.getElementById("mergeEmpty");
+  empty.classList.toggle("hidden", !!box);
+  empty.innerHTML = state.mergeTool
+    ? "Drag a box on the page where the text should go."
+    : "Turn on the <strong>Mail merge</strong> tool (M) and drag a box on the page where the text should go.";
+  document.getElementById("mergeBody").classList.toggle("waiting", !box);
+  const values = mergeValues();
+  const info = document.getElementById("mergeCsvInfo");
+  if (!merge.values) info.textContent = "";
+  else if (!values.length) info.textContent = `${merge.csvName}: no rows to merge.`;
+  else {
+    const first = values.slice(0, 3).map((v) => `"${v}"`).join(", ");
+    info.textContent = `${merge.csvName}: ${values.length} row${values.length === 1 ? "" : "s"} (${first}${values.length > 3 ? ", …" : ""})`;
+  }
+  const run = document.getElementById("mergeRunBtn");
+  run.disabled = !box || !values.length;
+  run.textContent = values.length ? `Create ${values.length} page${values.length === 1 ? "" : "s"}` : "Create pages";
+}
+
+function drawMergeOverlay(svg) {
+  const box = merge.box;
+  if (!box || box.page !== state.page) return;
+  const [x, y, w, h] = box.rect;
+  const r = document.createElementNS(SVG_NS, "rect");
+  r.setAttribute("x", x);
+  r.setAttribute("y", y);
+  r.setAttribute("width", w);
+  r.setAttribute("height", h);
+  r.setAttribute("class", "merge-box");
+  svg.appendChild(r);
+}
+
+els.viewport.addEventListener("mousedown", (ev) => {
+  if (!state.mergeTool || !view.page || ev.button !== 0) return;
+  ev.preventDefault();
+  mergeDrag = { x0: ev.clientX, y0: ev.clientY, f0: pointerFraction(ev) };
+});
+
+window.addEventListener("mousemove", (ev) => {
+  if (mergeDrag) drawMarqueeBox(mergeDrag.x0, mergeDrag.y0, ev.clientX, ev.clientY);
+});
+
+window.addEventListener("mouseup", (ev) => {
+  const d = mergeDrag;
+  if (!d) return;
+  mergeDrag = null;
+  marquee.classList.add("hidden");
+  const clip = (v) => Math.min(1, Math.max(0, v));
+  const [ax, ay] = d.f0.map(clip);
+  const [bx, by] = pointerFraction(ev).map(clip);
+  const rect = [Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay)];
+  if (rect[2] < 0.01 || rect[3] < 0.005) {
+    setMergeResult("Drag out a box on the page for the text.", "err");
+    return;
+  }
+  merge.box = { page: state.page, rect };
+  setMergeResult("");
+  renderMergePanel();
+  drawBoxOverlay();
+});
+
+async function chooseMergeCsv() {
+  const selected = await open({ multiple: false, filters: [{ name: "CSV", extensions: ["csv", "CSV", "txt"] }] });
+  if (!selected) return;
+  const path = Array.isArray(selected) ? selected[0] : selected;
+  try {
+    merge.values = await invoke("merge_read_csv", { path });
+    merge.csvName = baseName(path);
+    setMergeResult("");
+  } catch (err) {
+    merge.values = null;
+    setMergeResult(String(err), "err");
+  }
+  renderMergePanel();
+}
+
+async function runMerge() {
+  const values = mergeValues();
+  const box = merge.box;
+  if (!box || !values.length || !state.path) return;
+  const spec = {
+    rect: box.rect,
+    font: document.getElementById("mergeFont").value,
+    size: Number.parseFloat(document.getElementById("mergeSize").value) || 12,
+    cmyk: rcValues("merge"),
+    align: document.getElementById("mergeAlign").value,
+    valign: document.getElementById("mergeValign").value,
+    shrink: document.getElementById("mergeShrink").checked,
+    overprint: document.getElementById("mergeOverprint").checked,
+  };
+  const run = document.getElementById("mergeRunBtn");
+  run.disabled = true;
+  setMergeResult("");
+  setProgress(30, `Making ${values.length} page${values.length === 1 ? "" : "s"}…`);
+  try {
+    const made = await invoke("mail_merge", { path: state.path, page: box.page, values, spec });
+    merge.box = null;
+    await afterPagesChanged(state.pageCount - 1 + made, box.page);
+    setMergeResult(`✓ Made ${made} page${made === 1 ? "" : "s"} (${made === 1 ? `page ${box.page}` : `pages ${box.page}–${box.page + made - 1}`})`, "ok");
+  } catch (err) {
+    setMergeResult(String(err), "err");
+  } finally {
+    hideProgress();
+    renderMergePanel();
+    drawBoxOverlay();
+  }
+}
+
+function initMerge() {
+  // Text colour starts as 100% black.
+  const k = rcInputs("merge")[3];
+  if (k) k.value = "100";
+  updateNewSwatches();
+  document.getElementById("mergeToolBtn").addEventListener("click", () => setMergeTool(!state.mergeTool));
+  document.getElementById("mergeCsvBtn").addEventListener("click", chooseMergeCsv);
+  document.getElementById("mergeHeader").addEventListener("change", renderMergePanel);
+  document.getElementById("mergeRunBtn").addEventListener("click", runMerge);
+  document.getElementById("mergeClearBtn").addEventListener("click", () => {
+    merge.box = null;
+    setMergeResult("");
+    renderMergePanel();
+    drawBoxOverlay();
+  });
+  renderMergePanel();
+}
+
 // --- opening files from outside: double-click / "Open with" / drag and drop ---
 
 // Files the operating system handed to the app (at launch, or later while
@@ -1896,30 +2606,35 @@ async function openPendingFiles() {
   } catch (err) {
     console.error(err);
   }
-  if (!paths.length) return;
-  if (!(await okToDiscardEdits())) return;
-  await loadPdf(paths[0]);
+  for (const p of paths) await loadPdf(p);
 }
 
 window.__TAURI__.event.listen("open-files", () => openPendingFiles());
 openPendingFiles(); // a PDF double-clicked to launch the app
 
-// Drag a PDF onto the window to open it.
+// Drag PDFs onto the window to open each in a tab, or onto the Pages
+// panel to insert their pages where the gold line shows.
 const dropHint = document.getElementById("dropHint");
 window.__TAURI__.webview.getCurrentWebview().onDragDropEvent(async (ev) => {
-  const { type, paths } = ev.payload;
+  const { type, paths, position } = ev.payload;
   if (type === "enter" || type === "over") {
-    dropHint.classList.remove("hidden");
+    const target = pageDropTarget(position);
+    showPageDropTarget(target);
+    dropHint.classList.toggle("hidden", !!target);
   } else if (type === "leave") {
+    showPageDropTarget(null);
     dropHint.classList.add("hidden");
   } else if (type === "drop") {
+    const target = pageDropTarget(position);
+    showPageDropTarget(null);
     dropHint.classList.add("hidden");
-    const pdf = (paths || []).find((p) => p.toLowerCase().endsWith(".pdf"));
-    if (!pdf) {
-      if (paths && paths.length) alert("That isn't a PDF. Drop a .pdf file to open it.");
+    const pdfs = (paths || []).filter((p) => p.toLowerCase().endsWith(".pdf"));
+    if (!pdfs.length) {
+      if (paths && paths.length) alert("That isn't a PDF. Drop a .pdf file.");
       return;
     }
-    if (await okToDiscardEdits()) await loadPdf(pdf);
+    if (target) await insertPagesFrom(pdfs, target.at);
+    else for (const p of pdfs) await loadPdf(p);
   }
 });
 
@@ -2026,6 +2741,11 @@ document.getElementById("textModeBtn").addEventListener("click", () => {
     setZoomTool(false, true);
     return;
   }
+  if (state.selectTool || state.mergeTool) {
+    toolsOff();
+    setTextMode(true);
+    return;
+  }
   if (state.recolourTool) {
     setRecolourTool(false);
     setTextMode(true);
@@ -2036,7 +2756,12 @@ document.getElementById("textModeBtn").addEventListener("click", () => {
 els.imgWrap.classList.toggle("text-mode", state.textMode);
 window.addEventListener("keydown", (ev) => {
   if (ev.key !== "Escape") return;
+  if (!closeDialog.classList.contains("hidden")) return;
   if (state.zoomTool) setZoomTool(false);
+  else if (state.selectTool) {
+    if (sel.items.length) clearSelection();
+    else setSelectTool(false);
+  } else if (state.mergeTool) setMergeTool(false);
   else if (state.recolourTool) setRecolourTool(false);
   else if (state.textMode) setTextMode(false);
 });
@@ -2102,7 +2827,7 @@ function setZoomTool(on, textAfter) {
   els.viewport.classList.toggle("zoom-tool", on);
   els.imgWrap.classList.toggle("zoom-tool", on);
   if (on) {
-    if (state.recolourTool) setRecolourTool(false);
+    toolsOff("zoom");
     state.textModeBeforeZoom = state.textMode;
     setTextMode(false);
     eyedrop.held = false;
@@ -2216,6 +2941,20 @@ new ResizeObserver(() => {
   scheduleRender(isVectorMode() ? 80 : 250);
 }).observe(els.viewport);
 
+// Ctrl+S Save PDF as, Ctrl+O open, Ctrl+W close the tab.
+window.addEventListener("keydown", (ev) => {
+  if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+  const k = ev.key.toLowerCase();
+  if (k === "s") exportPdf();
+  else if (k === "o") openPdf();
+  else if (k === "w") {
+    if (activeTab) closeTab(activeTab);
+  } else return;
+  ev.preventDefault();
+});
+
 checkGhostscript();
 renderPageBoxesPanel();
 renderRotationPanel();
+renderSelectPanel();
+initMerge();

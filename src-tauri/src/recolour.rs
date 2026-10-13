@@ -23,7 +23,7 @@ const MAX_FORM_DEPTH: u32 = 8;
 // Content stream lexer (keeps byte offsets so edits can be spliced in)
 
 #[derive(Clone, Debug)]
-enum Tok {
+pub(crate) enum Tok {
     Num(f64),
     Name(Vec<u8>),
     Str(Vec<u8>),
@@ -32,12 +32,12 @@ enum Tok {
 }
 
 #[derive(Debug)]
-struct Op {
-    name: String,
-    args: Vec<Tok>,
+pub(crate) struct Op {
+    pub(crate) name: String,
+    pub(crate) args: Vec<Tok>,
     /// Byte range of the whole operation (first operand to operator).
-    start: usize,
-    end: usize,
+    pub(crate) start: usize,
+    pub(crate) end: usize,
 }
 
 fn is_ws(b: u8) -> bool {
@@ -278,7 +278,7 @@ impl<'a> Lexer<'a> {
     }
 }
 
-fn lex(data: &[u8]) -> Vec<Op> {
+pub(crate) fn lex(data: &[u8]) -> Vec<Op> {
     let mut lx = Lexer { d: data, i: 0 };
     let mut ops = Vec::new();
     let mut args = Vec::new();
@@ -484,33 +484,88 @@ fn load_font(doc: &Document, font: &Dictionary) -> Font {
 
 /// What a paint operation looks like, for hit-testing.
 #[derive(Clone, Debug)]
-enum Shape {
+pub(crate) enum Shape {
     /// Subpaths in page space; `even_odd` fill rule; stroke half-width.
     Path { subpaths: Vec<Vec<(f64, f64)>>, fill: bool, stroke: bool, half_width: f64 },
     /// A text run's quad in page space.
     Quad([(f64, f64); 4]),
 }
 
+/// What drew a paint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Kind {
+    Path,
+    Text,
+    Image,
+    /// A form XObject (a placed graphic) drawn with `Do`.
+    Form,
+}
+
+/// Overprint settings in force: fill (`op`), stroke (`OP`) and mode (`OPM`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) struct Ovp {
+    pub(crate) fill: bool,
+    pub(crate) stroke: bool,
+    pub(crate) mode: i64,
+}
+
+/// Where a text run sits, so it can be moved or removed without
+/// disturbing the text around it.
 #[derive(Clone, Debug)]
-struct Paint {
-    stream: usize,
+pub(crate) struct TextPos {
+    /// Text matrix just before the run is shown (after any line move).
+    pub(crate) tm: Matrix,
+    /// Text line matrix at the same point.
+    pub(crate) tlm: Matrix,
+    /// How far along the line from `tlm` the run leaves the text position.
+    pub(crate) u_after: f64,
+    /// The run's own advance.
+    pub(crate) adv: f64,
+    pub(crate) leading: f64,
+    pub(crate) font_size: f64,
+    pub(crate) h_scale: f64,
+    /// The show operator (`Tj`, `TJ`, `'` or `"`) and its numbers.
+    pub(crate) op: String,
+    pub(crate) nums: Vec<f64>,
+}
+
+/// The top-level object in the page's own content stream that a paint
+/// belongs to: the paint itself, or the form that draws it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TopObj {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) kind: Kind,
+    /// Transformation in force at the object.
+    pub(crate) ctm: Matrix,
+    pub(crate) ovp: Ovp,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Paint {
+    pub(crate) stream: usize,
     /// Where `pre` goes (start of the path, or the text show operator).
-    start: usize,
+    pub(crate) start: usize,
     /// Where `post` goes (end of the paint operator).
-    end: usize,
+    pub(crate) end: usize,
     /// The object can be wrapped in q/Q (paths without a clip).
-    wrap: bool,
-    fills: bool,
-    strokes: bool,
+    pub(crate) wrap: bool,
+    pub(crate) fills: bool,
+    pub(crate) strokes: bool,
     fill: Colour,
     stroke: Colour,
     fill_restore: Vec<u8>,
     stroke_restore: Vec<u8>,
-    shape: Shape,
+    pub(crate) shape: Shape,
+    /// The paint operator itself (paths), e.g. `f` in `0 0 m 1 1 l f`.
+    pub(crate) paint_op: (usize, usize),
+    pub(crate) text: Option<TextPos>,
+    pub(crate) top: TopObj,
 }
 
 impl Paint {
-    fn bbox(&self) -> Option<[f64; 4]> {
+    pub(crate) fn bbox(&self) -> Option<[f64; 4]> {
         let pts: Vec<(f64, f64)> = match &self.shape {
             Shape::Path { subpaths, .. } => subpaths.iter().flatten().copied().collect(),
             Shape::Quad(q) => q.to_vec(),
@@ -529,7 +584,7 @@ impl Paint {
         Some([x0, y0, x1, y1])
     }
 
-    fn hit(&self, x: f64, y: f64, tol: f64) -> bool {
+    pub(crate) fn hit(&self, x: f64, y: f64, tol: f64) -> bool {
         match &self.shape {
             Shape::Quad(q) => winding(&[q.to_vec()], x, y) != 0,
             Shape::Path { subpaths, fill, stroke, half_width } => {
@@ -585,13 +640,13 @@ fn seg_dist(a: (f64, f64), b: (f64, f64), p: (f64, f64)) -> f64 {
     ((a.0 + t * dx - p.0).powi(2) + (a.1 + t * dy - p.1).powi(2)).sqrt()
 }
 
-fn apply(m: &Matrix, x: f64, y: f64) -> (f64, f64) {
+pub(crate) fn apply(m: &Matrix, x: f64, y: f64) -> (f64, f64) {
     (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
 }
 
 /// Which stream a paint lives in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum StreamId {
+pub(crate) enum StreamId {
     Page(ObjectId),
     Form(ObjectId),
 }
@@ -617,6 +672,7 @@ struct Gfx {
     leading: f64,
     rise: f64,
     render: i64,
+    ovp: Ovp,
 }
 
 impl Default for Gfx {
@@ -640,6 +696,7 @@ impl Default for Gfx {
             leading: 0.0,
             rise: 0.0,
             render: 0,
+            ovp: Ovp::default(),
         }
     }
 }
@@ -659,6 +716,8 @@ struct Walker<'a> {
     fonts: HashMap<ObjectId, std::rc::Rc<Font>>,
     /// Paint geometry is only needed for the page being clicked on.
     geometry: bool,
+    /// While walking a form drawn from the page: that `Do`, as an object.
+    top: Option<TopObj>,
 }
 
 impl<'a> Walker<'a> {
@@ -690,6 +749,38 @@ impl<'a> Walker<'a> {
         None
     }
 
+    /// The top-level object for something drawn at `depth`: itself on the
+    /// page, or the form being walked.
+    fn top_obj(&self, depth: u32, start: usize, end: usize, kind: Kind, g: &Gfx) -> TopObj {
+        match self.top {
+            Some(t) if depth > 0 => t,
+            _ => TopObj { start, end, kind, ctm: g.ctm, ovp: g.ovp },
+        }
+    }
+
+    /// An image drawn into the unit square of the current transformation.
+    fn push_image(&mut self, sidx: usize, start: usize, end: usize, depth: u32, g: &Gfx) {
+        let m = g.ctm;
+        let quad = [apply(&m, 0.0, 0.0), apply(&m, 1.0, 0.0), apply(&m, 1.0, 1.0), apply(&m, 0.0, 1.0)];
+        let top = self.top_obj(depth, start, end, Kind::Image, g);
+        self.paints.push(Paint {
+            stream: sidx,
+            start,
+            end,
+            wrap: true,
+            fills: false,
+            strokes: false,
+            fill: Colour::Unknown,
+            stroke: Colour::Unknown,
+            fill_restore: Vec::new(),
+            stroke_restore: Vec::new(),
+            shape: Shape::Quad(quad),
+            paint_op: (start, end),
+            text: None,
+            top,
+        });
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn walk(&mut self, data: &[u8], resources: &[&Dictionary], stream: StreamId, start: Gfx, depth: u32) {
         let doc = self.doc;
@@ -707,6 +798,8 @@ impl<'a> Walker<'a> {
         let mut tm = IDENTITY;
         let mut tlm = IDENTITY;
         let mut font: Option<std::rc::Rc<Font>> = None;
+        // Distance along the line from the line matrix to the text position.
+        let mut u = 0.0;
 
         for op in &ops {
             let v = nums(&op.args);
@@ -720,6 +813,21 @@ impl<'a> Walker<'a> {
                 }
                 "cm" if v.len() == 6 => g.ctm = mul(&[v[0], v[1], v[2], v[3], v[4], v[5]], &g.ctm),
                 "w" if v.len() == 1 => g.line_width = v[0],
+                "gs" => {
+                    let Some(Tok::Name(n)) = op.args.first() else { continue };
+                    let Some(Object::Dictionary(d)) = crate::colorcheck::find_named(doc, resources, b"ExtGState", n) else { continue };
+                    let flag = |k: &[u8]| d.get(k).ok().and_then(|o| o.as_bool().ok());
+                    if let Some(s) = flag(b"OP") {
+                        g.ovp.stroke = s;
+                        g.ovp.fill = s; // `op` defaults to `OP`
+                    }
+                    if let Some(f) = flag(b"op") {
+                        g.ovp.fill = f;
+                    }
+                    if let Some(m) = d.get(b"OPM").ok().and_then(|o| num_obj(doc, o)) {
+                        g.ovp.mode = m as i64;
+                    }
+                }
                 "g" | "rg" | "k" | "G" | "RG" | "K" => {
                     let (space, colour, cs) = match (op.name.as_str(), v.len()) {
                         ("g" | "G", 1) => (Space::Gray, Colour::Gray(v[0]), "/DeviceGray"),
@@ -841,6 +949,7 @@ impl<'a> Walker<'a> {
                         } else {
                             Shape::Quad([(0.0, 0.0); 4])
                         };
+                        let top = self.top_obj(depth, path_start.unwrap(), op.end, Kind::Path, &g);
                         self.paints.push(Paint {
                             stream: sidx,
                             start: path_start.unwrap(),
@@ -853,6 +962,9 @@ impl<'a> Walker<'a> {
                             fill_restore: restore(&g.fill_cs, &g.fill_val),
                             stroke_restore: restore(&g.stroke_cs, &g.stroke_val),
                             shape,
+                            paint_op: (op.start, op.end),
+                            text: None,
+                            top,
                         });
                     }
                     path_start = None;
@@ -865,6 +977,7 @@ impl<'a> Walker<'a> {
                 "BT" => {
                     tm = IDENTITY;
                     tlm = IDENTITY;
+                    u = 0.0;
                 }
                 "Tf" => {
                     if let (Some(Tok::Name(n)), Some(size)) = (op.args.first(), v.first()) {
@@ -885,14 +998,17 @@ impl<'a> Walker<'a> {
                     }
                     tlm = mul(&[1.0, 0.0, 0.0, 1.0, v[0], v[1]], &tlm);
                     tm = tlm;
+                    u = 0.0;
                 }
                 "Tm" if v.len() == 6 => {
                     tlm = [v[0], v[1], v[2], v[3], v[4], v[5]];
                     tm = tlm;
+                    u = 0.0;
                 }
                 "T*" => {
                     tlm = mul(&[1.0, 0.0, 0.0, 1.0, 0.0, -g.leading], &tlm);
                     tm = tlm;
+                    u = 0.0;
                 }
                 "Tj" | "TJ" | "'" | "\"" => {
                     if op.name == "'" || op.name == "\"" {
@@ -902,6 +1018,7 @@ impl<'a> Walker<'a> {
                         }
                         tlm = mul(&[1.0, 0.0, 0.0, 1.0, 0.0, -g.leading], &tlm);
                         tm = tlm;
+                        u = 0.0;
                     }
                     // Advance of the run in text space.
                     let mut adv = 0.0;
@@ -941,6 +1058,7 @@ impl<'a> Walker<'a> {
                         let m = mul(&tm, &g.ctm);
                         let (lo, hi) = (g.rise - 0.25 * g.font_size, g.rise + 0.9 * g.font_size);
                         let quad = [apply(&m, 0.0, lo), apply(&m, adv, lo), apply(&m, adv, hi), apply(&m, 0.0, hi)];
+                        let top = self.top_obj(depth, op.start, op.end, Kind::Text, &g);
                         self.paints.push(Paint {
                             stream: sidx,
                             start: op.start,
@@ -953,11 +1071,26 @@ impl<'a> Walker<'a> {
                             fill_restore: restore(&g.fill_cs, &g.fill_val),
                             stroke_restore: restore(&g.stroke_cs, &g.stroke_val),
                             shape: Shape::Quad(quad),
+                            paint_op: (op.start, op.end),
+                            text: Some(TextPos {
+                                tm,
+                                tlm,
+                                u_after: u + adv,
+                                adv,
+                                leading: g.leading,
+                                font_size: g.font_size,
+                                h_scale: g.h_scale,
+                                op: op.name.clone(),
+                                nums: v.clone(),
+                            }),
+                            top,
                         });
                     }
                     tm = mul(&[1.0, 0.0, 0.0, 1.0, adv, 0.0], &tm);
+                    u += adv;
                 }
 
+                "BI" => self.push_image(sidx, op.start, op.end, depth, &g),
                 "Do" if depth < MAX_FORM_DEPTH => {
                     let Some(Tok::Name(name)) = op.args.first() else { continue };
                     // The form's object id, so it can be edited in place.
@@ -971,7 +1104,12 @@ impl<'a> Walker<'a> {
                         break;
                     }
                     let Some((id, form)) = found else { continue };
-                    if form.dict.get(b"Subtype").and_then(|o| o.as_name()).ok() != Some(b"Form".as_slice()) {
+                    let subtype = form.dict.get(b"Subtype").and_then(|o| o.as_name()).ok();
+                    if subtype == Some(b"Image".as_slice()) {
+                        self.push_image(sidx, op.start, op.end, depth, &g);
+                        continue;
+                    }
+                    if subtype != Some(b"Form".as_slice()) {
                         continue;
                     }
                     let form_m = form
@@ -989,7 +1127,12 @@ impl<'a> Walker<'a> {
                     let content = form.decompressed_content().unwrap_or_else(|_| form.content.clone());
                     let mut inner = g.clone();
                     inner.ctm = mul(&form_m, &g.ctm);
+                    let outer = self.top;
+                    if depth == 0 {
+                        self.top = Some(TopObj { start: op.start, end: op.end, kind: Kind::Form, ctm: g.ctm, ovp: g.ovp });
+                    }
                     self.walk(&content, &form_res, StreamId::Form(id), inner, depth + 1);
+                    self.top = outer;
                 }
                 _ => {}
             }
@@ -997,14 +1140,14 @@ impl<'a> Walker<'a> {
     }
 }
 
-struct PageWalk {
-    paints: Vec<Paint>,
-    streams: Vec<StreamId>,
+pub(crate) struct PageWalk {
+    pub(crate) paints: Vec<Paint>,
+    pub(crate) streams: Vec<StreamId>,
     /// Decoded data of every stream, by index (pages and forms).
-    data: Vec<Vec<u8>>,
+    pub(crate) data: Vec<Vec<u8>>,
 }
 
-fn page_resources<'a>(doc: &'a Document, page_id: ObjectId) -> Vec<&'a Dictionary> {
+pub(crate) fn page_resources<'a>(doc: &'a Document, page_id: ObjectId) -> Vec<&'a Dictionary> {
     let Ok((own, inherited)) = doc.get_page_resources(page_id) else { return Vec::new() };
     let mut resources: Vec<&Dictionary> = own.into_iter().collect();
     resources.extend(inherited.iter().filter_map(|id| doc.get_dictionary(*id).ok()));
@@ -1021,10 +1164,10 @@ fn stream_data(doc: &Document, id: StreamId) -> Vec<u8> {
     }
 }
 
-fn walk_page(doc: &Document, page_id: ObjectId, geometry: bool) -> PageWalk {
+pub(crate) fn walk_page(doc: &Document, page_id: ObjectId, geometry: bool) -> PageWalk {
     let resources = page_resources(doc, page_id);
     let content = doc.get_page_content(page_id);
-    let mut w = Walker { doc, streams: Vec::new(), paints: Vec::new(), fonts: HashMap::new(), geometry };
+    let mut w = Walker { doc, streams: Vec::new(), paints: Vec::new(), fonts: HashMap::new(), geometry, top: None };
     w.walk(&content, &resources, StreamId::Page(page_id), Gfx::default(), 0);
     let data = w.streams.iter().map(|s| stream_data(doc, *s)).collect();
     PageWalk { paints: w.paints, streams: w.streams, data }
@@ -1051,25 +1194,25 @@ pub struct Picked {
     pub norm: [f64; 4],
 }
 
-struct PageGeom {
-    media: [f64; 4],
-    rotate: i32,
+pub(crate) struct PageGeom {
+    pub(crate) media: [f64; 4],
+    pub(crate) rotate: i32,
 }
 
-fn page_geom(doc: &Document, page_id: ObjectId) -> PageGeom {
+pub(crate) fn page_geom(doc: &Document, page_id: ObjectId) -> PageGeom {
     let (media, _) = pagebox::resolve_box(doc, page_id, "MediaBox", [0.0, 0.0, 612.0, 792.0]);
     PageGeom { media, rotate: pagebox::rotate_of(doc, page_id) }
 }
 
 impl PageGeom {
     /// Displayed fraction of the page → PDF user space.
-    fn to_pdf(&self, x: f64, y: f64) -> (f64, f64) {
+    pub(crate) fn to_pdf(&self, x: f64, y: f64) -> (f64, f64) {
         let (ux, uy) = pagebox::rotate_point(x, y, (360 - self.rotate) % 360);
         let m = self.media;
         (m[0] + ux * (m[2] - m[0]), m[1] + (1.0 - uy) * (m[3] - m[1]))
     }
 
-    fn norm(&self, bbox: [f64; 4]) -> [f64; 4] {
+    pub(crate) fn norm(&self, bbox: [f64; 4]) -> [f64; 4] {
         pagebox::normalize_rect(bbox, self.media, self.rotate)
     }
 }

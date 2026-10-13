@@ -2,8 +2,10 @@ mod colorcheck;
 mod fonts;
 mod gs;
 mod imageres;
+mod objects;
 mod overprint;
 mod pagebox;
+mod pages;
 mod recolour;
 mod spotcolor;
 
@@ -88,10 +90,11 @@ struct InkSample {
     percent: f32,
 }
 
-/// The temp folder holding the working copy of the currently open PDF.
-/// Geometry edits go to this copy; the original file is never touched
-/// until the user exports. Replacing it drops (deletes) the previous copy.
-struct WorkingCopy(Mutex<Option<TempDir>>);
+/// The temp folders holding the working copies of the open PDFs (one per
+/// tab), keyed by the copy's path. Edits go to these copies; the original
+/// files are never touched until the user saves. Closing a tab drops
+/// (deletes) its copy.
+struct WorkingCopy(Mutex<HashMap<String, TempDir>>);
 
 fn png_to_data_uri(png_path: &Path) -> Result<String, String> {
     let bytes = std::fs::read(png_path).map_err(|e| format!("Could not read rendered PNG: {e}"))?;
@@ -135,11 +138,25 @@ fn create_working_copy(
         use tauri::Manager;
         let _ = app.asset_protocol_scope().allow_file(&dest);
     }
-    let old = working.0.lock().map_err(|_| "Working copy lock was poisoned".to_string())?.replace(tmp);
-    // Delete the previous copy once nothing is still reading it (e.g. its
-    // separations), without making the new file wait for that.
+    let dest = dest.to_string_lossy().into_owned();
+    working.0.lock().map_err(|_| "Working copy lock was poisoned".to_string())?.insert(dest.clone(), tmp);
+    Ok(dest)
+}
+
+/// Deletes a closed tab's working copy once nothing is still reading it
+/// (e.g. its separations), without making the app wait for that.
+#[tauri::command(async)]
+fn close_working_copy(
+    app: tauri::AppHandle,
+    path: String,
+    working: tauri::State<WorkingCopy>,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+) -> Result<(), String> {
+    let old = working.0.lock().map_err(|_| "Working copy lock was poisoned".to_string())?.remove(&path);
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
     if let Some(old) = old {
-        let app = app.clone();
         std::thread::spawn(move || {
             use tauri::Manager;
             let doc = app.state::<DocLock>();
@@ -147,7 +164,7 @@ fn create_working_copy(
             drop(old);
         });
     }
-    Ok(dest.to_string_lossy().into_owned())
+    Ok(())
 }
 
 /// Raw PDF bytes for the in-app vector renderer (pdf.js). Returned as a
@@ -602,6 +619,106 @@ fn recolour_apply(
     Ok(n)
 }
 
+/// Select tool: the object under the cursor.
+#[tauri::command(async)]
+fn object_pick(path: String, page: u32, x: f64, y: f64, tol: f64, doc: tauri::State<DocLock>) -> Result<Option<objects::ObjInfo>, String> {
+    let _r = read_lock(&doc)?;
+    objects::pick(Path::new(&path), page, x, y, tol)
+}
+
+/// Select tool: objects wholly inside a box (fractions of the displayed page).
+#[tauri::command(async)]
+fn objects_in_rect(path: String, page: u32, rect: [f64; 4], doc: tauri::State<DocLock>) -> Result<Vec<objects::ObjInfo>, String> {
+    let _r = read_lock(&doc)?;
+    objects::in_rect(Path::new(&path), page, rect)
+}
+
+/// Select tool: moves, deletes or sets overprint on the selected objects.
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+fn objects_edit(
+    path: String,
+    page: u32,
+    indices: Vec<usize>,
+    action: String,
+    dx: Option<f64>,
+    dy: Option<f64>,
+    on: Option<bool>,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
+) -> Result<objects::EditResult, String> {
+    let _w = write_lock(&doc)?;
+    let p = Path::new(&path);
+    let result = match action.as_str() {
+        "move" => objects::move_objects(p, page, &indices, dx.unwrap_or(0.0), dy.unwrap_or(0.0))?,
+        "delete" => objects::delete_objects(p, page, &indices)?,
+        "overprint" => objects::set_overprint(p, page, &indices, on.unwrap_or(true))?,
+        other => return Err(format!("Unknown edit '{other}'")),
+    };
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
+    Ok(result)
+}
+
+/// Inserts the pages of other PDFs after the first `at` pages; returns the
+/// new page count.
+#[tauri::command(async)]
+fn insert_pages(
+    path: String,
+    sources: Vec<String>,
+    at: u32,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
+) -> Result<u32, String> {
+    let _w = write_lock(&doc)?;
+    let n = pages::insert_pdfs(Path::new(&path), &sources, at)?;
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
+    Ok(n)
+}
+
+/// Deletes a page; returns the new page count.
+#[tauri::command(async)]
+fn delete_page(
+    path: String,
+    page: u32,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
+) -> Result<u32, String> {
+    let _w = write_lock(&doc)?;
+    let n = pages::delete_page(Path::new(&path), page)?;
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
+    Ok(n)
+}
+
+/// Mail merge: the values in a CSV file's first column.
+#[tauri::command(async)]
+fn merge_read_csv(path: String) -> Result<Vec<String>, String> {
+    pages::read_csv(Path::new(&path))
+}
+
+/// Mail merge: replaces the page with one copy per value; returns how many.
+#[tauri::command(async)]
+fn mail_merge(
+    path: String,
+    page: u32,
+    values: Vec<String>,
+    spec: pages::MergeSpec,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
+) -> Result<u32, String> {
+    let _w = write_lock(&doc)?;
+    let n = pages::mail_merge(Path::new(&path), page, &values, &spec)?;
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
+    Ok(n)
+}
+
 /// PDFs handed to the app by the operating system (double-click, "Open
 /// with", dropping onto the app icon) waiting for the page to pick them up.
 /// Queued rather than sent straight to the page so a file given at launch
@@ -659,13 +776,21 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(SepCache(Mutex::new(HashMap::new())))
-        .manage(WorkingCopy(Mutex::new(None)))
+        .manage(WorkingCopy(Mutex::new(HashMap::new())))
         .manage(PlateCache(Mutex::new(None)))
         .manage(DocLock(RwLock::new(())))
         .invoke_handler(tauri::generate_handler![
             check_ghostscript,
             open_pdf,
             create_working_copy,
+            close_working_copy,
+            object_pick,
+            objects_in_rect,
+            objects_edit,
+            insert_pages,
+            delete_page,
+            merge_read_csv,
+            mail_merge,
             read_pdf,
             export_pdf,
             render_overprint,

@@ -31,8 +31,8 @@
           <a id="videoLinkCta" class="video-link__cta" href="#" title="Watch the tutorial video on YouTube">▶ New user? Watch this first!</a>
           <button type="button" id="videoLinkClose" class="video-link__close" title="Dismiss">×</button>
         </div>
-        <button id="exportBtn" class="btn-primary" disabled title="Save a copy of the PDF with your edits">Export PDF…</button>
-        <button id="fileName" class="file-link" disabled title="Open a different PDF">No file open</button>
+        <button id="exportBtn" class="btn-primary" disabled title="Save a copy of the PDF with your edits (Ctrl+S)">Save PDF as…</button>
+        <button id="openBtn" type="button" title="Open a PDF in a new tab (Ctrl+O)">Open PDF…</button>
       </div>
       <div class="toolbar__centre">
         <button id="prevPage" disabled>‹</button>
@@ -57,6 +57,14 @@
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z" /><path d="m5 2 5 5" /><path d="M2 13h15" /><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z" /></svg>
           <span class="tool-label">Recolour</span>
         </button>
+        <button id="selectToolBtn" disabled title="Select (V): click a shape, text or image to select it, Shift-click to add more, drag to move. Drag on an empty spot (or Ctrl-drag anywhere) to select with a box. Delete removes the selection, arrow keys nudge it. Esc or V to finish">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px"><path d="m4 4 7.07 17 2.51-7.39L21 11.07z" /></svg>
+          <span class="tool-label">Select</span>
+        </button>
+        <button id="mergeToolBtn" disabled title="Mail merge (M): drag a box where the text should go, then choose a CSV file in the Mail Merge panel. Esc or M to finish">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px"><rect width="18" height="14" x="3" y="5" rx="2" /><path d="M7 15V9l2.5 3L12 9v6" /><path d="M15 12h3" /></svg>
+          <span class="tool-label">Mail merge</span>
+        </button>
       </div>
       <div class="toolbar__right">
 
@@ -68,6 +76,8 @@
       </div>
     </header>
 
+    <nav id="tabBar" class="tabbar hidden" aria-label="Open PDFs"></nav>
+
     <div id="gsWarning" class="banner hidden"></div>
 
     <main>
@@ -75,7 +85,18 @@
         <div id="progressLabel" class="progress__label">Loading…</div>
         <div class="progress__track"><div id="progressFill" class="progress__fill"></div></div>
       </div>
-      <aside id="thumbs" class="thumbs hidden" aria-label="Pages"></aside>
+      <aside id="thumbs" class="thumbs hidden" aria-label="Pages" tabindex="-1">
+        <div class="thumbs__bar">
+          <span class="thumbs__title">Pages</span>
+          <button type="button" id="insertPagesBtn" class="thumbs__btn thumbs__btn--add" title="Insert pages from other PDFs after this page (or drag PDFs onto this panel)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+          </button>
+          <button type="button" id="deletePageBtn" class="thumbs__btn thumbs__btn--del" title="Delete this page (Delete key after clicking in this panel)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+          </button>
+        </div>
+        <div id="thumbList" class="thumbs__list"></div>
+      </aside>
       <section id="viewport">
         <div id="emptyState">
           <button id="emptyOpenBtn" class="btn-primary">Open PDF…</button>
@@ -159,7 +180,7 @@
             </div>
             <p id="textStatus" class="text-status"></p>
             <p class="hint">
-              These rewrite the working copy (use Export PDF to save it). Images
+              These rewrite the working copy (use Save PDF as to save it). Images
               keep full resolution and existing CMYK values, overprint and page
               boxes are kept. Converting spot colours also converts any RGB,
               because both go through the same CMYK conversion.
@@ -212,6 +233,98 @@
             </p>
           </div>
 
+          <div class="panel" id="selectPanel">
+            <h2>Selected Objects</h2>
+            <p id="selEmpty" class="hint">
+              Turn on the <strong>Select</strong> tool (V) and click a shape,
+              text or image on the page.
+            </p>
+            <div id="selBody">
+              <p id="selCount" class="rc-count"></p>
+              <label class="toggle-row">
+                <input type="checkbox" id="selOverprint" />
+                Overprint (fill and stroke)
+              </label>
+              <div class="fix-row">
+                <button id="selDeleteBtn">Delete</button>
+                <button id="selClearBtn">Clear selection</button>
+              </div>
+              <p id="selResult" class="rc-result"></p>
+            </div>
+            <p class="hint">
+              Drag the selection to move it; arrow keys nudge it 0.5 mm
+              (Shift: 5 mm). These edits apply to this page only. A placed
+              graphic, such as a logo placed in InDesign, moves as one piece.
+            </p>
+          </div>
+
+          <div class="panel" id="mergePanel">
+            <h2>Mail Merge</h2>
+            <p id="mergeEmpty" class="hint">
+              Turn on the <strong>Mail merge</strong> tool (M) and drag a box
+              on the page where the text should go.
+            </p>
+            <div id="mergeBody">
+              <div class="fix-row">
+                <button id="mergeCsvBtn">Choose CSV file…</button>
+              </div>
+              <p id="mergeCsvInfo" class="rc-count"></p>
+              <label class="toggle-row">
+                <input type="checkbox" id="mergeHeader" />
+                First row is a heading (skip it)
+              </label>
+              <div class="merge-grid">
+                <label>Font
+                  <select id="mergeFont">
+                    <option value="sans">Sans (like Helvetica)</option>
+                    <option value="sans-bold">Sans Bold</option>
+                    <option value="serif">Serif (like Times)</option>
+                    <option value="mono">Mono (like Courier)</option>
+                  </select>
+                </label>
+                <label>Size (pt)
+                  <input type="number" id="mergeSize" min="1" max="500" step="0.5" value="12" />
+                </label>
+                <label>Across
+                  <select id="mergeAlign">
+                    <option value="left">Left</option>
+                    <option value="centre" selected>Centre</option>
+                    <option value="right">Right</option>
+                  </select>
+                </label>
+                <label>Down
+                  <select id="mergeValign">
+                    <option value="top">Top</option>
+                    <option value="middle" selected>Middle</option>
+                    <option value="bottom">Bottom</option>
+                  </select>
+                </label>
+              </div>
+              <div class="rc-new">
+                <span class="rc-new__head">Text colour <span class="swatch" id="mergeSwatch"></span></span>
+                <div class="rc-cmyk" data-for="merge"></div>
+              </div>
+              <label class="toggle-row">
+                <input type="checkbox" id="mergeShrink" checked />
+                Shrink text that's too wide for the box
+              </label>
+              <label class="toggle-row">
+                <input type="checkbox" id="mergeOverprint" />
+                Overprint the text
+              </label>
+              <div class="fix-row">
+                <button id="mergeRunBtn" class="btn-primary">Create pages</button>
+                <button id="mergeClearBtn">Clear box</button>
+              </div>
+              <p id="mergeResult" class="rc-result"></p>
+            </div>
+            <p class="hint">
+              Uses the first column of the CSV. Makes one copy of this page
+              for each row, with that row's text in the box. The font is
+              embedded so it prints as shown.
+            </p>
+          </div>
+
           <div class="panel">
             <div class="panel-header">
               <h2>Page Rotation</h2>
@@ -229,7 +342,7 @@
             <p class="hint">
               Each side is measured in from the nearest edge of the page, as
               shown on screen. Edits apply to a working copy; your original
-              file is untouched until you use Export PDF.
+              file is untouched until you use Save PDF as.
             </p>
           </div>
         </div>
@@ -237,7 +350,7 @@
     </main>
 
     <div id="dropHint" class="drop-hint hidden" aria-hidden="true">
-      <div class="drop-hint__card">Drop PDF to open</div>
+      <div class="drop-hint__card">Drop PDF to open it in a new tab<br /><small>or drop onto the Pages panel to insert its pages</small></div>
     </div>
 
     <div id="marquee" class="marquee hidden" aria-hidden="true"></div>
@@ -281,13 +394,14 @@
     <div id="closeDialog" class="modal-backdrop hidden" role="alertdialog" aria-modal="true" aria-labelledby="closeDialogTitle">
       <div class="about op-warning">
         <div class="op-warning__icon" aria-hidden="true">⚠</div>
-        <h1 id="closeDialogTitle" class="about__title">Export before closing?</h1>
+        <h1 id="closeDialogTitle" class="about__title">Save before closing?</h1>
         <p>
-          You have changes that haven't been exported. If you close now
-          they'll be lost; your original PDF is untouched either way.
+          <strong id="closeDialogFile"></strong> has changes that haven't been
+          saved. If you close it now they'll be lost; your original PDF is
+          untouched either way.
         </p>
         <div class="op-warning__actions">
-          <button type="button" id="closeExport" class="btn-primary">Export PDF…</button>
+          <button type="button" id="closeExport" class="btn-primary">Save PDF as…</button>
           <button type="button" id="closeDiscard">Close without saving</button>
           <button type="button" id="closeCancel">Cancel</button>
         </div>
