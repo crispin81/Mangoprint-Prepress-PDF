@@ -653,6 +653,14 @@ fn objects_in_rect(path: String, page: u32, rect: [f64; 4], doc: tauri::State<Do
     objects::in_rect(Path::new(&path), page, rect)
 }
 
+/// Select tool: the current outlines and colours of selected objects
+/// (after another tool has changed them).
+#[tauri::command(async)]
+fn objects_info(path: String, page: u32, indices: Vec<usize>, doc: tauri::State<DocLock>) -> Result<Vec<objects::ObjInfo>, String> {
+    let _r = read_lock(&doc)?;
+    objects::info(Path::new(&path), page, &indices)
+}
+
 /// Select tool: moves, deletes or sets overprint on the selected objects.
 #[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
@@ -870,6 +878,7 @@ pub fn run() {
             object_pick,
             objects_in_rect,
             objects_edit,
+            objects_info,
             insert_pages,
             delete_page,
             move_page,

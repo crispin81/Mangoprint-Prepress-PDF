@@ -998,6 +998,22 @@ mod tests {
         }
     }
 
+    /// `MP_CARD_PDF=file.pdf cargo test card_recolour -- --nocapture`:
+    /// recolouring text to K100 makes it overprintable.
+    #[test]
+    fn card_recolour() {
+        let Ok(src) = std::env::var("MP_CARD_PDF") else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("t.pdf");
+        std::fs::copy(&src, &p).unwrap();
+        for (x, y) in [(0.2, 0.8), (0.15, 0.25)] {
+            let picked = crate::recolour::pick(&p, 2, x, y, 1.0).unwrap().expect("recolour pick");
+            let n = crate::recolour::apply_recolour(&p, 2, picked.target, crate::recolour::Mode::Object, false, Some([0.0, 0.0, 0.0, 100.0]), None).unwrap();
+            let hit = pick(&p, 2, x, y, 1.0).unwrap().expect("select pick");
+            println!("recoloured {n}: {hit:?}");
+        }
+    }
+
     /// `MP_OBJECTS_PDF=file.pdf cargo test spot_file -- --nocapture`
     #[test]
     fn spot_file() {

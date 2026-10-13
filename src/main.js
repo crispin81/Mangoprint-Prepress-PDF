@@ -1751,6 +1751,7 @@ async function recolourApply() {
     setEdited(true);
     resetRecolour();
     setRcResult(`✓ Recoloured ${n} object${n === 1 ? "" : "s"}`, "ok");
+    refreshSelection();
     state.separationNames = [];
     state.activeSeparations = new Set();
     loadSpotSwatches();
@@ -2218,14 +2219,25 @@ function setSelectTool(on) {
     setTextMode(false);
     clearInks();
     document.getElementById("selectPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+    // Coming back (e.g. after recolouring): the same objects, re-read so
+    // the panel shows their new colours.
+    const saved = sel.saved;
+    sel.saved = null;
+    if (saved && saved.path === state.path && saved.page === state.page) {
+      sel.items = saved.items;
+      refreshSelection();
+    }
   } else {
+    const keep = sel.items.length ? { path: state.path, page: state.page, items: sel.items } : null;
     clearSelection();
+    sel.saved = keep;
     setTextMode(true); // back to the default: text can be selected
   }
   renderSelectPanel();
 }
 
 function clearSelection() {
+  sel.saved = null;
   clearTimeout(sel.nudgeTimer);
   sel.nudge = [0, 0];
   sel.items = [];
@@ -2397,6 +2409,21 @@ function moveSelection(dx, dy) {
 }
 
 const deleteSelection = () => runObjectEdit({ action: "delete" }, "Deleting…");
+
+// Re-reads the selection's colours and outlines after another tool (such
+// as Recolour) changed the page, so e.g. Overprint knows the new colour.
+async function refreshSelection() {
+  if (!sel.items.length || !state.path) return;
+  try {
+    sel.items = await invoke("objects_info", { path: state.path, page: state.page, indices: sel.items.map((o) => o.index) });
+  } catch (err) {
+    console.error(err);
+    sel.items = [];
+  }
+  sel.spotKey = null; // suggest a name for the new colour
+  renderSelectPanel();
+  drawBoxOverlay();
+}
 
 // Draws the shared marquee between two client points.
 function drawMarqueeBox(x0, y0, x1, y1) {
