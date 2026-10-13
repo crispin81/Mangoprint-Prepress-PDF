@@ -280,7 +280,10 @@ async function exportPdf() {
   try {
     await invoke("export_pdf", { from: state.path, dest });
     state.sourcePath = dest;
-    if (activeTab) activeTab.sourcePath = dest;
+    if (activeTab) {
+      activeTab.sourcePath = dest;
+      activeTab.saved = true;
+    }
     setEdited(false);
   } catch (err) {
     alert(`Save failed:\n${err}`);
@@ -2522,7 +2525,7 @@ function positionMergeBar() {
   const port = els.viewport.getBoundingClientRect();
   bar.style.left = `${port.left - main.left + 12}px`;
   bar.style.top = `${port.top - main.top + 10}px`;
-  bar.style.maxWidth = `${Math.max(200, port.width - 24 - 16)}px`;
+  bar.style.maxWidth = `${Math.max(240, port.width - 24)}px`;
 }
 new ResizeObserver(positionMergeBar).observe(els.viewport);
 
@@ -3010,11 +3013,47 @@ new ResizeObserver(() => {
   scheduleRender(isVectorMode() ? 80 : 250);
 }).observe(els.viewport);
 
-// Ctrl+S Save PDF as, Ctrl+O open, Ctrl+W close the tab.
+// --- undo / redo ---
+// Every edit keeps a copy of the PDF from before it, so Ctrl+Z steps back
+// (a deleted page or object, a recolour, a page box…) and Ctrl+Y or
+// Ctrl+Shift+Z steps forward again.
+
+let undoBusy = false;
+
+async function undoStep(undo) {
+  if (!state.path || undoBusy || sel.busy) return;
+  undoBusy = true;
+  try {
+    const changed = await invoke("undo_step", { path: state.path, undo });
+    if (!changed) {
+      setProgress(100, undo ? "Nothing to undo" : "Nothing to redo");
+      setTimeout(hideProgress, 900);
+      return;
+    }
+    setProgress(30, undo ? "Undoing…" : "Redoing…");
+    const count = await invoke("open_pdf", { path: state.path });
+    await afterPagesChanged(count, state.page);
+    enableFixes();
+    // Back to how the file was opened (and never saved): nothing to save.
+    const counts = await invoke("undo_counts", { path: state.path });
+    if (!counts.undo && !(activeTab && activeTab.saved)) setEdited(false);
+  } catch (err) {
+    alert(`Could not ${undo ? "undo" : "redo"}:\n${err}`);
+  } finally {
+    undoBusy = false;
+    hideProgress();
+  }
+}
+
+// Ctrl+S Save PDF as, Ctrl+O open, Ctrl+W close the tab, Ctrl+Z undo,
+// Ctrl+Y / Ctrl+Shift+Z redo (typing fields keep their own undo).
 window.addEventListener("keydown", (ev) => {
   if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
   const k = ev.key.toLowerCase();
-  if (k === "s") exportPdf();
+  if ((k === "z" || k === "y") && typingIn(ev)) return;
+  if (k === "z") undoStep(!ev.shiftKey);
+  else if (k === "y") undoStep(false);
+  else if (k === "s") exportPdf();
   else if (k === "o") openPdf();
   else if (k === "w") {
     if (activeTab) closeTab(activeTab);

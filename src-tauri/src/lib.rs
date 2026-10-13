@@ -1,6 +1,7 @@
 mod colorcheck;
 mod fonts;
 mod gs;
+mod history;
 mod imageres;
 mod objects;
 mod overprint;
@@ -152,7 +153,9 @@ fn close_working_copy(
     working: tauri::State<WorkingCopy>,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
 ) -> Result<(), String> {
+    hist.forget(&path);
     let old = working.0.lock().map_err(|_| "Working copy lock was poisoned".to_string())?.remove(&path);
     invalidate_path(&cache, &path);
     clear_plates(&plates);
@@ -436,9 +439,11 @@ fn convert_pdf(
     page: Option<u32>,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
 ) -> Result<(), String> {
     let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
     let conv = match kind.as_str() {
         "outlines" => gs::Conversion::Outlines,
         "rgb" => gs::Conversion::RgbToCmyk,
@@ -475,9 +480,11 @@ fn set_page_box(
     rect: [f64; 4],
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
 ) -> Result<pagebox::PageBoxes, String> {
     let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
     let result = pagebox::set_page_box(Path::new(&path), page, &name, rect)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
@@ -494,9 +501,11 @@ fn set_page_box_all(
     insets: [f64; 4],
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
 ) -> Result<pagebox::PageBoxes, String> {
     let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
     pagebox::set_box_insets_all(Path::new(&path), &name, insets)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
@@ -510,9 +519,11 @@ fn set_rotation_all(
     degrees: i32,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
 ) -> Result<pagebox::PageBoxes, String> {
     let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
     pagebox::set_rotation_all(Path::new(&path), degrees)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
@@ -526,9 +537,11 @@ fn reset_page_box_all(
     name: String,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
 ) -> Result<pagebox::PageBoxes, String> {
     let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
     pagebox::reset_box_all(Path::new(&path), &name)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
@@ -542,9 +555,11 @@ fn reset_page_box(
     name: String,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
 ) -> Result<pagebox::PageBoxes, String> {
     let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
     let result = pagebox::reset_page_box(Path::new(&path), page, &name)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
@@ -558,9 +573,11 @@ fn set_page_rotation(
     degrees: i32,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
 ) -> Result<pagebox::PageBoxes, String> {
     let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
     let result = pagebox::set_rotation(Path::new(&path), page, degrees)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
@@ -610,9 +627,11 @@ fn recolour_apply(
     stroke: Option<[f64; 4]>,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
 ) -> Result<usize, String> {
     let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
     let n = recolour::apply_recolour(Path::new(&path), page, target, mode, all_pages, fill, stroke)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
@@ -646,9 +665,11 @@ fn objects_edit(
     on: Option<bool>,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
 ) -> Result<objects::EditResult, String> {
     let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
     let p = Path::new(&path);
     let result = match action.as_str() {
         "move" => objects::move_objects(p, page, &indices, dx.unwrap_or(0.0), dy.unwrap_or(0.0))?,
@@ -670,9 +691,11 @@ fn insert_pages(
     at: u32,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
 ) -> Result<u32, String> {
     let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
     let n = pages::insert_pdfs(Path::new(&path), &sources, at)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
@@ -687,9 +710,11 @@ fn move_page(
     to: u32,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
 ) -> Result<(), String> {
     let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
     pages::move_page(Path::new(&path), from, to)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
@@ -703,9 +728,11 @@ fn delete_page(
     page: u32,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
 ) -> Result<u32, String> {
     let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
     let n = pages::delete_page(Path::new(&path), page)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
@@ -727,13 +754,41 @@ fn mail_merge(
     spec: pages::MergeSpec,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
 ) -> Result<u32, String> {
     let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
     let n = pages::mail_merge(Path::new(&path), page, &values, &spec)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
     Ok(n)
+}
+
+/// Ctrl+Z / Ctrl+Y: steps the working copy back (`undo`) or forward
+/// through its edits. Returns false when there was nothing to step to.
+#[tauri::command(async)]
+fn undo_step(
+    path: String,
+    undo: bool,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
+    doc: tauri::State<DocLock>,
+) -> Result<bool, String> {
+    let _w = write_lock(&doc)?;
+    let changed = hist.step(&path, undo)?;
+    if changed {
+        invalidate_path(&cache, &path);
+        clear_plates(&plates);
+    }
+    Ok(changed)
+}
+
+/// How many undo and redo steps there are.
+#[tauri::command]
+fn undo_counts(path: String, hist: tauri::State<history::History>) -> history::Counts {
+    hist.counts(&path)
 }
 
 /// PDFs handed to the app by the operating system (double-click, "Open
@@ -796,6 +851,7 @@ pub fn run() {
         .manage(WorkingCopy(Mutex::new(HashMap::new())))
         .manage(PlateCache(Mutex::new(None)))
         .manage(DocLock(RwLock::new(())))
+        .manage(history::History::new())
         .invoke_handler(tauri::generate_handler![
             check_ghostscript,
             open_pdf,
@@ -807,6 +863,8 @@ pub fn run() {
             insert_pages,
             delete_page,
             move_page,
+            undo_step,
+            undo_counts,
             merge_read_csv,
             mail_merge,
             read_pdf,

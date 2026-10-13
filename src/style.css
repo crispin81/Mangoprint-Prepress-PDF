@@ -2077,3 +2077,32 @@ a:hover > .about__logo {
 .merge-bar .rc-result:empty {
   display: none;
 }
+
+/* Compact mail merge bar: a narrow box of a few short rows. */
+.merge-bar {
+  width: 330px;
+}
+
+.merge-bar__opts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.merge-bar__opts.waiting {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.merge-bar__info:empty {
+  display: none;
+}
+
+.merge-bar__spacer {
+  flex: 1;
+}
+
+.merge-bar__hint {
+  flex: 1 1 100%;
+  order: 2;
+}
