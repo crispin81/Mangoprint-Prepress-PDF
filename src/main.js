@@ -2081,6 +2081,8 @@ async function afterPagesChanged(count, page) {
   state.page = Math.min(Math.max(1, page), count);
   setEdited(true);
   clearSelection();
+  merge.box = null; // its page may have moved
+  renderMergePanel();
   resetRecolour();
   state.separationNames = [];
   state.activeSeparations = new Set();
@@ -2140,8 +2142,12 @@ document.getElementById("deletePageBtn").addEventListener("click", deleteCurrent
 function pageDropTarget(position) {
   if (!state.path || !position) return null;
   const dpr = window.devicePixelRatio || 1;
-  const x = position.x / dpr;
-  const y = position.y / dpr;
+  return pageTargetAt(position.x / dpr, position.y / dpr);
+}
+
+// The insertion point in the Pages panel at client point (x, y): `at` =
+// how many pages come before it.
+function pageTargetAt(x, y) {
   const el = document.elementFromPoint(x, y);
   if (!el || !el.closest("#thumbs")) return null;
   const thumb = el.closest(".thumb");
@@ -2152,8 +2158,59 @@ function pageDropTarget(position) {
   return { at: after ? n : n - 1, thumb, after };
 }
 
-function showPageDropTarget(target) {
-  thumbsBox.classList.toggle("drop-target", !!target);
+// Drag a thumbnail up or down the Pages panel to move that page.
+let thumbDrag = null;
+
+document.getElementById("thumbList").addEventListener("mousedown", (ev) => {
+  const item = ev.target.closest(".thumb");
+  if (!item || ev.button !== 0 || ev.target.closest(".thumb__rot") || !state.path) return;
+  thumbDrag = { from: Number(item.dataset.page), item, x0: ev.clientX, y0: ev.clientY, active: false, target: null };
+});
+
+window.addEventListener("mousemove", (ev) => {
+  const d = thumbDrag;
+  if (!d) return;
+  if (!d.active) {
+    if (Math.abs(ev.clientY - d.y0) + Math.abs(ev.clientX - d.x0) < 6) return;
+    d.active = true;
+    d.item.classList.add("dragging");
+  }
+  ev.preventDefault();
+  // Scroll the panel when dragging near its top or bottom.
+  const r = thumbsBox.getBoundingClientRect();
+  if (ev.clientY < r.top + 50) thumbsBox.scrollTop -= 12;
+  else if (ev.clientY > r.bottom - 30) thumbsBox.scrollTop += 12;
+  d.target = pageTargetAt(ev.clientX, ev.clientY);
+  showPageDropTarget(d.target, true);
+});
+
+window.addEventListener("mouseup", async () => {
+  const d = thumbDrag;
+  if (!d) return;
+  thumbDrag = null;
+  if (!d.active) return;
+  d.item.classList.remove("dragging");
+  showPageDropTarget(null);
+  // Swallow the click that follows the drag, so it doesn't change page.
+  const swallow = (e) => e.stopPropagation();
+  window.addEventListener("click", swallow, true);
+  setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+  if (!d.target) return;
+  const to = d.target.at >= d.from ? d.target.at : d.target.at + 1;
+  if (to === d.from) return;
+  setProgress(30, `Moving page ${d.from}…`);
+  try {
+    await invoke("move_page", { path: state.path, from: d.from, to });
+    await afterPagesChanged(state.pageCount, to);
+  } catch (err) {
+    alert(`Could not move the page:\n${err}`);
+  } finally {
+    hideProgress();
+  }
+});
+
+function showPageDropTarget(target, reorder = false) {
+  thumbsBox.classList.toggle("drop-target", !!target && !reorder);
   for (const el of thumbsBox.querySelectorAll(".drop-before, .drop-after")) el.classList.remove("drop-before", "drop-after");
   if (target && target.thumb) target.thumb.classList.add(target.after ? "drop-after" : "drop-before");
 }
@@ -2449,12 +2506,25 @@ function setMergeTool(on) {
     setTextMode(false);
     eyedrop.held = false;
     clearInks();
-    document.getElementById("mergePanel").scrollIntoView({ behavior: "smooth", block: "start" });
   } else {
     setTextMode(state.textModeBeforeMerge ?? true);
   }
+  document.getElementById("mergeBar").classList.toggle("hidden", !on);
+  positionMergeBar();
   renderMergePanel();
 }
+
+// The options bar floats over the top of the page view.
+function positionMergeBar() {
+  const bar = document.getElementById("mergeBar");
+  if (bar.classList.contains("hidden")) return;
+  const main = bar.parentElement.getBoundingClientRect();
+  const port = els.viewport.getBoundingClientRect();
+  bar.style.left = `${port.left - main.left + 12}px`;
+  bar.style.top = `${port.top - main.top + 10}px`;
+  bar.style.maxWidth = `${Math.max(200, port.width - 24 - 16)}px`;
+}
+new ResizeObserver(positionMergeBar).observe(els.viewport);
 
 function mergeValues() {
   if (!merge.values) return [];
@@ -2471,10 +2541,8 @@ function renderMergePanel() {
   const box = merge.box;
   const empty = document.getElementById("mergeEmpty");
   empty.classList.toggle("hidden", !!box);
-  empty.innerHTML = state.mergeTool
-    ? "Drag a box on the page where the text should go."
-    : "Turn on the <strong>Mail merge</strong> tool (M) and drag a box on the page where the text should go.";
-  document.getElementById("mergeBody").classList.toggle("waiting", !box);
+  document.getElementById("mergeBody").classList.toggle("hidden", !box);
+  document.getElementById("mergeOptions").classList.toggle("waiting", !box);
   const values = mergeValues();
   const info = document.getElementById("mergeCsvInfo");
   if (!merge.values) info.textContent = "";
@@ -2583,6 +2651,7 @@ function initMerge() {
   if (k) k.value = "100";
   updateNewSwatches();
   document.getElementById("mergeToolBtn").addEventListener("click", () => setMergeTool(!state.mergeTool));
+  document.getElementById("mergeCloseBtn").addEventListener("click", () => setMergeTool(false));
   document.getElementById("mergeCsvBtn").addEventListener("click", chooseMergeCsv);
   document.getElementById("mergeHeader").addEventListener("change", renderMergePanel);
   document.getElementById("mergeRunBtn").addEventListener("click", runMerge);

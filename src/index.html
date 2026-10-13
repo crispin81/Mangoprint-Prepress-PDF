@@ -31,8 +31,8 @@
           <a id="videoLinkCta" class="video-link__cta" href="#" title="Watch the tutorial video on YouTube">▶ New user? Watch this first!</a>
           <button type="button" id="videoLinkClose" class="video-link__close" title="Dismiss">×</button>
         </div>
-        <button id="exportBtn" class="btn-primary" disabled title="Save a copy of the PDF with your edits (Ctrl+S)">Save PDF as…</button>
         <button id="openBtn" type="button" title="Open a PDF in a new tab (Ctrl+O)">Open PDF…</button>
+        <button id="exportBtn" class="btn-primary" disabled title="Save a copy of the PDF with your edits (Ctrl+S)">Save PDF as…</button>
       </div>
       <div class="toolbar__centre">
         <button id="prevPage" disabled>‹</button>
@@ -110,6 +110,50 @@
           <div id="loadingOverlay" class="hidden">Rendering…</div>
         </div>
       </section>
+      <!-- Mail merge options, floating over the page while the tool is on
+           (like a text tool's options bar). -->
+      <div id="mergeBar" class="merge-bar hidden" role="toolbar" aria-label="Mail merge">
+        <div class="merge-bar__row">
+          <span class="merge-bar__title">Mail merge</span>
+          <span id="mergeEmpty" class="merge-bar__hint">Drag a box on the page where the merged text should go.</span>
+          <div id="mergeBody" class="merge-bar__group">
+            <button id="mergeCsvBtn" type="button">Choose CSV…</button>
+            <span id="mergeCsvInfo" class="merge-bar__info"></span>
+            <label class="merge-bar__check"><input type="checkbox" id="mergeHeader" /> First row is a heading</label>
+          </div>
+          <button id="mergeCloseBtn" type="button" class="merge-bar__close" title="Close mail merge (Esc or M)">×</button>
+        </div>
+        <div id="mergeOptions" class="merge-bar__row">
+          <select id="mergeFont" title="Font">
+            <option value="sans">Sans (like Helvetica)</option>
+            <option value="sans-bold">Sans Bold</option>
+            <option value="serif">Serif (like Times)</option>
+            <option value="mono">Mono (like Courier)</option>
+          </select>
+          <label class="merge-bar__field" title="Size in points">
+            <input type="number" id="mergeSize" min="1" max="500" step="0.5" value="12" /> pt
+          </label>
+          <select id="mergeAlign" title="Across the box">
+            <option value="left">Left</option>
+            <option value="centre" selected>Centre</option>
+            <option value="right">Right</option>
+          </select>
+          <select id="mergeValign" title="Down the box">
+            <option value="top">Top</option>
+            <option value="middle" selected>Middle</option>
+            <option value="bottom">Bottom</option>
+          </select>
+          <span class="merge-bar__colour" title="Text colour (CMYK %)">
+            <span class="swatch" id="mergeSwatch"></span>
+            <span class="rc-cmyk merge-bar__cmyk" data-for="merge"></span>
+          </span>
+          <label class="merge-bar__check"><input type="checkbox" id="mergeShrink" checked /> Shrink to fit</label>
+          <label class="merge-bar__check"><input type="checkbox" id="mergeOverprint" /> Overprint</label>
+          <button id="mergeRunBtn" type="button" class="btn-primary">Create pages</button>
+          <button id="mergeClearBtn" type="button">Clear box</button>
+        </div>
+        <p id="mergeResult" class="rc-result"></p>
+      </div>
 
       <aside id="sidebar">
         <div class="panel">
@@ -255,73 +299,6 @@
               Drag the selection to move it; arrow keys nudge it 0.5 mm
               (Shift: 5 mm). These edits apply to this page only. A placed
               graphic, such as a logo placed in InDesign, moves as one piece.
-            </p>
-          </div>
-
-          <div class="panel" id="mergePanel">
-            <h2>Mail Merge</h2>
-            <p id="mergeEmpty" class="hint">
-              Turn on the <strong>Mail merge</strong> tool (M) and drag a box
-              on the page where the text should go.
-            </p>
-            <div id="mergeBody">
-              <div class="fix-row">
-                <button id="mergeCsvBtn">Choose CSV file…</button>
-              </div>
-              <p id="mergeCsvInfo" class="rc-count"></p>
-              <label class="toggle-row">
-                <input type="checkbox" id="mergeHeader" />
-                First row is a heading (skip it)
-              </label>
-              <div class="merge-grid">
-                <label>Font
-                  <select id="mergeFont">
-                    <option value="sans">Sans (like Helvetica)</option>
-                    <option value="sans-bold">Sans Bold</option>
-                    <option value="serif">Serif (like Times)</option>
-                    <option value="mono">Mono (like Courier)</option>
-                  </select>
-                </label>
-                <label>Size (pt)
-                  <input type="number" id="mergeSize" min="1" max="500" step="0.5" value="12" />
-                </label>
-                <label>Across
-                  <select id="mergeAlign">
-                    <option value="left">Left</option>
-                    <option value="centre" selected>Centre</option>
-                    <option value="right">Right</option>
-                  </select>
-                </label>
-                <label>Down
-                  <select id="mergeValign">
-                    <option value="top">Top</option>
-                    <option value="middle" selected>Middle</option>
-                    <option value="bottom">Bottom</option>
-                  </select>
-                </label>
-              </div>
-              <div class="rc-new">
-                <span class="rc-new__head">Text colour <span class="swatch" id="mergeSwatch"></span></span>
-                <div class="rc-cmyk" data-for="merge"></div>
-              </div>
-              <label class="toggle-row">
-                <input type="checkbox" id="mergeShrink" checked />
-                Shrink text that's too wide for the box
-              </label>
-              <label class="toggle-row">
-                <input type="checkbox" id="mergeOverprint" />
-                Overprint the text
-              </label>
-              <div class="fix-row">
-                <button id="mergeRunBtn" class="btn-primary">Create pages</button>
-                <button id="mergeClearBtn">Clear box</button>
-              </div>
-              <p id="mergeResult" class="rc-result"></p>
-            </div>
-            <p class="hint">
-              Uses the first column of the CSV. Makes one copy of this page
-              for each row, with that row's text in the box. The font is
-              embedded so it prints as shown.
             </p>
           </div>
 

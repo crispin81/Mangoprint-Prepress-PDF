@@ -679,6 +679,23 @@ fn insert_pages(
     Ok(n)
 }
 
+/// Moves page `from` to position `to` (1-based).
+#[tauri::command(async)]
+fn move_page(
+    path: String,
+    from: u32,
+    to: u32,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+    doc: tauri::State<DocLock>,
+) -> Result<(), String> {
+    let _w = write_lock(&doc)?;
+    pages::move_page(Path::new(&path), from, to)?;
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
+    Ok(())
+}
+
 /// Deletes a page; returns the new page count.
 #[tauri::command(async)]
 fn delete_page(
@@ -789,6 +806,7 @@ pub fn run() {
             objects_edit,
             insert_pages,
             delete_page,
+            move_page,
             merge_read_csv,
             mail_merge,
             read_pdf,

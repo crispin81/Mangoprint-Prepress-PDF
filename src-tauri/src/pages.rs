@@ -136,6 +136,45 @@ pub fn insert_pdfs(path: &Path, sources: &[String], at: u32) -> Result<u32, Stri
     Ok(count)
 }
 
+/// Moves page `from` so it becomes page `to` (both 1-based).
+pub fn move_page(path: &Path, from: u32, to: u32) -> Result<(), String> {
+    let mut doc = load(path)?;
+    let count = doc.get_pages().len() as u32;
+    if from == to || from < 1 || to < 1 || from > count || to > count {
+        return Ok(());
+    }
+    let id = pagebox::page_id_for(&doc, from)?;
+    own_inherited(&mut doc, id);
+    // Take it out of its parent's Kids and out of the counts above it.
+    let parent = doc
+        .get_dictionary(id)
+        .and_then(|d| d.get(b"Parent"))
+        .and_then(|p| p.as_reference())
+        .map_err(err)?;
+    let kids_ref = match doc.get_dictionary(parent).and_then(|d| d.get(b"Kids")).map_err(err)? {
+        Object::Reference(k) => Some(*k),
+        _ => None,
+    };
+    let kids = match kids_ref {
+        Some(k) => doc.get_object_mut(k).and_then(Object::as_array_mut).map_err(err)?,
+        None => doc
+            .get_dictionary_mut(parent)
+            .and_then(|d| d.get_mut(b"Kids"))
+            .and_then(Object::as_array_mut)
+            .map_err(err)?,
+    };
+    kids.retain(|o| o.as_reference().ok() != Some(id));
+    let mut node = Some(parent);
+    while let Some(n) = node {
+        let d = doc.get_dictionary_mut(n).map_err(err)?;
+        let c = d.get(b"Count").and_then(|c| c.as_i64()).unwrap_or(1);
+        d.set("Count", c - 1);
+        node = d.get(b"Parent").and_then(|p| p.as_reference()).ok();
+    }
+    insert_into_tree(&mut doc, to - 1, &[id])?;
+    save(doc, path)
+}
+
 /// Deletes one page. Returns the new page count.
 pub fn delete_page(path: &Path, page: u32) -> Result<u32, String> {
     let mut doc = load(path)?;
@@ -439,6 +478,18 @@ mod tests {
         assert_eq!(n1, n0 * 2);
         let n2 = delete_page(&p, 1).unwrap();
         assert_eq!(n2, n1 - 1);
+        let ids = |p: &Path| -> Vec<Vec<u8>> {
+            let d = Document::load(p).unwrap();
+            d.get_pages().values().map(|id| d.get_page_content(*id)).collect()
+        };
+        let before = ids(&p);
+        move_page(&p, 1, 3).unwrap();
+        let after = ids(&p);
+        assert_eq!(after.len(), before.len());
+        assert_eq!(after[2], before[0]);
+        assert_eq!(after[0], before[1]);
+        move_page(&p, 3, 1).unwrap();
+        assert_eq!(ids(&p), before);
         let spec = MergeSpec {
             rect: [0.1, 0.1, 0.5, 0.1],
             font: "sans".into(),

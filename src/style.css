@@ -1939,3 +1939,141 @@ a:hover > .about__logo {
   flex: 1 1 0;
   min-width: max-content;
 }
+
+/* --- page reordering --- */
+
+.thumbs {
+  user-select: none;
+}
+
+.thumb.dragging {
+  opacity: 0.4;
+}
+
+/* --- mail merge options bar, floating over the page --- */
+
+.merge-bar {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(27, 28, 34, 0.96);
+  border: 1px solid var(--field-border);
+  border-top: 2px solid #ec008c;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+}
+
+.merge-bar__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.merge-bar__row.waiting {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.merge-bar__title {
+  font-weight: 600;
+  color: #ff5cb8;
+}
+
+.merge-bar__hint {
+  color: var(--accent-text);
+  flex: 1;
+}
+
+.merge-bar__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.merge-bar__info {
+  color: var(--accent-text);
+  font-size: 11px;
+}
+
+.merge-bar__close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--faint);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+.merge-bar__close:hover {
+  color: var(--text);
+}
+
+.merge-bar select,
+.merge-bar input[type="number"] {
+  background: var(--field);
+  border: 1px solid var(--field-border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 3px 5px;
+  font-size: 12px;
+}
+
+.merge-bar__field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.merge-bar__field input {
+  width: 58px;
+}
+
+.merge-bar__check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-soft);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.merge-bar__colour {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.merge-bar__cmyk {
+  display: flex;
+  gap: 4px;
+}
+
+.merge-bar__cmyk label {
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+}
+
+.merge-bar__cmyk input {
+  width: 46px;
+  padding: 3px 4px;
+}
+
+.merge-bar .rc-result {
+  margin: 0;
+  min-height: 0;
+}
+
+.merge-bar .rc-result:empty {
+  display: none;
+}
