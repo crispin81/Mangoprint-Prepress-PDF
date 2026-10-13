@@ -2423,3 +2423,17 @@ a:hover > .about__logo {
   padding: 4px 6px;
   font-size: 12px;
 }
+
+.sel-note {
+  margin: 2px 0 6px;
+  color: var(--accent-text);
+}
+
+.sel-note:empty {
+  display: none;
+}
+
+.toggle-row.disabled {
+  opacity: 0.45;
+  cursor: default;
+}

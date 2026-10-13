@@ -71,6 +71,22 @@ pub struct ObjInfo {
     /// The object's colour as CMYK 0–100 (its fill, or its stroke if it
     /// has no fill), for "convert to spot colour".
     pub cmyk: Option<[f64; 4]>,
+    /// Every colour it paints is 100% black or a spot colour: the only
+    /// colours overprint is offered for.
+    pub overprintable: bool,
+}
+
+/// 100% black (with or without other inks) or a spot colour.
+fn overprintable_colour(c: &crate::overprint::Colour) -> bool {
+    use crate::overprint::Colour;
+    match c {
+        Colour::Cmyk(v) => v[3] >= 0.995,
+        Colour::Gray(g) => *g <= 0.005,
+        Colour::Named(inks) => inks.iter().any(|(n, t)| {
+            !["Cyan", "Magenta", "Yellow", "Black"].contains(&n.as_str()) || (n == "Black" && *t >= 0.995)
+        }),
+        _ => false,
+    }
 }
 
 impl Obj {
@@ -120,6 +136,10 @@ impl Obj {
             norm: geom.norm(self.bbox(walk)?),
             overprint: self.overprint(walk),
             movable: self.movable(walk),
+            overprintable: self.paints.iter().all(|&i| {
+                let p = &walk.paints[i];
+                (!p.fills || overprintable_colour(&p.fill)) && (!p.strokes || overprintable_colour(&p.stroke))
+            }) && self.paints.iter().any(|&i| walk.paints[i].fills || walk.paints[i].strokes),
             cmyk: self.paints.iter().find_map(|&i| {
                 let p = &walk.paints[i];
                 let c = if p.fills { &p.fill } else if p.strokes { &p.stroke } else { return None };
@@ -449,10 +469,15 @@ pub fn set_overprint(path: &Path, page: u32, indices: &[usize], on: bool) -> Res
     let mut edits = Edits::new();
     let mut names: BTreeSet<(bool, bool, i64)> = BTreeSet::new();
     let mut changed = 0;
-    // Objects in RGB, which knocks out whatever overprint says.
+    // Objects that may not overprint (not 100% black or a spot colour).
     let mut rgb = 0;
     for o in l.selected(indices)? {
         let was = o.top.ovp;
+        // Only 100% black and spot colours may overprint.
+        if on && !o.info(0, &l.walk, &l.geom).is_some_and(|i| i.overprintable) {
+            rgb += 1;
+            continue;
+        }
         let want = if on { (true, true, 1) } else { (false, false, was.mode) };
         if (was.fill, was.stroke, was.mode) == want {
             continue;
@@ -676,6 +701,52 @@ mod tests {
         if let Ok(out) = std::env::var("MP_OP_OUT") {
             std::fs::copy(&p, out).unwrap();
         }
+    }
+
+    /// Knocked-out pixels of the cyan plate inside `norm`.
+    fn cyan_gaps(p: &Path, norm: [f64; 4]) -> usize {
+        let plates = tempfile::TempDir::new().unwrap();
+        let found = crate::gs::ensure_separations(p, 1, 72, plates.path()).unwrap();
+        let cyan = found.iter().find(|(n, _)| n == "Cyan").map(|(_, f)| image::open(f).unwrap().to_luma8()).unwrap();
+        let [x, y, w, h] = norm;
+        let (iw, ih) = (cyan.width() as f64, cyan.height() as f64);
+        let mut gaps = 0;
+        for py in (y * ih) as u32..((y + h) * ih) as u32 {
+            for px in (x * iw) as u32..((x + w) * iw) as u32 {
+                if cyan.get_pixel(px.min(cyan.width() - 1), py.min(cyan.height() - 1)).0[0] > 128 {
+                    gaps += 1;
+                }
+            }
+        }
+        gaps
+    }
+
+    /// `MP_OP_PDF=file.pdf cargo test merged_overprint -- --nocapture`:
+    /// mail merge text, then overprint set on it from the Select tool.
+    #[test]
+    fn merged_overprint() {
+        let Ok(src) = std::env::var("MP_OP_PDF") else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("t.pdf");
+        std::fs::copy(&src, &p).unwrap();
+        let field = crate::pages::MergeField {
+            rect: [0.5, 0.3, 0.45, 0.2],
+            font: "sans-bold".into(),
+            size: 40.0,
+            cmyk: [0.0, 0.0, 0.0, 100.0],
+            align: "left".into(),
+            valign: "middle".into(),
+            shrink: true,
+            overprint: false,
+        };
+        crate::pages::mail_merge(&p, 1, &[vec!["Merged".into()]], &crate::pages::MergeSpec { fields: vec![field] }).unwrap();
+        let hit = pick(&p, 1, 0.6, 0.4, 2.0).unwrap().expect("merged text");
+        println!("{hit:?} gaps before {}", cyan_gaps(&p, hit.norm));
+        set_overprint(&p, 1, &[hit.index], true).unwrap();
+        println!("gaps after {}", cyan_gaps(&p, hit.norm));
+        let doc = Document::load(&p).unwrap();
+        let id = pagebox::page_id_for(&doc, 1).unwrap();
+        println!("{}", String::from_utf8_lossy(&doc.get_page_content(id)));
     }
 
     /// `MP_OBJECTS_PDF=file.pdf cargo test spot_file -- --nocapture`

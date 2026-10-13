@@ -2296,6 +2296,14 @@ function renderSelectPanel() {
   const box = document.getElementById("selOverprint");
   box.checked = n > 0 && on === n;
   box.indeterminate = on > 0 && on < n;
+  // Overprint is only for 100% black and spot colours (it can always be
+  // turned off again).
+  const allowed = n > 0 && sel.items.every((o) => o.overprintable);
+  box.disabled = !allowed && on === 0;
+  box.parentElement.classList.toggle("disabled", box.disabled);
+  document.getElementById("selOverprintNote").textContent = n && !allowed
+    ? "Overprint is only for 100% black or spot colours. Convert the colour to a spot colour below first."
+    : "";
 }
 
 // Blue outlines round the selection (moved by `sel.offset` while dragging).
@@ -2354,7 +2362,7 @@ async function runObjectEdit(args, label) {
     if (args.action === "spot" && res.changed) setSelResult(`✓ Now in spot colour "${args.name}"`, "ok");
     if (args.action === "delete") setSelResult(`✓ Deleted ${res.changed} object${res.changed === 1 ? "" : "s"}`, "ok");
     if (res.skipped && args.action === "overprint") {
-      setSelResult(`${res.skipped === 1 ? "This is" : `${res.skipped} of these are`} RGB, which always knocks out. Use Convert RGB to CMYK first, then set overprint.`, "err");
+      setSelResult(`${res.skipped === 1 ? "One object isn't" : `${res.skipped} objects aren't`} 100% black or a spot colour, so ${res.skipped === 1 ? "it was" : "they were"} left as they are.`, "err");
     } else if (res.skipped && args.action === "spot") {
       setSelResult(`${res.skipped} object${res.skipped === 1 ? "" : "s"} couldn't be changed: placed graphics are left as they are.`, "err");
     } else if (res.skipped) {
