@@ -2394,3 +2394,32 @@ a:hover > .about__logo {
   color: var(--panel);
   border-color: var(--accent);
 }
+
+/* Selected Objects: convert to spot colour */
+.sel-spot {
+  margin: 6px 0 8px;
+}
+
+.sel-spot__label {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.sel-spot__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sel-spot__row input {
+  flex: 1;
+  min-width: 0;
+  background: var(--field);
+  border: 1px solid var(--field-border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+}

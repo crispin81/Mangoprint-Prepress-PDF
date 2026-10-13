@@ -2245,6 +2245,32 @@ function setSelResult(text, cls = "") {
 
 const KIND_NAMES = { path: "shape", text: "text run", image: "image", form: "placed graphic", group: "framed group" };
 
+// A plain name for a colour: "Spot Orange", "Spot Blue"…
+function spotNameFor(cmyk) {
+  const [c, m, y, k] = cmyk.map((v) => v / 100);
+  const r = (1 - c) * (1 - k);
+  const g = (1 - m) * (1 - k);
+  const b = (1 - y) * (1 - k);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const light = (max + min) / 2;
+  const sat = max === min ? 0 : (max - min) / (1 - Math.abs(2 * light - 1));
+  if (sat < 0.15 || max - min < 0.08) return light > 0.92 ? "Spot White" : light < 0.15 ? "Spot Black" : "Spot Grey";
+  let hue = 0;
+  if (max === r) hue = ((g - b) / (max - min) + 6) % 6;
+  else if (max === g) hue = (b - r) / (max - min) + 2;
+  else hue = (r - g) / (max - min) + 4;
+  hue *= 60;
+  const names = [
+    [15, "Red"], [40, "Orange"], [65, "Yellow"], [90, "Lime"], [160, "Green"],
+    [195, "Turquoise"], [255, "Blue"], [285, "Purple"], [330, "Pink"], [360, "Red"],
+  ];
+  let name = names.find(([upTo]) => hue < upTo)[1];
+  if (name === "Orange" && light < 0.35) name = "Brown";
+  if (light < 0.25 && name !== "Brown") name = `Dark ${name}`;
+  return `Spot ${name}`;
+}
+
 function renderSelectPanel() {
   const n = sel.items.length;
   const empty = document.getElementById("selEmpty");
@@ -2255,6 +2281,17 @@ function renderSelectPanel() {
   document.getElementById("selBody").classList.toggle("waiting", !n);
   document.getElementById("selCount").textContent =
     n === 1 ? `1 ${KIND_NAMES[sel.items[0].kind] || "object"} selected` : n ? `${n} objects selected` : "";
+  // Spot colour: the first selected colour, with a suggested name that
+  // can be typed over (kept until the selection changes).
+  const coloured = sel.items.find((o) => o.cmyk);
+  const key = sel.items.map((o) => o.index).join(",");
+  const nameInput = document.getElementById("selSpotName");
+  if (key !== sel.spotKey) {
+    sel.spotKey = key;
+    nameInput.value = coloured ? spotNameFor(coloured.cmyk) : "";
+  }
+  document.getElementById("selSpotSwatch").style.background = coloured ? cmykToCss(coloured.cmyk) : "transparent";
+  document.getElementById("selSpotBtn").disabled = !coloured;
   const on = sel.items.filter((o) => o.overprint).length;
   const box = document.getElementById("selOverprint");
   box.checked = n > 0 && on === n;
@@ -2301,15 +2338,19 @@ async function runObjectEdit(args, label) {
       dx: args.dx ?? null,
       dy: args.dy ?? null,
       on: args.on ?? null,
+      name: args.name ?? null,
+      cmyk: args.cmyk ?? null,
     });
     sel.items = res.objects;
     sel.offset = null;
     if (res.changed) setEdited(true);
+    if (args.action === "spot" && res.changed) setSelResult(`✓ Now in spot colour "${args.name}"`, "ok");
     if (args.action === "delete") setSelResult(`✓ Deleted ${res.changed} object${res.changed === 1 ? "" : "s"}`, "ok");
     if (res.skipped) {
       setSelResult(`${res.skipped} object${res.skipped === 1 ? "" : "s"} couldn't be moved: a shape that also clips other artwork has to stay put.`, "err");
     }
     if (recolour.picked) resetRecolour(); // its object numbers may have changed
+    if (args.action === "spot") updateSpotButton();
     state.separationNames = [];
     state.activeSeparations = new Set();
     loadSpotSwatches();
@@ -2427,6 +2468,16 @@ window.addEventListener("mouseup", async (ev) => {
 
 document.getElementById("selectToolBtn").addEventListener("click", () => setSelectTool(!state.selectTool));
 document.getElementById("selDeleteBtn").addEventListener("click", deleteSelection);
+document.getElementById("selSpotBtn").addEventListener("click", () => {
+  const coloured = sel.items.find((o) => o.cmyk);
+  const name = document.getElementById("selSpotName").value.trim();
+  if (!coloured) return;
+  if (!name) {
+    setSelResult("Give the spot colour a name.", "err");
+    return;
+  }
+  runObjectEdit({ action: "spot", name, cmyk: coloured.cmyk }, `Converting to ${name}…`);
+});
 document.getElementById("selClearBtn").addEventListener("click", clearSelection);
 document.getElementById("selOverprint").addEventListener("change", (ev) => {
   runObjectEdit({ action: "overprint", on: ev.target.checked }, ev.target.checked ? "Setting overprint…" : "Removing overprint…");

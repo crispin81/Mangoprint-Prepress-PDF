@@ -664,6 +664,8 @@ fn objects_edit(
     dx: Option<f64>,
     dy: Option<f64>,
     on: Option<bool>,
+    name: Option<String>,
+    cmyk: Option<[f64; 4]>,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
     hist: tauri::State<history::History>,
@@ -676,6 +678,7 @@ fn objects_edit(
         "move" => objects::move_objects(p, page, &indices, dx.unwrap_or(0.0), dy.unwrap_or(0.0))?,
         "delete" => objects::delete_objects(p, page, &indices)?,
         "overprint" => objects::set_overprint(p, page, &indices, on.unwrap_or(true))?,
+        "spot" => objects::to_spot(p, page, &indices, name.as_deref().unwrap_or(""), cmyk.unwrap_or([0.0, 0.0, 0.0, 100.0]))?,
         other => return Err(format!("Unknown edit '{other}'")),
     };
     invalidate_path(&cache, &path);

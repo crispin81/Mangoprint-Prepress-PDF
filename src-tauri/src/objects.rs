@@ -68,6 +68,9 @@ pub struct ObjInfo {
     pub overprint: bool,
     /// False for a shape that also sets a clipping path.
     pub movable: bool,
+    /// The object's colour as CMYK 0–100 (its fill, or its stroke if it
+    /// has no fill), for "convert to spot colour".
+    pub cmyk: Option<[f64; 4]>,
 }
 
 impl Obj {
@@ -117,6 +120,11 @@ impl Obj {
             norm: geom.norm(self.bbox(walk)?),
             overprint: self.overprint(walk),
             movable: self.movable(walk),
+            cmyk: self.paints.iter().find_map(|&i| {
+                let p = &walk.paints[i];
+                let c = if p.fills { &p.fill } else if p.strokes { &p.stroke } else { return None };
+                crate::recolour::colour_info(c).map(|c| c.cmyk)
+            }),
         })
     }
 }
@@ -375,6 +383,61 @@ fn as_device_cmyk(colour: &crate::overprint::Colour, restore: &[u8], stroke: boo
     Some((set, String::from_utf8_lossy(restore).into_owned()))
 }
 
+/// Repaints the objects in a new spot colour `name` whose CMYK equivalent
+/// (0–100) is `cmyk`: each shape or text run's fill becomes the spot at
+/// 100% (or its stroke, when it has no fill). Placed graphics can't be
+/// changed (that would change every copy) and count as skipped.
+pub fn to_spot(path: &Path, page: u32, indices: &[usize], name: &str, cmyk: [f64; 4]) -> Result<EditResult, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Give the spot colour a name.".into());
+    }
+    let mut l = load(path, page)?;
+    let mut edits = Edits::new();
+    let (mut changed, mut skipped) = (0, 0);
+    // A resource name of our own for this spot.
+    let key = format!("MPspot{}", name.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32)));
+    for o in l.selected(indices)? {
+        let mut any = false;
+        for &i in &o.paints {
+            let p = &l.walk.paints[i];
+            if p.stream != 0 || !matches!(p.top.kind, Kind::Path | Kind::Text) {
+                continue;
+            }
+            let (set, restore) = if p.fills {
+                (format!("/{key} cs 1 scn "), p.fill_restore.clone())
+            } else if p.strokes {
+                (format!("/{key} CS 1 SCN "), p.stroke_restore.clone())
+            } else {
+                continue;
+            };
+            insert(&mut edits, p.top.start, 1, set);
+            insert(&mut edits, p.top.end, 0, format!(" {}\n", String::from_utf8_lossy(&restore)));
+            any = true;
+        }
+        if any { changed += 1 } else { skipped += 1 }
+    }
+    if changed > 0 {
+        let c = cmyk.map(|v| Object::Real((v / 100.0).clamp(0.0, 1.0) as f32));
+        let mut tint = Dictionary::new();
+        tint.set("FunctionType", Object::Integer(2));
+        tint.set("Domain", Object::Array(vec![0.into(), 1.into()]));
+        tint.set("C0", Object::Array(vec![Object::Real(0.0); 4]));
+        tint.set("C1", Object::Array(c.to_vec()));
+        tint.set("N", Object::Integer(1));
+        let space = Object::Array(vec![
+            Object::Name(b"Separation".to_vec()),
+            Object::Name(name.as_bytes().to_vec()),
+            Object::Name(b"DeviceCMYK".to_vec()),
+            Object::Dictionary(tint),
+        ]);
+        let page_id = l.page_id;
+        add_resource(&mut l.doc, page_id, b"ColorSpace", key.as_bytes(), space)?;
+        l.save(path, edits)?;
+    }
+    Ok(EditResult { changed, skipped, objects: info(path, page, indices)? })
+}
+
 /// ExtGState resource name for a set of overprint settings.
 fn ovp_name(fill: bool, stroke: bool, mode: i64) -> String {
     format!("MPop{}{}{}", fill as u8, stroke as u8, mode.clamp(0, 1))
@@ -602,6 +665,25 @@ mod tests {
         if let Ok(out) = std::env::var("MP_OP_OUT") {
             std::fs::copy(&p, out).unwrap();
         }
+    }
+
+    /// `MP_OBJECTS_PDF=file.pdf cargo test spot_file -- --nocapture`
+    #[test]
+    fn spot_file() {
+        let Ok(src) = std::env::var("MP_OBJECTS_PDF") else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("t.pdf");
+        std::fs::copy(&src, &p).unwrap();
+        let boxed = pick(&p, 1, 100.0 / 595.0, 1.0 - 700.0 / 842.0, 2.0).unwrap().expect("box");
+        let r = to_spot(&p, 1, &[boxed.index], "Spot Red", boxed.cmyk.unwrap()).unwrap();
+        assert_eq!(r.changed, 1);
+        let spots = crate::colorcheck::spot_names(&p).unwrap();
+        println!("spots {spots:?}, colour {:?}", r.objects[0].cmyk);
+        assert!(spots.iter().any(|s| s == "Spot Red"));
+        let plates = tempfile::TempDir::new().unwrap();
+        let found = crate::gs::ensure_separations(&p, 1, 36, plates.path()).unwrap();
+        println!("plates {:?}", found.iter().map(|(n, _)| n).collect::<Vec<_>>());
+        assert!(found.iter().any(|(n, _)| n == "Spot Red"));
     }
 
     #[test]

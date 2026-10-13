@@ -319,6 +319,14 @@
                 <input type="checkbox" id="selOverprint" />
                 Overprint (fill and stroke)
               </label>
+              <div class="sel-spot">
+                <span class="sel-spot__label">Convert to spot colour</span>
+                <div class="sel-spot__row">
+                  <span class="swatch" id="selSpotSwatch" title="The selected object's colour, used as the spot colour's CMYK equivalent"></span>
+                  <input type="text" id="selSpotName" maxlength="60" placeholder="Spot colour name" title="Name of the spot colour (type to rename it)" />
+                  <button id="selSpotBtn" title="Repaint the selection in this spot colour at 100%">Convert</button>
+                </div>
+              </div>
               <div class="fix-row">
                 <button id="selDeleteBtn">Delete</button>
                 <button id="selClearBtn">Clear selection</button>

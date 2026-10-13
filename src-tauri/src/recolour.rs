@@ -347,7 +347,7 @@ fn hex(r: f64, g: f64, b: f64) -> String {
     format!("#{:02x}{:02x}{:02x}", c(r), c(g), c(b))
 }
 
-fn colour_info(c: &Colour) -> Option<ColourInfo> {
+pub(crate) fn colour_info(c: &Colour) -> Option<ColourInfo> {
     let pct = |v: f64| (v * 100.0).round();
     Some(match c {
         Colour::Cmyk([cc, m, y, k]) => ColourInfo {
