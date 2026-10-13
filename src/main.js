@@ -2491,11 +2491,15 @@ els.viewport.addEventListener("mousedown", (ev) => {
   if (!state.selectTool || !view.page || ev.button !== 0 || sel.busy) return;
   ev.preventDefault();
   const [fx, fy] = pointerFraction(ev);
-  const d = { x0: ev.clientX, y0: ev.clientY, fx0: fx, fy0: fy, moved: false, shift: ev.shiftKey, hit: undefined, marquee: ev.ctrlKey };
+  // Shift or Ctrl add to the selection (a click toggles an object); a
+  // Ctrl drag always draws a selection box, even starting on an object.
+  const ctrl = ev.ctrlKey || ev.metaKey;
+  const d = { x0: ev.clientX, y0: ev.clientY, fx0: fx, fy0: fy, moved: false, shift: ev.shiftKey || ctrl, hit: undefined, marquee: ctrl };
   selDrag = d;
   if (d.marquee) {
-    d.hit = null;
-    d.pick = Promise.resolve(null);
+    d.pick = invoke("object_pick", { path: state.path, page: state.page, x: fx, y: fy, tol: 4 / view.scale })
+      .catch(() => null)
+      .then((hit) => (d.hit = hit));
     return;
   }
   d.pick = invoke("object_pick", { path: state.path, page: state.page, x: fx, y: fy, tol: 4 / view.scale })
