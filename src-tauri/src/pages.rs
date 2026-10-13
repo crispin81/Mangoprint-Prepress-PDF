@@ -191,8 +191,9 @@ pub fn delete_page(path: &Path, page: u32) -> Result<u32, String> {
 // ---------------------------------------------------------------------------
 // Mail merge
 
-/// The values in a CSV file's first column, one per row, blank rows left out.
-pub fn read_csv(path: &Path) -> Result<Vec<String>, String> {
+/// The rows of a CSV file, each split into its columns. Blank rows are
+/// left out.
+pub fn read_csv(path: &Path) -> Result<Vec<Vec<String>>, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("Could not read the CSV file: {e}"))?;
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
     // UTF-8, or (as Excel often saves) a Windows / Latin-1 file.
@@ -200,57 +201,59 @@ pub fn read_csv(path: &Path) -> Result<Vec<String>, String> {
         Ok(s) => s.to_string(),
         Err(_) => bytes.iter().map(|&b| b as char).collect(),
     };
-    let mut out = Vec::new();
+    // Comma-separated unless the first line has more semicolons or tabs.
+    let first_line = text.lines().next().unwrap_or("");
+    let count = |c: char| first_line.matches(c).count();
+    let sep = [',', ';', '\t'].into_iter().max_by_key(|c| (count(*c), *c == ',')).unwrap_or(',');
+    let mut rows = Vec::new();
+    let mut row: Vec<String> = Vec::new();
     let mut field = String::new();
-    let mut first = true; // still in the row's first field
     let mut quoted = false;
     let mut chars = text.chars().peekable();
-    let end_row = |field: &mut String, first: &mut bool, out: &mut Vec<String>| {
-        let v = field.trim().to_string();
-        if !v.is_empty() {
-            out.push(v);
-        }
+    let end_row = |field: &mut String, row: &mut Vec<String>, rows: &mut Vec<Vec<String>>| {
+        row.push(field.trim().to_string());
         field.clear();
-        *first = true;
+        let r = std::mem::take(row);
+        if r.iter().any(|v| !v.is_empty()) {
+            rows.push(r);
+        }
     };
     while let Some(c) = chars.next() {
         if quoted {
             if c == '"' {
                 if chars.peek() == Some(&'"') {
                     chars.next();
-                    if first {
-                        field.push('"');
-                    }
+                    field.push('"');
                 } else {
                     quoted = false;
                 }
-            } else if first {
+            } else {
                 field.push(c);
             }
             continue;
         }
         match c {
             '"' => quoted = true,
-            ',' | ';' | '\t' => first = false,
+            c if c == sep => row.push(std::mem::take(&mut field).trim().to_string()),
             '\r' => {
                 if chars.peek() == Some(&'\n') {
                     chars.next();
                 }
-                end_row(&mut field, &mut first, &mut out);
+                end_row(&mut field, &mut row, &mut rows);
             }
-            '\n' => end_row(&mut field, &mut first, &mut out),
-            _ if first => field.push(c),
-            _ => {}
+            '\n' => end_row(&mut field, &mut row, &mut rows),
+            _ => field.push(c),
         }
     }
-    end_row(&mut field, &mut first, &mut out);
-    Ok(out)
+    end_row(&mut field, &mut row, &mut rows);
+    Ok(rows)
 }
 
+/// One text box of a mail merge.
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct MergeSpec {
-    /// The text box as [left, top, width, height] of the displayed page.
+pub struct MergeField {
+    /// The box as [left, top, width, height] of the displayed page.
     pub rect: [f64; 4],
     /// "sans", "sans-bold", "serif" or "mono".
     pub font: String,
@@ -265,6 +268,12 @@ pub struct MergeSpec {
     /// Make text that's too wide for the box smaller so it fits.
     pub shrink: bool,
     pub overprint: bool,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeSpec {
+    pub fields: Vec<MergeField>,
 }
 
 /// PostScript hex string of `s` in Latin-1 (characters outside it become `?`).
@@ -282,74 +291,85 @@ fn ps_hex(s: &str) -> String {
     out
 }
 
-/// A PostScript program drawing one page per value, each the size of the
-/// template page's MediaBox, with the value set in the box.
-fn merge_program(values: &[String], spec: &MergeSpec, media: [f64; 4], centre: (f64, f64), box_wh: (f64, f64), rotate: i32) -> String {
-    let font = match spec.font.as_str() {
-        "sans-bold" => "NimbusSans-Bold",
-        "serif" => "NimbusRoman-Regular",
-        "mono" => "NimbusMonoPS-Regular",
-        _ => "NimbusSans-Regular",
-    };
+/// Where a field's box sits on the page: its centre in PDF space and its
+/// width and height as displayed.
+struct Placed<'a> {
+    field: &'a MergeField,
+    centre: (f64, f64),
+    size: (f64, f64),
+}
+
+/// A PostScript program drawing one page per row, each the size of the
+/// template page's MediaBox, with each of the row's values set in its box.
+fn merge_program(rows: &[Vec<String>], placed: &[Placed], media: [f64; 4], rotate: i32) -> String {
     let f = |v: f64| format!("{v:.4}");
-    let (bw, bh) = box_wh;
-    let x = match spec.align.as_str() {
-        "left" => "BW -2 div".to_string(),
-        "right" => "BW 2 div sw sub".to_string(),
-        _ => "sw -2 div".to_string(),
-    };
-    let y = match spec.valign.as_str() {
-        "top" => "BH 2 div fs 0.72 mul sub",
-        "bottom" => "BH -2 div fs 0.22 mul add",
-        _ => "fs 0.35 mul neg",
-    };
-    let [c, m, ye, k] = spec.cmyk.map(|v| (v / 100.0).clamp(0.0, 1.0));
     let mut ps = format!(
-        "%!PS\n\
-         << /PageSize [{pw} {ph}] >> setpagedevice\n\
-         /MPFont /{font} findfont dup length dict begin\n\
-         {{ 1 index /FID ne {{ def }} {{ pop pop }} ifelse }} forall\n\
-         /Encoding ISOLatin1Encoding def currentdict end definefont pop\n\
-         /BW {bw} def /BH {bh} def /SIZE {size} def\n\
-         /MPshow {{\n\
-           /s exch def /fs SIZE def\n\
-           /MPFont findfont fs scalefont setfont s stringwidth pop /sw exch def\n\
-           {shrink} sw BW gt and {{\n\
-             /fs SIZE BW mul sw div def\n\
-             /MPFont findfont fs scalefont setfont s stringwidth pop /sw exch def\n\
-           }} if\n\
-           gsave {cx} {cy} translate {rotate} rotate\n\
-           {c} {m} {ye} {k} setcmykcolor {ovp} setoverprint\n\
-           {x} {y} moveto s show\n\
-           grestore showpage\n\
-         }} def\n",
-        pw = f(media[2] - media[0]),
-        ph = f(media[3] - media[1]),
-        bw = f(bw),
-        bh = f(bh),
-        size = f(spec.size.max(0.5)),
-        shrink = spec.shrink,
-        cx = f(centre.0 - media[0]),
-        cy = f(centre.1 - media[1]),
-        rotate = rotate,
-        c = f(c),
-        m = f(m),
-        ye = f(ye),
-        k = f(k),
-        ovp = spec.overprint,
+        "%!PS\n<< /PageSize [{} {}] >> setpagedevice\n",
+        f(media[2] - media[0]),
+        f(media[3] - media[1])
     );
-    for v in values {
-        ps.push_str(&ps_hex(v));
-        ps.push_str(" MPshow\n");
+    for (j, p) in placed.iter().enumerate() {
+        let spec = p.field;
+        let font = match spec.font.as_str() {
+            "sans-bold" => "NimbusSans-Bold",
+            "serif" => "NimbusRoman-Regular",
+            "mono" => "NimbusMonoPS-Regular",
+            _ => "NimbusSans-Regular",
+        };
+        let (bw, bh) = (f(p.size.0), f(p.size.1));
+        let x = match spec.align.as_str() {
+            "left" => format!("{bw} -2 div"),
+            "right" => format!("{bw} 2 div sw sub"),
+            _ => "sw -2 div".to_string(),
+        };
+        let y = match spec.valign.as_str() {
+            "top" => format!("{bh} 2 div fs 0.72 mul sub"),
+            "bottom" => format!("{bh} -2 div fs 0.22 mul add"),
+            _ => "fs 0.35 mul neg".to_string(),
+        };
+        let [c, m, ye, k] = spec.cmyk.map(|v| f((v / 100.0).clamp(0.0, 1.0)));
+        let size = f(spec.size.max(0.5));
+        ps.push_str(&format!(
+            "/MPFont{j} /{font} findfont dup length dict begin\n\
+             {{ 1 index /FID ne {{ def }} {{ pop pop }} ifelse }} forall\n\
+             /Encoding ISOLatin1Encoding def currentdict end definefont pop\n\
+             /MPshow{j} {{\n\
+               /s exch def /fs {size} def\n\
+               /MPFont{j} findfont fs scalefont setfont s stringwidth pop /sw exch def\n\
+               {shrink} sw {bw} gt and {{\n\
+                 /fs {size} {bw} mul sw div def\n\
+                 /MPFont{j} findfont fs scalefont setfont s stringwidth pop /sw exch def\n\
+               }} if\n\
+               gsave {cx} {cy} translate {rotate} rotate\n\
+               {c} {m} {ye} {k} setcmykcolor {ovp} setoverprint\n\
+               {x} {y} moveto s show\n\
+               grestore\n\
+             }} def\n",
+            shrink = spec.shrink,
+            cx = f(p.centre.0 - media[0]),
+            cy = f(p.centre.1 - media[1]),
+            ovp = spec.overprint,
+        ));
+    }
+    for row in rows {
+        for (j, _) in placed.iter().enumerate() {
+            let v = row.get(j).map(String::as_str).unwrap_or("");
+            ps.push_str(&format!("{} MPshow{j} ", ps_hex(v)));
+        }
+        ps.push_str("showpage\n");
     }
     ps
 }
 
-/// Replaces page `page` with one copy of it per value, each with the value
-/// set in the box described by `spec`. Returns the number of pages made.
-pub fn mail_merge(path: &Path, page: u32, values: &[String], spec: &MergeSpec) -> Result<u32, String> {
-    if values.is_empty() {
-        return Err("The CSV file has no values to merge.".into());
+/// Replaces page `page` with one copy of it per row, each with the row's
+/// values (one per field, in order) set in the fields' boxes. Returns the
+/// number of pages made.
+pub fn mail_merge(path: &Path, page: u32, rows: &[Vec<String>], spec: &MergeSpec) -> Result<u32, String> {
+    if rows.is_empty() {
+        return Err("The CSV file has no rows to merge.".into());
+    }
+    if spec.fields.is_empty() {
+        return Err("Draw a box for the text first.".into());
     }
     let mut doc = load(path)?;
     let template = pagebox::page_id_for(&doc, page)?;
@@ -358,20 +378,26 @@ pub fn mail_merge(path: &Path, page: u32, values: &[String], spec: &MergeSpec) -
     let media = geom.media;
     let (mw, mh) = (media[2] - media[0], media[3] - media[1]);
     let (dw, dh) = if geom.rotate == 90 || geom.rotate == 270 { (mh, mw) } else { (mw, mh) };
-    let [l, t, w, h] = spec.rect;
-    let centre = geom.to_pdf(l + w / 2.0, t + h / 2.0);
+    let placed: Vec<Placed> = spec
+        .fields
+        .iter()
+        .map(|field| {
+            let [l, t, w, h] = field.rect;
+            Placed { field, centre: geom.to_pdf(l + w / 2.0, t + h / 2.0), size: (w * dw, h * dh) }
+        })
+        .collect();
 
-    // Typeset the values with Ghostscript: one page each, fonts embedded.
+    // Typeset the values with Ghostscript: one page per row, fonts embedded.
     let tmp = tempfile::TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
     let ps_path = tmp.path().join("merge.ps");
     let pdf_path = tmp.path().join("merge.pdf");
-    let program = merge_program(values, spec, media, centre, (w * dw, h * dh), geom.rotate);
+    let program = merge_program(rows, &placed, media, geom.rotate);
     std::fs::write(&ps_path, program).map_err(|e| format!("Could not write the mail merge program: {e}"))?;
     gs::postscript_to_pdf(&ps_path, &pdf_path)?;
     let mut text = load(&pdf_path)?;
     let text_pages: Vec<ObjectId> = text.get_pages().into_values().collect();
-    if text_pages.len() != values.len() {
-        return Err(format!("Expected {} pages of merged text but got {}.", values.len(), text_pages.len()));
+    if text_pages.len() != rows.len() {
+        return Err(format!("Expected {} pages of merged text but got {}.", rows.len(), text_pages.len()));
     }
 
     // Each typeset page becomes a form XObject in the document.
@@ -457,8 +483,13 @@ mod tests {
     fn csv_first_column() {
         let dir = tempfile::TempDir::new().unwrap();
         let p = dir.path().join("a.csv");
-        std::fs::write(&p, "\u{FEFF}Name\r\n\"Smith, Jo\",x\n\nO'Neil\n\"Say \"\"hi\"\"\"\n£5").unwrap();
-        assert_eq!(read_csv(&p).unwrap(), ["Name", "Smith, Jo", "O'Neil", "Say \"hi\"", "£5"]);
+        std::fs::write(&p, "\u{FEFF}Name,Town\r\n\"Smith, Jo\",Leeds\n\nO'Neil\n\"Say \"\"hi\"\"\"\n£5").unwrap();
+        let rows = read_csv(&p).unwrap();
+        let first: Vec<&str> = rows.iter().map(|r| r[0].as_str()).collect();
+        assert_eq!(first, ["Name", "Smith, Jo", "O'Neil", "Say \"hi\"", "£5"]);
+        assert_eq!(rows[1], ["Smith, Jo", "Leeds"]);
+        std::fs::write(&p, "a;b;c\n1;2;3\n").unwrap();
+        assert_eq!(read_csv(&p).unwrap()[1], ["1", "2", "3"]);
     }
 
     #[test]
@@ -490,18 +521,22 @@ mod tests {
         assert_eq!(after[0], before[1]);
         move_page(&p, 3, 1).unwrap();
         assert_eq!(ids(&p), before);
-        let spec = MergeSpec {
-            rect: [0.1, 0.1, 0.5, 0.1],
+        let field = |rect: [f64; 4], align: &str| MergeField {
+            rect,
             font: "sans".into(),
             size: 24.0,
             cmyk: [0.0, 100.0, 0.0, 0.0],
-            align: "centre".into(),
+            align: align.into(),
             valign: "middle".into(),
             shrink: true,
             overprint: false,
         };
-        let vals: Vec<String> = ["Alice", "Bob £5", "A very long name that will not fit the box at all"].iter().map(|s| s.to_string()).collect();
-        let made = mail_merge(&p, 1, &vals, &spec).unwrap();
+        let spec = MergeSpec { fields: vec![field([0.1, 0.1, 0.5, 0.1], "centre"), field([0.1, 0.25, 0.5, 0.05], "left")] };
+        let rows: Vec<Vec<String>> = [["Alice", "Leeds"], ["Bob £5", "York"], ["A very long name that will not fit the box at all", ""]]
+            .iter()
+            .map(|r| r.iter().map(|s| s.to_string()).collect())
+            .collect();
+        let made = mail_merge(&p, 1, &rows, &spec).unwrap();
         assert_eq!(made, 3);
         assert_eq!(pagebox::page_count(&p).unwrap(), n2 + 2);
         let fonts = crate::fonts::list_fonts(&p).unwrap();

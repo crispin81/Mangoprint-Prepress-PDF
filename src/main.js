@@ -204,7 +204,7 @@ async function showTab(tab, fresh) {
   renderTabs();
   toolsOff();
   clearSelection();
-  merge.box = null;
+  clearMergeBoxes();
   renderMergePanel();
   setProgress(fresh ? 15 : 20, "Counting pages…");
   const pageCount = await invoke("open_pdf", { path: tab.path });
@@ -2022,7 +2022,7 @@ async function dropTab(tab) {
 function showNoFile() {
   toolsOff();
   clearSelection();
-  merge.box = null;
+  clearMergeBoxes();
   state.path = null;
   state.sourcePath = null;
   setEdited(false);
@@ -2084,7 +2084,7 @@ async function afterPagesChanged(count, page) {
   state.page = Math.min(Math.max(1, page), count);
   setEdited(true);
   clearSelection();
-  merge.box = null; // its page may have moved
+  clearMergeBoxes(); // its page may have moved
   renderMergePanel();
   resetRecolour();
   state.separationNames = [];
@@ -2493,11 +2493,20 @@ window.addEventListener("keydown", (ev) => {
 
 // --- mail merge ---
 // Drag a box on the page, choose a CSV file, and the page is replaced by
-// one copy per row of the CSV's first column, each with that row's text
-// set in the box (font embedded, CMYK colour).
+// one copy per CSV row with that row's text set in the box (font
+// embedded, CMYK colour). The + adds more boxes, each showing its own
+// column with its own font, size and colour.
 
-const merge = { box: null, values: null, csvName: "" };
+const merge = { page: null, fields: [], active: -1, rows: null, csvName: "" };
 let mergeDrag = null;
+
+function clearMergeBoxes() {
+  merge.fields = [];
+  merge.active = -1;
+  merge.page = null;
+}
+
+const activeField = () => merge.fields[merge.active] || null;
 
 function setMergeTool(on) {
   if (on) toolsOff("merge");
@@ -2529,9 +2538,61 @@ function positionMergeBar() {
 }
 new ResizeObserver(positionMergeBar).observe(els.viewport);
 
-function mergeValues() {
-  if (!merge.values) return [];
-  return document.getElementById("mergeHeader").checked ? merge.values.slice(1) : merge.values;
+const mergeEl = (id) => document.getElementById(id);
+
+// The box settings shown in the bar.
+function readMergeInputs() {
+  return {
+    column: Number(mergeEl("mergeColumn").value) || 0,
+    font: mergeEl("mergeFont").value,
+    size: Number.parseFloat(mergeEl("mergeSize").value) || 12,
+    cmyk: rcValues("merge"),
+    align: mergeEl("mergeAlign").value,
+    valign: mergeEl("mergeValign").value,
+    shrink: mergeEl("mergeShrink").checked,
+    overprint: mergeEl("mergeOverprint").checked,
+  };
+}
+
+function showFieldInBar(f) {
+  mergeEl("mergeFont").value = f.font;
+  mergeEl("mergeSize").value = String(f.size);
+  mergeEl("mergeAlign").value = f.align;
+  mergeEl("mergeValign").value = f.valign;
+  mergeEl("mergeShrink").checked = f.shrink;
+  mergeEl("mergeOverprint").checked = f.overprint;
+  rcInputs("merge").forEach((input, i) => (input.value = String(f.cmyk[i])));
+  updateNewSwatches();
+}
+
+// A new box takes the current settings and the next column along.
+function newMergeField() {
+  return { ...readMergeInputs(), rect: null, column: merge.fields.length };
+}
+
+function activateField(i) {
+  merge.active = i;
+  const f = activeField();
+  if (f) showFieldInBar(f);
+  renderMergePanel();
+  drawBoxOverlay();
+}
+
+function mergeRows() {
+  if (!merge.rows) return [];
+  return mergeEl("mergeHeader").checked ? merge.rows.slice(1) : merge.rows;
+}
+
+// Column names: the heading row when "Skip first row" is on, otherwise
+// numbers with the first value as a reminder.
+function mergeColumns() {
+  const count = Math.max(1, merge.fields.length, ...(merge.rows || []).map((r) => r.length));
+  const first = merge.rows ? merge.rows[0] || [] : [];
+  const sample = mergeRows()[0] || [];
+  return Array.from({ length: count }, (_, i) => {
+    if (mergeEl("mergeHeader").checked && first[i]) return first[i];
+    return sample[i] ? `Column ${i + 1} (${sample[i]})` : `Column ${i + 1}`;
+  });
 }
 
 function setMergeResult(text, cls = "") {
@@ -2541,35 +2602,83 @@ function setMergeResult(text, cls = "") {
 }
 
 function renderMergePanel() {
-  const box = merge.box;
-  const empty = document.getElementById("mergeEmpty");
-  empty.classList.toggle("hidden", !!box);
-  document.getElementById("mergeBody").classList.toggle("hidden", !box);
-  document.getElementById("mergeOptions").classList.toggle("waiting", !box);
-  const values = mergeValues();
-  const info = document.getElementById("mergeCsvInfo");
-  if (!merge.values) info.textContent = "";
-  else if (!values.length) info.textContent = `${merge.csvName}: no rows to merge.`;
+  const columns = mergeColumns();
+  const f = activeField();
+
+  // One chip per box; the active one is highlighted.
+  const chips = mergeEl("mergeFields");
+  chips.replaceChildren();
+  merge.fields.forEach((field, i) => {
+    const chip = document.createElement("span");
+    chip.className = `merge-chip${i === merge.active ? " active" : ""}${field.rect ? "" : " empty"}`;
+    const name = columns[field.column] || `Column ${field.column + 1}`;
+    chip.title = `Box ${i + 1}: ${name}`;
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "merge-chip__label";
+    label.textContent = `${i + 1} · ${name.length > 14 ? `${name.slice(0, 13)}…` : name}`;
+    label.addEventListener("click", () => activateField(i));
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "merge-chip__del";
+    del.textContent = "×";
+    del.title = `Remove box ${i + 1}`;
+    del.addEventListener("click", () => {
+      merge.fields.splice(i, 1);
+      if (!merge.fields.length) clearMergeBoxes();
+      activateField(Math.min(merge.active, merge.fields.length - 1));
+    });
+    chip.append(label, del);
+    chips.appendChild(chip);
+  });
+  mergeEl("mergeAddBtn").disabled = !merge.fields.some((x) => x.rect);
+
+  const hint = mergeEl("mergeEmpty");
+  hint.textContent = !merge.fields.length
+    ? "Drag a box where the text should go."
+    : f && !f.rect
+      ? `Drag a box for box ${merge.active + 1}.`
+      : "";
+  hint.classList.toggle("hidden", !hint.textContent);
+  mergeEl("mergeOptions").classList.toggle("waiting", !f);
+
+  const select = mergeEl("mergeColumn");
+  select.replaceChildren(
+    ...columns.map((name, i) => {
+      const o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = name;
+      return o;
+    }),
+  );
+  if (f) select.value = String(Math.min(f.column, columns.length - 1));
+
+  const rows = mergeRows();
+  const info = mergeEl("mergeCsvInfo");
+  if (!merge.rows) info.textContent = "";
+  else if (!rows.length) info.textContent = `${merge.csvName}: no rows to merge.`;
   else {
-    const first = values.slice(0, 3).map((v) => `"${v}"`).join(", ");
-    info.textContent = `${merge.csvName}: ${values.length} row${values.length === 1 ? "" : "s"} (${first}${values.length > 3 ? ", …" : ""})`;
+    const n = Math.max(...merge.rows.map((r) => r.length));
+    info.textContent = `${merge.csvName}: ${rows.length} row${rows.length === 1 ? "" : "s"}, ${n} column${n === 1 ? "" : "s"}`;
   }
-  const run = document.getElementById("mergeRunBtn");
-  run.disabled = !box || !values.length;
-  run.textContent = values.length ? `Create ${values.length} page${values.length === 1 ? "" : "s"}` : "Create pages";
+  const run = mergeEl("mergeRunBtn");
+  run.disabled = !merge.fields.some((x) => x.rect) || !rows.length;
+  run.textContent = rows.length ? `Create ${rows.length} page${rows.length === 1 ? "" : "s"}` : "Create pages";
 }
 
 function drawMergeOverlay(svg) {
-  const box = merge.box;
-  if (!box || box.page !== state.page) return;
-  const [x, y, w, h] = box.rect;
-  const r = document.createElementNS(SVG_NS, "rect");
-  r.setAttribute("x", x);
-  r.setAttribute("y", y);
-  r.setAttribute("width", w);
-  r.setAttribute("height", h);
-  r.setAttribute("class", "merge-box");
-  svg.appendChild(r);
+  if (merge.page !== state.page) return;
+  merge.fields.forEach((f, i) => {
+    if (!f.rect) return;
+    const [x, y, w, h] = f.rect;
+    const r = document.createElementNS(SVG_NS, "rect");
+    r.setAttribute("x", x);
+    r.setAttribute("y", y);
+    r.setAttribute("width", w);
+    r.setAttribute("height", h);
+    r.setAttribute("class", `merge-box${i === merge.active ? " active" : ""}`);
+    svg.appendChild(r);
+  });
 }
 
 els.viewport.addEventListener("mousedown", (ev) => {
@@ -2592,10 +2701,24 @@ window.addEventListener("mouseup", (ev) => {
   const [bx, by] = pointerFraction(ev).map(clip);
   const rect = [Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay)];
   if (rect[2] < 0.01 || rect[3] < 0.005) {
-    setMergeResult("Drag out a box on the page for the text.", "err");
+    // A click: pick the box under the pointer.
+    const hit = merge.page === state.page
+      ? merge.fields.findIndex((f) => f.rect && ax >= f.rect[0] && ax <= f.rect[0] + f.rect[2] && ay >= f.rect[1] && ay <= f.rect[1] + f.rect[3])
+      : -1;
+    if (hit >= 0) activateField(hit);
+    else setMergeResult("Drag out a box on the page for the text.", "err");
     return;
   }
-  merge.box = { page: state.page, rect };
+  // All the boxes go on one page: drawing on another page starts again.
+  if (merge.page !== null && merge.page !== state.page) clearMergeBoxes();
+  let f = activeField();
+  if (!f) {
+    f = newMergeField();
+    merge.fields.push(f);
+    merge.active = merge.fields.length - 1;
+  }
+  f.rect = rect;
+  merge.page = state.page;
   setMergeResult("");
   renderMergePanel();
   drawBoxOverlay();
@@ -2606,39 +2729,43 @@ async function chooseMergeCsv() {
   if (!selected) return;
   const path = Array.isArray(selected) ? selected[0] : selected;
   try {
-    merge.values = await invoke("merge_read_csv", { path });
+    merge.rows = await invoke("merge_read_csv", { path });
     merge.csvName = baseName(path);
     setMergeResult("");
   } catch (err) {
-    merge.values = null;
+    merge.rows = null;
     setMergeResult(String(err), "err");
   }
   renderMergePanel();
 }
 
 async function runMerge() {
-  const values = mergeValues();
-  const box = merge.box;
-  if (!box || !values.length || !state.path) return;
+  const placed = merge.fields.filter((f) => f.rect);
+  const page = merge.page;
+  // Each row's values, one per box; rows that would be blank are left out.
+  const rows = mergeRows()
+    .map((r) => placed.map((f) => r[f.column] ?? ""))
+    .filter((r) => r.some((v) => v));
+  if (!placed.length || !rows.length || !state.path || !page) return;
   const spec = {
-    rect: box.rect,
-    font: document.getElementById("mergeFont").value,
-    size: Number.parseFloat(document.getElementById("mergeSize").value) || 12,
-    cmyk: rcValues("merge"),
-    align: document.getElementById("mergeAlign").value,
-    valign: document.getElementById("mergeValign").value,
-    shrink: document.getElementById("mergeShrink").checked,
-    overprint: document.getElementById("mergeOverprint").checked,
+    fields: placed.map((f) => ({
+      rect: f.rect,
+      font: f.font,
+      size: f.size,
+      cmyk: f.cmyk,
+      align: f.align,
+      valign: f.valign,
+      shrink: f.shrink,
+      overprint: f.overprint,
+    })),
   };
-  const run = document.getElementById("mergeRunBtn");
-  run.disabled = true;
+  mergeEl("mergeRunBtn").disabled = true;
   setMergeResult("");
-  setProgress(30, `Making ${values.length} page${values.length === 1 ? "" : "s"}…`);
+  setProgress(30, `Making ${rows.length} page${rows.length === 1 ? "" : "s"}…`);
   try {
-    const made = await invoke("mail_merge", { path: state.path, page: box.page, values, spec });
-    merge.box = null;
-    await afterPagesChanged(state.pageCount - 1 + made, box.page);
-    setMergeResult(`✓ Made ${made} page${made === 1 ? "" : "s"} (${made === 1 ? `page ${box.page}` : `pages ${box.page}–${box.page + made - 1}`})`, "ok");
+    const made = await invoke("mail_merge", { path: state.path, page, rows, spec });
+    await afterPagesChanged(state.pageCount - 1 + made, page);
+    setMergeResult(`✓ Made ${made} page${made === 1 ? "" : "s"} (${made === 1 ? `page ${page}` : `pages ${page}–${page + made - 1}`})`, "ok");
   } catch (err) {
     setMergeResult(String(err), "err");
   } finally {
@@ -2653,17 +2780,32 @@ function initMerge() {
   const k = rcInputs("merge")[3];
   if (k) k.value = "100";
   updateNewSwatches();
-  document.getElementById("mergeToolBtn").addEventListener("click", () => setMergeTool(!state.mergeTool));
-  document.getElementById("mergeCloseBtn").addEventListener("click", () => setMergeTool(false));
-  document.getElementById("mergeCsvBtn").addEventListener("click", chooseMergeCsv);
-  document.getElementById("mergeHeader").addEventListener("change", renderMergePanel);
-  document.getElementById("mergeRunBtn").addEventListener("click", runMerge);
-  document.getElementById("mergeClearBtn").addEventListener("click", () => {
-    merge.box = null;
+  mergeEl("mergeToolBtn").addEventListener("click", () => setMergeTool(!state.mergeTool));
+  mergeEl("mergeCloseBtn").addEventListener("click", () => setMergeTool(false));
+  mergeEl("mergeCsvBtn").addEventListener("click", chooseMergeCsv);
+  mergeEl("mergeHeader").addEventListener("change", renderMergePanel);
+  mergeEl("mergeRunBtn").addEventListener("click", runMerge);
+  mergeEl("mergeAddBtn").addEventListener("click", () => {
+    merge.fields.push(newMergeField());
+    activateField(merge.fields.length - 1);
+  });
+  mergeEl("mergeClearBtn").addEventListener("click", () => {
+    clearMergeBoxes();
     setMergeResult("");
     renderMergePanel();
     drawBoxOverlay();
   });
+  // Changing a setting changes the selected box.
+  const save = () => {
+    const f = activeField();
+    if (!f) return;
+    Object.assign(f, readMergeInputs());
+    renderMergePanel();
+  };
+  for (const id of ["mergeColumn", "mergeFont", "mergeSize", "mergeAlign", "mergeValign", "mergeShrink", "mergeOverprint"]) {
+    mergeEl(id).addEventListener("change", save);
+  }
+  for (const input of rcInputs("merge")) input.addEventListener("change", save);
   renderMergePanel();
 }
 

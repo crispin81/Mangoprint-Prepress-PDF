@@ -739,18 +739,18 @@ fn delete_page(
     Ok(n)
 }
 
-/// Mail merge: the values in a CSV file's first column.
+/// Mail merge: the rows of a CSV file, split into columns.
 #[tauri::command(async)]
-fn merge_read_csv(path: String) -> Result<Vec<String>, String> {
+fn merge_read_csv(path: String) -> Result<Vec<Vec<String>>, String> {
     pages::read_csv(Path::new(&path))
 }
 
-/// Mail merge: replaces the page with one copy per value; returns how many.
+/// Mail merge: replaces the page with one copy per row; returns how many.
 #[tauri::command(async)]
 fn mail_merge(
     path: String,
     page: u32,
-    values: Vec<String>,
+    rows: Vec<Vec<String>>,
     spec: pages::MergeSpec,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
@@ -759,7 +759,7 @@ fn mail_merge(
 ) -> Result<u32, String> {
     let _w = write_lock(&doc)?;
     hist.snapshot(&path)?;
-    let n = pages::mail_merge(Path::new(&path), page, &values, &spec)?;
+    let n = pages::mail_merge(Path::new(&path), page, &rows, &spec)?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
     Ok(n)

@@ -115,15 +115,22 @@
       <div id="mergeBar" class="merge-bar hidden" role="toolbar" aria-label="Mail merge">
         <div class="merge-bar__row">
           <span class="merge-bar__title">Mail merge</span>
-          <span id="mergeEmpty" class="merge-bar__hint">Drag a box where the text should go.</span>
-          <div id="mergeBody" class="merge-bar__group">
-            <button id="mergeCsvBtn" type="button">Choose CSV…</button>
-            <label class="merge-bar__check" title="Leave out the first row, e.g. a column heading such as Name"><input type="checkbox" id="mergeHeader" /> Skip first row</label>
-          </div>
+          <button id="mergeCsvBtn" type="button">Choose CSV…</button>
+          <label class="merge-bar__check" title="Leave out the first row, e.g. column headings such as Name"><input type="checkbox" id="mergeHeader" /> Skip first row</label>
           <button id="mergeCloseBtn" type="button" class="merge-bar__close" title="Close mail merge (Esc or M)">×</button>
         </div>
         <span id="mergeCsvInfo" class="merge-bar__info"></span>
+        <div class="merge-bar__row">
+          <div id="mergeFields" class="merge-bar__fields"></div>
+          <button id="mergeAddBtn" type="button" class="merge-bar__add" title="Add another box, for another column of the CSV">+</button>
+        </div>
+        <span id="mergeEmpty" class="merge-bar__hint">Drag a box where the text should go.</span>
         <div id="mergeOptions" class="merge-bar__opts">
+          <div class="merge-bar__row">
+            <label class="merge-bar__field" title="Which CSV column goes in this box">Column
+              <select id="mergeColumn"></select>
+            </label>
+          </div>
           <div class="merge-bar__row">
             <select id="mergeFont" title="Font">
               <option value="sans" title="Like Helvetica">Sans</option>
@@ -157,7 +164,7 @@
           </div>
           <div class="merge-bar__row">
             <span class="merge-bar__spacer"></span>
-            <button id="mergeClearBtn" type="button">Clear box</button>
+            <button id="mergeClearBtn" type="button">Clear boxes</button>
             <button id="mergeRunBtn" type="button" class="btn-primary">Create pages</button>
           </div>
         </div>

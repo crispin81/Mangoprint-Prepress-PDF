@@ -2106,3 +2106,77 @@ a:hover > .about__logo {
   flex: 1 1 100%;
   order: 2;
 }
+
+/* Mail merge boxes: one chip per box in the bar, the selected one bright. */
+.merge-bar__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+}
+
+.merge-chip {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--field-border);
+  border-radius: 12px;
+  background: var(--field);
+  overflow: hidden;
+}
+
+.merge-chip.active {
+  border-color: #ec008c;
+  background: rgba(236, 0, 140, 0.18);
+}
+
+.merge-chip.empty .merge-chip__label {
+  font-style: italic;
+  color: var(--muted);
+}
+
+.merge-chip__label,
+.merge-chip__del {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.merge-chip__del {
+  color: var(--faint);
+  padding-left: 2px;
+}
+
+.merge-chip__del:hover {
+  color: var(--danger);
+}
+
+.merge-bar__add {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  color: #6fcf7f;
+}
+
+.merge-bar__field select {
+  max-width: 220px;
+}
+
+#boxOverlay .merge-box.active {
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+  fill: rgba(236, 0, 140, 0.14);
+}
+
+.merge-bar .merge-bar__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+.merge-bar > .merge-bar__row:first-child {
+  padding-right: 20px;
+}
