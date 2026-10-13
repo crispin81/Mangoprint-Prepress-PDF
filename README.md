@@ -16,6 +16,7 @@ install on Windows.
 
 **[⬇ Download the latest version](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest)**
 
+- **2026-10-13 (v1.1.0):** Tabs for several PDFs, a Select tool to move, delete, recolour, overprint (100% black or spot colours) or convert objects to a named spot colour, a Global Colour Change panel, mail merge from a CSV (several boxes and columns, installed fonts, live preview), insert, delete, reorder and multi-select pages, undo and redo, rulers with guides, Save PDF as (Ctrl+S) and Print, a simulated view that shows spot inks as opaque, outlined text that stays grouped by line, and fold-away panel info
 - **2026-10-05 (v1.0.1):** Faster opening, a new Recolour tool (change one object or every object with the same fill or stroke), a Fonts panel that warns about fonts that aren't embedded, and a warning before closing with unexported changes
 - **2026-10-02 (v0.1.1):** Open PDFs by double-clicking them, with Open with, or by dragging them onto the window
 - **2026-10-01 (v0.1.0):** First public release: overprint preview, separations and ink readings, trim and bleed, RGB and spot colour checks and fixes, text to outlines
@@ -75,32 +76,47 @@ Windows 10 and 11 already include the WebView2 runtime the app needs.
 
 1. **Open a PDF** with the Open PDF button, by dragging it onto the
    window, or by double-clicking it (the installers register the app as a
-   PDF viewer; it also appears under **Open with**). Click the file name in
-   the toolbar to open another. Pages appear as thumbnails on the left; the page
-   itself is drawn as true vectors, sharp at any zoom, with images at their
-   own resolution.
+   PDF viewer; it also appears under **Open with**). Each PDF opens in its
+   own tab. Pages appear as thumbnails on the left; the page itself is drawn
+   as true vectors, sharp at any zoom, with images at their own resolution.
+   Rulers in mm run along the top and left: drag from them to add guides.
 2. **Check it.**
    - **Overprint Preview** — tick *Simulate overprinting* to see what an
      overprint-aware press will actually produce.
    - **Separations** — hover over the page to read the ink % of every
-     plate (CMYK and spot colours, plus total ink) at the cursor; click to
-     lock a reading (a gold padlock follows the cursor), click again to
-     release. Untick plates to inspect trapping and knockouts.
+     plate (CMYK and spot colours, plus total ink) at the cursor. Untick
+     plates to inspect trapping and knockouts. Spot inks show as opaque.
    - **Raster DPI of PDF** in the toolbar shows the effective resolution of
      the placed images on the page, plus *Vector* when there's vector art
      or text.
-   - **Select text** (on by default) lets you highlight live text, so you
-     can tell text from outlined artwork.
+   - **Select text** (the default when no tool is on) lets you highlight
+     live text, so you can tell text from outlined artwork.
    - A **white overprint warning** pops up on opening if anything white is
      set to overprint (it would vanish on press).
-3. **Fix it.** Everything in the gold *Apply edits to* box works on all
-   pages by default, or switch to *This page*:
+3. **Edit objects** with the **Select** tool (<kbd>V</kbd>): click, Shift- or
+   Ctrl-click, or drag a box to select. Drag or use the arrow keys to move,
+   <kbd>Delete</kbd> to remove.
+   - **Recolour** — new CMYK fill and stroke for the selection.
+   - **Selected Objects** — set to overprint (100% black or spot colours
+     only), convert to a named spot colour, delete.
+4. **Pages panel** — <kbd>+</kbd> or drag PDFs in to insert pages, drag
+   thumbnails to reorder, Ctrl/Shift-click to select several and the red ×
+   (or <kbd>Delete</kbd>) to delete them, ↺ ↻ to rotate.
+5. **Fix the whole document.** Everything in the gold *Apply edits to* box
+   works on all pages by default, or switch to *This page*:
+   - **Global Colour Change** — replace every object that shares the
+     selection's fill or stroke colour.
    - **Colour & Fonts** — check for RGB, convert RGB to CMYK, convert spot
-     colours to CMYK, convert text to outlines.
-   - **Page Rotation** — or use the ↺ ↻ arrows on a single thumbnail.
+     colours to CMYK, convert text to outlines (each line stays one group).
    - **Page Boxes** — trim (red) and bleed (blue) measured in mm in from
      each edge of the page; the lines move as you type.
-4. **Export PDF** saves a copy with your changes.
+6. **Mail merge** (<kbd>M</kbd>) — drag boxes on the page, choose a CSV and
+   each box takes a column, in an installed or built-in font (embedded),
+   with a live preview of the first row. One copy of the page is made per
+   row.
+7. **Save PDF as** (<kbd>Ctrl</kbd>+<kbd>S</kbd>) saves a copy with your
+   changes; the printer button prints it. <kbd>Ctrl</kbd>+<kbd>Z</kbd> /
+   <kbd>Ctrl</kbd>+<kbd>Y</kbd> undo and redo any edit.
 
 ### Keyboard and mouse
 
@@ -109,15 +125,18 @@ Windows 10 and 11 already include the WebView2 runtime the app needs.
 - <kbd>Ctrl</kbd>+mouse wheel, <kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>−</kbd> — zoom;
   <kbd>Ctrl</kbd>+<kbd>0</kbd> — fit page; <kbd>Ctrl</kbd>+<kbd>1</kbd> — actual size
 - Mouse wheel, <kbd>Page Up</kbd>/<kbd>Page Down</kbd>, <kbd>Home</kbd>/<kbd>End</kbd> — move between pages
-- <kbd>Esc</kbd> — leave the zoom tool / text selection
+- <kbd>V</kbd> — Select tool; <kbd>M</kbd> — mail merge
+- <kbd>Ctrl</kbd>+<kbd>S</kbd> — Save PDF as; <kbd>Ctrl</kbd>+<kbd>O</kbd> — open; <kbd>Ctrl</kbd>+<kbd>W</kbd> — close tab; <kbd>Ctrl</kbd>+<kbd>P</kbd> — print
+- <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> — undo / redo
+- <kbd>Esc</kbd> — leave the current tool
 
 ## Data safety
 
 - **Your original PDF is never modified.** Opening a file makes a working
   copy in a temporary folder; every edit and conversion goes to that copy.
-  Nothing reaches your files until you choose **Export PDF**, which writes
+  Nothing reaches your files until you choose **Save PDF as**, which writes
   a new file (named `…_edited.pdf` by default). The app asks before
-  discarding unexported changes.
+  closing a tab with unsaved changes.
 - **Conversions keep quality**: images stay at full resolution (no
   downsampling, JPEGs passed through untouched), existing CMYK values,
   overprint settings and page boxes are preserved, and vectors stay vectors.
