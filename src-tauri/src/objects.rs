@@ -354,6 +354,27 @@ pub fn delete_objects(path: &Path, page: u32, indices: &[usize]) -> Result<EditR
     Ok(EditResult { changed, skipped: 0, objects: Vec::new() })
 }
 
+/// Overprint only keeps the inks underneath when the colour is plain
+/// DeviceCMYK: grey, or CMYK in a colour profile, is painted as a full
+/// colour and knocks out. So an object being set to overprint has such a
+/// colour re-set as the same CMYK values for the duration (grey g becomes
+/// K = 1 - g). Returns (bytes before, bytes after) for a fill or stroke.
+fn as_device_cmyk(colour: &crate::overprint::Colour, restore: &[u8], stroke: bool) -> Option<(String, String)> {
+    use crate::overprint::Colour;
+    let op = if stroke { "K" } else { "k" };
+    let already = String::from_utf8_lossy(restore).trim_end().ends_with(&format!(" {op}"));
+    if already {
+        return None;
+    }
+    let v = match colour {
+        Colour::Gray(g) => [0.0, 0.0, 0.0, 1.0 - g],
+        Colour::Cmyk(c) => *c,
+        _ => return None, // RGB and spot colours have no plain CMYK value
+    };
+    let set = format!("{} {} {} {} {op}", num(v[0]), num(v[1]), num(v[2]), num(v[3]));
+    Some((set, String::from_utf8_lossy(restore).into_owned()))
+}
+
 /// ExtGState resource name for a set of overprint settings.
 fn ovp_name(fill: bool, stroke: bool, mode: i64) -> String {
     format!("MPop{}{}{}", fill as u8, stroke as u8, mode.clamp(0, 1))
@@ -374,8 +395,46 @@ pub fn set_overprint(path: &Path, page: u32, indices: &[usize], on: bool) -> Res
         let back = (was.fill, was.stroke, was.mode.clamp(0, 1));
         names.insert(want);
         names.insert(back);
-        insert(&mut edits, o.top.start, 1, format!("/{} gs ", ovp_name(want.0, want.1, want.2)));
-        insert(&mut edits, o.top.end, 0, format!(" /{} gs\n", ovp_name(back.0, back.1, back.2)));
+        let mut pre = format!("/{} gs ", ovp_name(want.0, want.1, want.2));
+        let mut post = format!(" /{} gs", ovp_name(back.0, back.1, back.2));
+        // Colour conversions: around the object itself, or around each
+        // shape and text run inside a clipping group (a placed graphic's
+        // own content can't be changed without changing every copy).
+        let mut inner: Vec<(usize, usize, String, String)> = Vec::new();
+        if on {
+            for &i in &o.paints {
+                let p = &l.walk.paints[i];
+                if p.stream != 0 || !matches!(p.top.kind, Kind::Path | Kind::Text) {
+                    continue;
+                }
+                let conv = [
+                    p.fills.then(|| as_device_cmyk(&p.fill, &p.fill_restore, false)).flatten(),
+                    p.strokes.then(|| as_device_cmyk(&p.stroke, &p.stroke_restore, true)).flatten(),
+                ];
+                let (mut set, mut restore) = (String::new(), String::new());
+                for (s, r) in conv.into_iter().flatten() {
+                    set.push_str(&s);
+                    set.push(' ');
+                    restore.push(' ');
+                    restore.push_str(&r);
+                }
+                if !set.is_empty() {
+                    inner.push((p.top.start, p.top.end, set, restore));
+                }
+            }
+        }
+        if o.top.kind == Kind::Group {
+            for (start, end, set, restore) in inner {
+                insert(&mut edits, start, 1, set);
+                insert(&mut edits, end, 0, format!("{restore}\n"));
+            }
+        } else if let Some((_, _, set, restore)) = inner.into_iter().next() {
+            pre.push_str(&set);
+            post.push_str(&restore);
+        }
+        post.push('\n');
+        insert(&mut edits, o.top.start, 1, pre);
+        insert(&mut edits, o.top.end, 0, post);
         changed += 1;
     }
     if changed > 0 {
@@ -503,6 +562,44 @@ mod tests {
         let moved = move_objects(&p, 1, &[hit.index], 0.2, 0.3).unwrap();
         println!("{:?}", moved.objects);
         if let Ok(out) = std::env::var("MP_CLIP_OUT") {
+            std::fs::copy(&p, out).unwrap();
+        }
+    }
+
+    /// `MP_OP_PDF=file.pdf MP_OP_OUT=out.pdf cargo test overprint_file -- --nocapture`
+    /// (text on a cyan background, 400x300: "CMYK" at y 180, "GRAY" at y 60).
+    #[test]
+    fn overprint_file() {
+        let Ok(src) = std::env::var("MP_OP_PDF") else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("t.pdf");
+        std::fs::copy(&src, &p).unwrap();
+        let a = pick(&p, 1, 60.0 / 400.0, 1.0 - 200.0 / 300.0, 2.0).unwrap().expect("cmyk text");
+        let b = pick(&p, 1, 60.0 / 400.0, 1.0 - 80.0 / 300.0, 2.0).unwrap().expect("gray text");
+        println!("{a:?}\n{b:?}");
+        let r = set_overprint(&p, 1, &[a.index, b.index], true).unwrap();
+        println!("{:?}", r.objects);
+        let doc = Document::load(&p).unwrap();
+        let id = pagebox::page_id_for(&doc, 1).unwrap();
+        println!("{}", String::from_utf8_lossy(&doc.get_page_content(id)));
+        // Where the text is, the cyan background should still be there.
+        let plates = tempfile::TempDir::new().unwrap();
+        let found = crate::gs::ensure_separations(&p, 1, 72, plates.path()).unwrap();
+        let cyan = found.iter().find(|(n, _)| n == "Cyan").map(|(_, f)| image::open(f).unwrap().to_luma8()).unwrap();
+        for (name, o) in [("CMYK", &a), ("GRAY", &b)] {
+            let [x, y, w, h] = o.norm;
+            let (iw, ih) = (cyan.width() as f64, cyan.height() as f64);
+            let mut gaps = 0;
+            for py in (y * ih) as u32..((y + h) * ih) as u32 {
+                for px in (x * iw) as u32..((x + w) * iw) as u32 {
+                    if cyan.get_pixel(px, py).0[0] > 128 {
+                        gaps += 1; // little cyan ink here: knocked out
+                    }
+                }
+            }
+            println!("{name}: {gaps} knocked-out pixels");
+        }
+        if let Ok(out) = std::env::var("MP_OP_OUT") {
             std::fs::copy(&p, out).unwrap();
         }
     }
