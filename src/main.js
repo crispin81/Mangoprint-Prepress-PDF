@@ -2773,20 +2773,53 @@ function drawMergeOverlay(svg) {
   });
 }
 
+// The box under a point (fractions of the page), or -1.
+function mergeBoxAt(fx, fy) {
+  if (merge.page !== state.page) return -1;
+  for (let i = merge.fields.length - 1; i >= 0; i--) {
+    const r = merge.fields[i].rect;
+    if (r && fx >= r[0] && fx <= r[0] + r[2] && fy >= r[1] && fy <= r[1] + r[3]) return i;
+  }
+  return -1;
+}
+
+// Press on a box to drag it somewhere else; press anywhere else to draw.
 els.viewport.addEventListener("mousedown", (ev) => {
   if (!state.mergeTool || !view.page || ev.button !== 0) return;
   ev.preventDefault();
-  mergeDrag = { x0: ev.clientX, y0: ev.clientY, f0: pointerFraction(ev) };
+  const f0 = pointerFraction(ev);
+  const hit = mergeBoxAt(...f0);
+  if (hit >= 0) {
+    if (hit !== merge.active) activateField(hit);
+    mergeDrag = { move: hit, f0, from: [...merge.fields[hit].rect] };
+    return;
+  }
+  mergeDrag = { x0: ev.clientX, y0: ev.clientY, f0 };
 });
 
 window.addEventListener("mousemove", (ev) => {
-  if (mergeDrag) drawMarqueeBox(mergeDrag.x0, mergeDrag.y0, ev.clientX, ev.clientY);
+  const d = mergeDrag;
+  if (state.mergeTool && !d && view.page) {
+    // A move cursor over a box says it can be dragged.
+    els.viewport.classList.toggle("merge-over-box", mergeBoxAt(...pointerFraction(ev)) >= 0);
+  }
+  if (!d) return;
+  if (d.move === undefined) {
+    drawMarqueeBox(d.x0, d.y0, ev.clientX, ev.clientY);
+    return;
+  }
+  const [fx, fy] = pointerFraction(ev);
+  const [x, y, w, h] = d.from;
+  const f = merge.fields[d.move];
+  f.rect = [Math.min(1 - w, Math.max(0, x + fx - d.f0[0])), Math.min(1 - h, Math.max(0, y + fy - d.f0[1])), w, h];
+  drawBoxOverlay();
 });
 
 window.addEventListener("mouseup", (ev) => {
   const d = mergeDrag;
   if (!d) return;
   mergeDrag = null;
+  if (d.move !== undefined) return; // a box was moved (or just picked)
   marquee.classList.add("hidden");
   const clip = (v) => Math.min(1, Math.max(0, v));
   const [ax, ay] = d.f0.map(clip);

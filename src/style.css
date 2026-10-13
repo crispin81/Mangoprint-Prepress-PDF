@@ -2267,3 +2267,7 @@ a:hover > .about__logo {
   font-style: italic;
   opacity: 0.55;
 }
+
+#viewport.merge-tool.merge-over-box #imgWrap {
+  cursor: move;
+}
