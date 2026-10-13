@@ -2574,3 +2574,17 @@ input::placeholder {
   border-color: #e8e8ec;
   color: #14151a;
 }
+
+/* Panel headings 2 pt bigger. */
+.panel h2,
+.thumbs__title {
+  font-size: calc(11px + 2pt);
+}
+
+/* Separations sit in the same 80% grey box as the editable fields. */
+#separationsList {
+  background: #333333;
+  border: 1px solid #5a5b66;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
