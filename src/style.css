@@ -2215,3 +2215,17 @@ a:hover > .about__logo {
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* Drag the mail merge panel by its hand. */
+.merge-bar__handle {
+  cursor: grab;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.merge-bar.dragging,
+.merge-bar.dragging .merge-bar__handle {
+  cursor: grabbing;
+}

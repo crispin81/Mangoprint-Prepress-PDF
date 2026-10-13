@@ -2529,17 +2529,44 @@ function setMergeTool(on) {
   renderMergePanel();
 }
 
-// The options bar floats over the top of the page view.
+// The options bar floats over the top left of the page view, or wherever
+// it was dragged to by its hand (kept inside the window).
+const mergeBarPos = { moved: null };
+
 function positionMergeBar() {
   const bar = document.getElementById("mergeBar");
   if (bar.classList.contains("hidden")) return;
   const main = bar.parentElement.getBoundingClientRect();
   const port = els.viewport.getBoundingClientRect();
-  bar.style.left = `${port.left - main.left + 12}px`;
-  bar.style.top = `${port.top - main.top + 10}px`;
+  let [x, y] = mergeBarPos.moved || [port.left - main.left + 12, port.top - main.top + 10];
+  x = Math.min(Math.max(0, x), Math.max(0, main.width - bar.offsetWidth));
+  y = Math.min(Math.max(0, y), Math.max(0, main.height - 40));
+  bar.style.left = `${x}px`;
+  bar.style.top = `${y}px`;
   bar.style.maxWidth = `${Math.max(240, port.width - 24)}px`;
 }
 new ResizeObserver(positionMergeBar).observe(els.viewport);
+
+{
+  let drag = null;
+  document.getElementById("mergeHandle").addEventListener("mousedown", (ev) => {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    const bar = document.getElementById("mergeBar");
+    drag = { dx: ev.clientX - bar.offsetLeft, dy: ev.clientY - bar.offsetTop };
+    bar.classList.add("dragging");
+  });
+  window.addEventListener("mousemove", (ev) => {
+    if (!drag) return;
+    mergeBarPos.moved = [ev.clientX - drag.dx, ev.clientY - drag.dy];
+    positionMergeBar();
+  });
+  window.addEventListener("mouseup", () => {
+    if (!drag) return;
+    drag = null;
+    document.getElementById("mergeBar").classList.remove("dragging");
+  });
+}
 
 const mergeEl = (id) => document.getElementById(id);
 
