@@ -241,10 +241,14 @@ fn render_separation_composite(
     // Spot name -> "#rrggbb" display colour (from spot_swatches); spots
     // without one are shown as a neutral darkening.
     spot_colours: Option<HashMap<String, String>>,
+    // Spot inks cover what's under them (like metallic or opaque inks)
+    // instead of mixing with it.
+    opaque_spots: Option<bool>,
     cache: tauri::State<SepCache>,
     doc: tauri::State<DocLock>,
 ) -> Result<String, String> {
     let spot_colours = spot_colours.unwrap_or_default();
+    let opaque = opaque_spots.unwrap_or(false);
     let parse_hex = |h: &str| -> Option<[f32; 3]> {
         let h = h.strip_prefix('#')?;
         let v = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok().map(|b| b as f32 / 255.0);
@@ -308,12 +312,19 @@ fn render_separation_composite(
             let mut g = 255.0 * (1.0 - m) * (1.0 - k);
             let mut b = 255.0 * (1.0 - ye) * (1.0 - k);
 
-            // Each spot multiplies in its own colour, scaled by its tint.
+            // Each spot multiplies in its own colour, scaled by its tint;
+            // an opaque spot instead covers what's underneath.
             for (spot, [sr, sg, sb]) in &spots {
                 let s = 1.0 - (spot.get_pixel(x, y).0[0] as f32 / 255.0);
-                r *= 1.0 - s * (1.0 - sr);
-                g *= 1.0 - s * (1.0 - sg);
-                b *= 1.0 - s * (1.0 - sb);
+                if opaque {
+                    r = r * (1.0 - s) + 255.0 * sr * s;
+                    g = g * (1.0 - s) + 255.0 * sg * s;
+                    b = b * (1.0 - s) + 255.0 * sb * s;
+                } else {
+                    r *= 1.0 - s * (1.0 - sr);
+                    g *= 1.0 - s * (1.0 - sg);
+                    b *= 1.0 - s * (1.0 - sb);
+                }
             }
 
             out.put_pixel(x, y, image::Rgb([r.round() as u8, g.round() as u8, b.round() as u8]));

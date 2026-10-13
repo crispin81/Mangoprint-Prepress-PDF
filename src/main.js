@@ -735,17 +735,16 @@ async function renderRaster() {
   setLoading(true);
   try {
     let dataUri;
-    if (allPlatesOn()) {
-      dataUri = await invoke("render_overprint", { path: state.path, page: state.page, dpi, simulate: true });
-    } else {
-      dataUri = await invoke("render_separation_composite", {
-        path: state.path,
-        page: state.page,
-        dpi,
-        active: [...state.activeSeparations],
-        spotColours: state.spotSwatches || {},
-      });
-    }
+    // Built from the separations, so overprint is exact and spot inks
+    // show as opaque (on top, like metallic ink) rather than mixing in.
+    dataUri = await invoke("render_separation_composite", {
+      path: state.path,
+      page: state.page,
+      dpi,
+      active: [...state.activeSeparations],
+      spotColours: state.spotSwatches || {},
+      opaqueSpots: true,
+    });
     if (token !== state.renderToken) return; // a newer render superseded this one
     els.preview.src = dataUri;
     state.rasterKey = key;
