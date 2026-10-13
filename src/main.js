@@ -113,7 +113,7 @@ const state = {
 };
 
 // Eyedropper request state (see the eyedropper section below).
-const eyedrop = { inFlight: false, pending: null, held: false, inside: false };
+const eyedrop = { inFlight: false, pending: null, inside: false };
 
 const MM_PER_PT = 25.4 / 72;
 // The PDF stores geometry in points; everything the user sees or types is mm.
@@ -293,9 +293,7 @@ async function exportPdf() {
 }
 
 function updatePageControls() {
-  // A held eyedropper reading belongs to the previous page/file.
-  eyedrop.held = false;
-  clearInks();
+  clearInks(); // readings belong to the previous page/file
   els.pageLabel.textContent = state.path ? `Page ${state.page} / ${state.pageCount}` : "–";
   els.prevPage.disabled = !state.path || state.page <= 1;
   els.nextPage.disabled = !state.path || state.page >= state.pageCount;
@@ -1230,28 +1228,12 @@ appWindow.onCloseRequested(async (event) => {
 // is taken into account. Only one request is in flight at a time; the
 // latest pointer position is sent once it returns.
 
-// Gold padlock that follows the cursor while a reading is held (locked).
-const lockBadge = document.getElementById("lockBadge");
-
-function moveLockBadge(ev) {
-  lockBadge.style.left = `${ev.clientX + 14}px`;
-  lockBadge.style.top = `${ev.clientY + 12}px`;
-}
-
-function showLockBadge(show, ev) {
-  if (show && ev) moveLockBadge(ev);
-  lockBadge.classList.toggle("hidden", !show);
-}
-
 function clearInks() {
-  showLockBadge(false);
-  els.separationsList.classList.remove("held");
   for (const el of els.separationsList.querySelectorAll(".ink-value")) el.textContent = "";
 }
 
 function showInks(samples) {
-  if (!eyedrop.held && !eyedrop.inside) return; // pointer has left the page
-  els.separationsList.classList.toggle("held", eyedrop.held);
+  if (!eyedrop.inside) return; // pointer has left the page
   let total = 0;
   for (const { name, percent } of samples) {
     total += percent;
@@ -1290,32 +1272,18 @@ function pointerFraction(ev) {
 
 els.imgWrap.addEventListener("mousemove", (ev) => {
   eyedrop.inside = true;
-  if (eyedrop.held) showLockBadge(true, ev);
-  if (!state.path || eyedrop.held || !state.separationNames.length) return;
+  if (!state.path || !state.separationNames.length) return;
   sampleAt(...pointerFraction(ev));
 });
 
 els.imgWrap.addEventListener("mouseleave", () => {
   eyedrop.inside = false;
   eyedrop.pending = null;
-  showLockBadge(false); // reappears when the cursor comes back over the page
-  if (!eyedrop.held) clearInks();
+  clearInks();
 });
 
 els.imgWrap.addEventListener("click", (ev) => {
-  // In Select text mode a click on text (or finishing a selection) is for
-  // the text, not for holding an ink reading.
-  if (state.zoomTool || state.selectTool || state.mergeTool) return; // clicks belong to the tool
-  if (state.recolourTool) {
-    if (state.path) recolourPick(...pointerFraction(ev));
-    return;
-  }
-  if (state.textMode && (ev.target.closest("#textLayer span") || String(window.getSelection() || "").trim())) return;
-  if (!state.path || !state.separationNames.length) return;
-  eyedrop.held = !eyedrop.held;
-  els.separationsList.classList.toggle("held", eyedrop.held);
-  showLockBadge(eyedrop.held, ev);
-  sampleAt(...pointerFraction(ev));
+  if (state.recolourTool && state.path) recolourPick(...pointerFraction(ev));
 });
 
 els.emptyOpenBtn.addEventListener("click", openPdf);
@@ -1524,7 +1492,6 @@ function setRecolourTool(on) {
     const panel = document.getElementById("recolourPanel");
     panel.scrollIntoView({ behavior: "smooth", block: "start" });
     sparkle(panel);
-    eyedrop.held = false;
     clearInks();
   } else {
     setTextMode(state.textModeBeforeRecolour ?? true);
@@ -2251,7 +2218,6 @@ function setSelectTool(on) {
   if (on) {
     state.textModeBeforeSelect = state.textMode;
     setTextMode(false);
-    eyedrop.held = false;
     clearInks();
     document.getElementById("selectPanel").scrollIntoView({ behavior: "smooth", block: "start" });
   } else {
@@ -2526,7 +2492,6 @@ function setMergeTool(on) {
   if (on) {
     state.textModeBeforeMerge = state.textMode;
     setTextMode(false);
-    eyedrop.held = false;
     clearInks();
   } else {
     setTextMode(state.textModeBeforeMerge ?? true);
@@ -3466,7 +3431,6 @@ function setZoomTool(on, textAfter) {
     toolsOff("zoom");
     state.textModeBeforeZoom = state.textMode;
     setTextMode(false);
-    eyedrop.held = false;
     clearInks();
   } else {
     setTextMode(textAfter ?? state.textModeBeforeZoom ?? true);
