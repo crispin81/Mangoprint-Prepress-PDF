@@ -1621,7 +1621,16 @@ function rcChannels() {
   };
 }
 
+// Objects selected with the Select tool (and nothing picked with the
+// Recolour tool): the Recolour panel then recolours the whole selection.
+const recolourSelection = () => !recolour.picked && !!state.selectTool && sel.items.length > 0;
+
 function renderRecolourPanel() {
+  if (recolourSelection()) {
+    renderRecolourForSelection();
+    return;
+  }
+  document.getElementById("rcSelNote").classList.add("hidden");
   // The whole panel is always shown; until an object is picked everything
   // is greyed out and the hint says what to do.
   const p = recolour.picked;
@@ -1671,6 +1680,34 @@ function renderRecolourPanel() {
   document.getElementById("rcNewStroke").classList.toggle("disabled", !ch.stroke);
   for (const i of [...rcInputs("fill"), document.getElementById("rcFillOn")]) i.disabled = !ch.fill;
   for (const i of [...rcInputs("stroke"), document.getElementById("rcStrokeOn")]) i.disabled = !ch.stroke;
+}
+
+// The Recolour panel set up for the Select tool's selection: the new fill
+// and stroke apply to everything selected.
+function renderRecolourForSelection() {
+  const n = sel.items.length;
+  const coloured = sel.items.find((o) => o.cmyk);
+  document.getElementById("recolourEmpty").classList.add("hidden");
+  const note = document.getElementById("rcSelNote");
+  note.classList.remove("hidden");
+  note.textContent = n === 1 ? "Recolouring the selected object." : `Recolouring the ${n} selected objects.`;
+  document.getElementById("recolourBody").classList.remove("waiting");
+  for (const id of ["rcApplyBtn", "rcClearBtn"]) document.getElementById(id).disabled = false;
+  document.getElementById("rcFillText").textContent = coloured ? `C${coloured.cmyk[0]} M${coloured.cmyk[1]} Y${coloured.cmyk[2]} K${coloured.cmyk[3]}` : "–";
+  const sw = document.getElementById("rcFillSwatch");
+  sw.style.visibility = coloured ? "visible" : "hidden";
+  if (coloured) sw.style.background = cmykToCss(coloured.cmyk);
+  document.getElementById("rcStrokeText").textContent = "–";
+  document.getElementById("rcStrokeSwatch").style.visibility = "hidden";
+  // "Same colour" modes are for the Recolour tool's picked object.
+  for (const input of document.querySelectorAll('input[name="rcMode"]')) {
+    input.disabled = true;
+    input.parentElement.classList.add("disabled");
+  }
+  for (const which of ["Fill", "Stroke"]) document.getElementById(`rcNew${which}`).classList.remove("disabled");
+  for (const i of [...rcInputs("fill"), ...rcInputs("stroke"), document.getElementById("rcFillOn"), document.getElementById("rcStrokeOn")]) {
+    i.disabled = false;
+  }
 }
 
 function setRcResult(text, cls = "") {
@@ -1762,6 +1799,17 @@ async function recolourPick(x, y) {
 }
 
 async function recolourApply() {
+  if (recolourSelection()) {
+    const fill = document.getElementById("rcFillOn").checked ? rcValues("fill") : null;
+    const stroke = document.getElementById("rcStrokeOn").checked ? rcValues("stroke") : null;
+    if (!fill && !stroke) {
+      setRcResult("Tick New fill or New stroke first.", "err");
+      return;
+    }
+    await runObjectEdit({ action: "colour", fill, stroke }, "Recolouring…");
+    setRcResult(document.getElementById("selResult").textContent, "ok");
+    return;
+  }
   const p = recolour.picked;
   if (!p || !state.path) return;
   const ch = rcChannels();
@@ -1829,7 +1877,10 @@ for (const input of document.querySelectorAll('input[name="rcMode"]')) {
   });
 }
 document.getElementById("rcApplyBtn").addEventListener("click", recolourApply);
-document.getElementById("rcClearBtn").addEventListener("click", resetRecolour);
+document.getElementById("rcClearBtn").addEventListener("click", () => {
+  if (recolourSelection()) clearSelection();
+  else resetRecolour();
+});
 document.getElementById("recolourToolBtn").addEventListener("click", () => setRecolourTool(!state.recolourTool));
 
 // R toggles the recolour tool (ignored while typing in a field).
@@ -2281,6 +2332,7 @@ function setSelectTool(on) {
     setTextMode(true); // back to the default: text can be selected
   }
   renderSelectPanel();
+  renderRecolourPanel();
 }
 
 function clearSelection() {
@@ -2348,10 +2400,14 @@ function renderSelectPanel() {
   if (key !== sel.spotKey) {
     sel.spotKey = key;
     nameInput.value = coloured ? spotNameFor(coloured.cmyk) : "";
-    // The colour editor starts from the selection's colour.
-    rcInputs("sel").forEach((input, i) => (input.value = String(coloured ? Math.round(coloured.cmyk[i]) : 0)));
-    document.getElementById("selColourSwatch").style.background = cmykToCss(rcValues("sel"));
+    // The Recolour panel's editors start from the selection's colour.
+    if (coloured) {
+      rcInputs("fill").forEach((input, i) => (input.value = String(Math.round(coloured.cmyk[i]))));
+      rcInputs("stroke").forEach((input, i) => (input.value = String(Math.round(coloured.cmyk[i]))));
+      updateNewSwatches();
+    }
   }
+  renderRecolourPanel();
   document.getElementById("selSpotSwatch").style.background = coloured ? cmykToCss(coloured.cmyk) : "transparent";
   document.getElementById("selSpotBtn").disabled = !coloured;
   const on = sel.items.filter((o) => o.overprint).length;
@@ -2571,15 +2627,6 @@ window.addEventListener("mouseup", async (ev) => {
 
 document.getElementById("selectToolBtn").addEventListener("click", () => setSelectTool(!state.selectTool));
 document.getElementById("selDeleteBtn").addEventListener("click", deleteSelection);
-document.getElementById("selColourBtn").addEventListener("click", () => {
-  const v = rcValues("sel");
-  runObjectEdit({ action: "colour", fill: v, stroke: v }, "Recolouring…");
-});
-for (const input of rcInputs("sel")) {
-  input.addEventListener("input", () => {
-    document.getElementById("selColourSwatch").style.background = cmykToCss(rcValues("sel"));
-  });
-}
 document.getElementById("selSpotBtn").addEventListener("click", () => {
   const coloured = sel.items.find((o) => o.cmyk);
   const name = document.getElementById("selSpotName").value.trim();
