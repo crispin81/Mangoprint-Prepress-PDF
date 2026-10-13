@@ -231,6 +231,41 @@
           </p>
         </div>
 
+        <div class="panel" id="selectPanel">
+          <h2>Selected Objects</h2>
+          <p id="selEmpty" class="hint">
+            Turn on the <strong>Select</strong> tool (V) and click a shape,
+            text or image on the page.
+          </p>
+          <div id="selBody">
+            <p id="selCount" class="rc-count"></p>
+            <label class="toggle-row">
+              <input type="checkbox" id="selOverprint" />
+              Set to overprint (opaque colours only)
+            </label>
+            <p id="selOverprintNote" class="hint sel-note"></p>
+            <p class="hint sel-note-colour">To change the colour of everything selected, use the <strong>Recolour</strong> panel below.</p>
+            <div class="sel-spot">
+              <span class="sel-spot__label">Convert to spot colour</span>
+              <div class="sel-spot__row">
+                <span class="swatch" id="selSpotSwatch" title="The selected object's colour, used as the spot colour's CMYK equivalent"></span>
+                <input type="text" id="selSpotName" maxlength="60" placeholder="Spot colour name" title="Name of the spot colour (type to rename it)" />
+                <button id="selSpotBtn" title="Repaint the selection in this spot colour at 100%">Convert</button>
+              </div>
+            </div>
+            <div class="fix-row">
+              <button id="selDeleteBtn">Delete</button>
+              <button id="selClearBtn">Clear selection</button>
+            </div>
+            <p id="selResult" class="rc-result"></p>
+          </div>
+          <p class="hint">
+            Drag the selection to move it; arrow keys nudge it 0.5 mm
+            (Shift: 5 mm). These edits apply to this page only. A placed
+            graphic, such as a logo placed in InDesign, moves as one piece.
+          </p>
+        </div>
+
         <!-- Edits: the switch on the outline controls all three panels. -->
         <div class="edit-group">
           <div class="scope-toggle" role="group" aria-label="Apply edits to">
@@ -304,41 +339,6 @@
             <p class="hint">
               New colours are CMYK. "Same" options follow the Apply edits to
               setting (all pages or this page).
-            </p>
-          </div>
-
-          <div class="panel" id="selectPanel">
-            <h2>Selected Objects</h2>
-            <p id="selEmpty" class="hint">
-              Turn on the <strong>Select</strong> tool (V) and click a shape,
-              text or image on the page.
-            </p>
-            <div id="selBody">
-              <p id="selCount" class="rc-count"></p>
-              <label class="toggle-row">
-                <input type="checkbox" id="selOverprint" />
-                Set to overprint (opaque colours only)
-              </label>
-              <p id="selOverprintNote" class="hint sel-note"></p>
-              <p class="hint sel-note-colour">To change the colour of everything selected, use the <strong>Recolour</strong> panel above.</p>
-              <div class="sel-spot">
-                <span class="sel-spot__label">Convert to spot colour</span>
-                <div class="sel-spot__row">
-                  <span class="swatch" id="selSpotSwatch" title="The selected object's colour, used as the spot colour's CMYK equivalent"></span>
-                  <input type="text" id="selSpotName" maxlength="60" placeholder="Spot colour name" title="Name of the spot colour (type to rename it)" />
-                  <button id="selSpotBtn" title="Repaint the selection in this spot colour at 100%">Convert</button>
-                </div>
-              </div>
-              <div class="fix-row">
-                <button id="selDeleteBtn">Delete</button>
-                <button id="selClearBtn">Clear selection</button>
-              </div>
-              <p id="selResult" class="rc-result"></p>
-            </div>
-            <p class="hint">
-              Drag the selection to move it; arrow keys nudge it 0.5 mm
-              (Shift: 5 mm). These edits apply to this page only. A placed
-              graphic, such as a logo placed in InDesign, moves as one piece.
             </p>
           </div>
 
