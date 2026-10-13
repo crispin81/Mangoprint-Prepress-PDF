@@ -449,6 +449,8 @@ pub fn set_overprint(path: &Path, page: u32, indices: &[usize], on: bool) -> Res
     let mut edits = Edits::new();
     let mut names: BTreeSet<(bool, bool, i64)> = BTreeSet::new();
     let mut changed = 0;
+    // Objects in RGB, which knocks out whatever overprint says.
+    let mut rgb = 0;
     for o in l.selected(indices)? {
         let was = o.top.ovp;
         let want = if on { (true, true, 1) } else { (false, false, was.mode) };
@@ -464,6 +466,15 @@ pub fn set_overprint(path: &Path, page: u32, indices: &[usize], on: bool) -> Res
         // shape and text run inside a clipping group (a placed graphic's
         // own content can't be changed without changing every copy).
         let mut inner: Vec<(usize, usize, String, String)> = Vec::new();
+        if on
+            && o.paints.iter().any(|&i| {
+                let p = &l.walk.paints[i];
+                (p.fills && matches!(p.fill, crate::overprint::Colour::Rgb(_)))
+                    || (p.strokes && matches!(p.stroke, crate::overprint::Colour::Rgb(_)))
+            })
+        {
+            rgb += 1;
+        }
         if on {
             for &i in &o.paints {
                 let p = &l.walk.paints[i];
@@ -512,7 +523,7 @@ pub fn set_overprint(path: &Path, page: u32, indices: &[usize], on: bool) -> Res
         }
         l.save(path, edits)?;
     }
-    Ok(EditResult { changed, skipped: 0, objects: info(path, page, indices)? })
+    Ok(EditResult { changed, skipped: rgb, objects: info(path, page, indices)? })
 }
 
 /// Adds `name` → `value` to one category (ExtGState, XObject, …) of the

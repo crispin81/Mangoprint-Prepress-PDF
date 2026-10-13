@@ -2344,9 +2344,20 @@ async function runObjectEdit(args, label) {
     sel.items = res.objects;
     sel.offset = null;
     if (res.changed) setEdited(true);
+    // The normal view can't show overprint (only the simulated view mixes
+    // inks), so switch simulation on to show the result.
+    if (args.action === "overprint" && args.on && res.changed && !state.simulateOverprint) {
+      els.overprintToggle.checked = true;
+      state.simulateOverprint = true;
+      setSelResult("✓ Overprint on. Simulate overprinting is now switched on so you can see it.", "ok");
+    }
     if (args.action === "spot" && res.changed) setSelResult(`✓ Now in spot colour "${args.name}"`, "ok");
     if (args.action === "delete") setSelResult(`✓ Deleted ${res.changed} object${res.changed === 1 ? "" : "s"}`, "ok");
-    if (res.skipped) {
+    if (res.skipped && args.action === "overprint") {
+      setSelResult(`${res.skipped === 1 ? "This is" : `${res.skipped} of these are`} RGB, which always knocks out. Use Convert RGB to CMYK first, then set overprint.`, "err");
+    } else if (res.skipped && args.action === "spot") {
+      setSelResult(`${res.skipped} object${res.skipped === 1 ? "" : "s"} couldn't be changed: placed graphics are left as they are.`, "err");
+    } else if (res.skipped) {
       setSelResult(`${res.skipped} object${res.skipped === 1 ? "" : "s"} couldn't be moved: a shape that also clips other artwork has to stay put.`, "err");
     }
     if (recolour.picked) resetRecolour(); // its object numbers may have changed
