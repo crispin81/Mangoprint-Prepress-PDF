@@ -2438,7 +2438,7 @@ a:hover > .about__logo {
   cursor: default;
 }
 
-/* Every editable field: 80% grey with pale yellow text, easy on the eye and clearly typeable. */
+/* Every editable field: an 80% shade of the panel grey with pale yellow text. */
 input[type="text"],
 input[type="number"],
 input:not([type]),
@@ -2451,14 +2451,14 @@ select,
 .merge-bar select,
 .merge-bar input[type="number"],
 .sel-spot__row input {
-  background: #333333 !important;
+  background: #16161b !important;
   color: #f3e6a8 !important;
   border-color: #5a5b66 !important;
 }
 
 select option,
 select optgroup {
-  background: #333333;
+  background: #16161b;
   color: #f3e6a8;
 }
 
@@ -2581,9 +2581,9 @@ input::placeholder {
   font-size: calc(11px + 2pt);
 }
 
-/* Separations sit in the same 80% grey box as the editable fields. */
+/* Separations sit in the same box colour as the editable fields. */
 #separationsList {
-  background: #333333;
+  background: #16161b;
   border: 1px solid #5a5b66;
   border-radius: 6px;
   padding: 6px 8px;
