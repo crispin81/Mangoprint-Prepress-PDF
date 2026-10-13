@@ -2438,7 +2438,7 @@ a:hover > .about__logo {
   cursor: default;
 }
 
-/* Every editable field: a lighter tint of the panel grey with pale yellow text. */
+/* Every editable field: a lighter tint of the panel grey with white text. */
 input[type="text"],
 input[type="number"],
 input:not([type]),
@@ -2452,18 +2452,18 @@ select,
 .merge-bar input[type="number"],
 .sel-spot__row input {
   background: #2c2d35 !important;
-  color: #f3e6a8 !important;
+  color: #ffffff !important;
   border-color: #5a5b66 !important;
 }
 
 select option,
 select optgroup {
   background: #2c2d35;
-  color: #f3e6a8;
+  color: #ffffff;
 }
 
 input::placeholder {
-  color: #9a9078;
+  color: #8a8b96;
 }
 
 /* Pages picked with Ctrl / Shift click (e.g. to delete several). */
