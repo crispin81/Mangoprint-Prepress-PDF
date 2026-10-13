@@ -2588,3 +2588,11 @@ input::placeholder {
   border-radius: 6px;
   padding: 6px 8px;
 }
+
+/* Total ink: bold white, label and value. */
+#separationsList li.ink-total,
+#separationsList li.ink-total .ink-name,
+#separationsList li.ink-total .ink-value {
+  color: #ffffff;
+  font-weight: 700;
+}
