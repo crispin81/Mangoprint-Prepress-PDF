@@ -33,7 +33,9 @@
         </div>
         <button id="openBtn" type="button" title="Open a PDF in a new tab (Ctrl+O)">Open PDF…</button>
         <button id="exportBtn" class="btn-primary" disabled title="Save a copy of the PDF with your edits (Ctrl+S)">Save PDF as…</button>
-        <button id="printBtn" type="button" disabled title="Print the PDF, with your edits (Ctrl+P)">Print…</button>
+        <button id="printBtn" type="button" disabled title="Print the PDF, with your edits (Ctrl+P)" aria-label="Print">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px"><path d="M6 9V2h12v7" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect width="12" height="8" x="6" y="14" /></svg>
+        </button>
       </div>
       <div class="toolbar__centre">
         <button id="prevPage" disabled>‹</button>
