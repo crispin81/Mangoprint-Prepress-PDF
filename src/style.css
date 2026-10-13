@@ -2369,3 +2369,20 @@ a:hover > .about__logo {
   background: #ff6b6b;
   color: #ffffff;
 }
+
+/* A gap above the Pages bar keeps its delete × well away from the
+   clear-guides × next to it. */
+.thumbs::before {
+  content: "";
+  display: block;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex-shrink: 0;
+  height: 26px;
+  background: var(--panel);
+}
+
+.thumbs .thumbs__bar {
+  top: 26px;
+}
