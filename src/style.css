@@ -2271,3 +2271,23 @@ a:hover > .about__logo {
 #viewport.merge-tool.merge-over-box #imgWrap {
   cursor: move;
 }
+
+/* Mail merge eyedropper */
+.merge-bar__dropper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+}
+
+.merge-bar__dropper.active {
+  background: var(--accent);
+  color: var(--panel);
+  border-color: var(--accent);
+}
+
+#viewport.merge-tool.merge-dropper #imgWrap {
+  cursor: crosshair;
+}

@@ -2526,6 +2526,7 @@ function setMergeTool(on) {
     setTextMode(state.textModeBeforeMerge ?? true);
   }
   document.getElementById("mergeBar").classList.toggle("hidden", !on);
+  if (!on && merge.dropper) setMergeDropper(false);
   positionMergeBar();
   renderMergePanel();
 }
@@ -2783,11 +2784,48 @@ function mergeBoxAt(fx, fy) {
   return -1;
 }
 
+// Eyedropper: the next click on the page takes that object's colour (its
+// exact CMYK from the PDF, or the inks under the pointer for images).
+function setMergeDropper(on) {
+  merge.dropper = on;
+  mergeEl("mergeDropper").classList.toggle("active", on);
+  els.viewport.classList.toggle("merge-dropper", on);
+  if (on) setMergeResult("Click a colour on the page to use it for the text.");
+}
+
+async function dropperPick(fx, fy) {
+  setMergeDropper(false);
+  let cmyk = null;
+  try {
+    const picked = await invoke("recolour_pick", { path: state.path, page: state.page, x: fx, y: fy, tol: 4 / view.scale });
+    const c = picked && (picked.fill || picked.stroke);
+    if (c) cmyk = c.cmyk;
+    if (!cmyk) {
+      const inks = await invoke("sample_inks", { path: state.path, page: state.page, dpi: SAMPLE_DPI, x: fx, y: fy });
+      const ink = (n) => Math.round(inks.find((s) => s.name === n)?.percent || 0);
+      cmyk = [ink("Cyan"), ink("Magenta"), ink("Yellow"), ink("Black")];
+    }
+  } catch (err) {
+    setMergeResult(String(err), "err");
+    return;
+  }
+  rcInputs("merge").forEach((input, i) => (input.value = String(Math.round(cmyk[i]))));
+  updateNewSwatches();
+  const f = activeField();
+  if (f) f.cmyk = rcValues("merge");
+  setMergeResult(`Colour set to C${cmyk[0]} M${cmyk[1]} Y${cmyk[2]} K${cmyk[3]}`, "ok");
+  renderMergePanel();
+}
+
 // Press on a box to drag it somewhere else; press anywhere else to draw.
 els.viewport.addEventListener("mousedown", (ev) => {
   if (!state.mergeTool || !view.page || ev.button !== 0) return;
   ev.preventDefault();
   const f0 = pointerFraction(ev);
+  if (merge.dropper) {
+    dropperPick(...f0);
+    return;
+  }
   const hit = mergeBoxAt(...f0);
   if (hit >= 0) {
     if (hit !== merge.active) activateField(hit);
@@ -2940,6 +2978,7 @@ function initMerge() {
   updateNewSwatches();
   mergeEl("mergeToolBtn").addEventListener("click", () => setMergeTool(!state.mergeTool));
   mergeEl("mergeCloseBtn").addEventListener("click", () => setMergeTool(false));
+  mergeEl("mergeDropper").addEventListener("click", () => setMergeDropper(!merge.dropper));
   mergeEl("mergeCsvBtn").addEventListener("click", chooseMergeCsv);
   mergeEl("mergeHeader").addEventListener("change", renderMergePanel);
   mergeEl("mergeRunBtn").addEventListener("click", runMerge);
@@ -3135,7 +3174,10 @@ window.addEventListener("keydown", (ev) => {
   else if (state.selectTool) {
     if (sel.items.length) clearSelection();
     else setSelectTool(false);
-  } else if (state.mergeTool) setMergeTool(false);
+  } else if (state.mergeTool) {
+    if (merge.dropper) setMergeDropper(false);
+    else setMergeTool(false);
+  }
   else if (state.recolourTool) setRecolourTool(false);
   else if (state.textMode) setTextMode(false);
 });
