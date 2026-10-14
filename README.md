@@ -16,6 +16,7 @@ install on Windows.
 
 **[⬇ Download the latest version](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest)**
 
+- **2026-10-14 (v1.1.1):** Fixes: moving text after a recolour now moves the text, not just its frame; moves and deletes work straight after an edit without reselecting; Convert to spot colour uses the colour typed in Recolour
 - **2026-10-13 (v1.1.0):** Tabs for several PDFs, a Select tool to move, delete, recolour, overprint (100% black or spot colours) or convert objects to a named spot colour, a Global Colour Change panel, mail merge from a CSV (several boxes and columns, installed fonts, live preview), insert, delete, reorder and multi-select pages, undo and redo, rulers with guides, Save PDF as (Ctrl+S) and Print, a simulated view that shows spot inks as opaque, outlined text that stays grouped by line, and fold-away panel info
 - **2026-10-05 (v1.0.1):** Faster opening, a new Recolour tool (change one object or every object with the same fill or stroke), a Fonts panel that warns about fonts that aren't embedded, and a warning before closing with unexported changes
 - **2026-10-02 (v0.1.1):** Open PDFs by double-clicking them, with Open with, or by dragging them onto the window
