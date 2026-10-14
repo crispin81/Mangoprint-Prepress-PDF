@@ -1210,6 +1210,68 @@ mod tests {
         println!("{kinds:#?}");
     }
 
+    /// `MP_CARD_PDF=file.pdf MP_CARD_OUT=out.pdf cargo test card_recolour_move -- --nocapture`:
+    /// a recoloured line still moves with its clip.
+    #[test]
+    fn card_recolour_move() {
+        let Ok(src) = std::env::var("MP_CARD_PDF") else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("t.pdf");
+        std::fs::copy(&src, &p).unwrap();
+        for (x, y) in [(0.2, 0.8), (0.15, 0.27)] {
+            let hit = pick(&p, 2, x, y, 1.0).unwrap().expect("line");
+            println!("before {hit:?}");
+            let r = recolour_objects(&p, 2, &[hit.index], Some([0.0, 100.0, 0.0, 0.0]), None).unwrap();
+            println!("recoloured {:?}", r.objects.first().map(|o| (o.kind, o.norm)));
+            let m = move_objects(&p, 2, &[hit.index], 0.0, -0.1).unwrap();
+            println!("moved {:?}", m.objects.first().map(|o| (o.kind, o.norm)));
+        }
+        let doc = Document::load(&p).unwrap();
+        let id = pagebox::page_id_for(&doc, 2).unwrap();
+        let c = doc.get_page_content(id);
+        println!("{}", String::from_utf8_lossy(&c[..c.len().min(2500)]));
+        if let Ok(out) = std::env::var("MP_CARD_OUT") {
+            std::fs::copy(&p, out).unwrap();
+        }
+    }
+
+    /// `MP_JD_PDF=file.pdf MP_JD_OUT=out.pdf cargo test jd_move_recolour_move -- --nocapture`:
+    /// the user's steps: move the name there and back, recolour, move again.
+    #[test]
+    fn jd_move_recolour_move() {
+        let Ok(src) = std::env::var("MP_JD_PDF") else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("t.pdf");
+        std::fs::copy(&src, &p).unwrap();
+        let hit = pick(&p, 1, 0.2, 0.235, 1.0).unwrap().expect("name");
+        println!("picked {:?} {:?}", hit.kind, hit.norm);
+        let i = hit.index;
+        let m1 = move_objects(&p, 1, &[i], 0.1, 0.0).unwrap();
+        println!("move 1 {:?}", m1.objects.first().map(|o| (o.kind, o.norm)));
+        let m2 = move_objects(&p, 1, &[i], -0.1, 0.0).unwrap();
+        println!("move 2 {:?}", m2.objects.first().map(|o| (o.kind, o.norm)));
+        let r = recolour_objects(&p, 1, &[i], Some([0.0, 100.0, 0.0, 0.0]), None).unwrap();
+        println!("recolour {:?}", r.objects.first().map(|o| (o.kind, o.norm, o.cmyk)));
+        let m3 = move_objects(&p, 1, &[i], 0.0, 0.2).unwrap();
+        println!("move 3 {:?}", m3.objects.first().map(|o| (o.kind, o.norm)));
+        let l = load(&p, 1).unwrap();
+        for (k, o) in l.objs.iter().enumerate() {
+            if let Some(info) = o.info(k, &l.walk, &l.geom) {
+                if info.kind == Kind::Text || info.kind == Kind::Group && info.norm[1] > 0.15 && info.norm[1] < 0.6 && info.norm[0] < 0.5 {
+                    println!("  #{k} {:?} {:?}", info.kind, info.norm);
+                }
+            }
+        }
+        let c = &l.walk.data[0];
+        let s = String::from_utf8_lossy(c);
+        if let Some(at) = s.find("BT") {
+            println!("{}", &s[at.saturating_sub(300)..(at + 900).min(s.len())]);
+        }
+        if let Ok(out) = std::env::var("MP_JD_OUT") {
+            std::fs::copy(&p, out).unwrap();
+        }
+    }
+
     /// `MP_OBJECTS_PDF=file.pdf cargo test spot_file -- --nocapture`
     #[test]
     fn spot_file() {

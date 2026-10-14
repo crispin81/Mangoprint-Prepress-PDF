@@ -1099,7 +1099,15 @@ impl<'a> Walker<'a> {
                     }
                     let fills = matches!(g.render, 0 | 2 | 4 | 6);
                     let strokes = matches!(g.render, 1 | 2 | 5 | 6);
-                    if fills || strokes {
+                    // A show with no characters (e.g. `[-120] TJ`, which only
+                    // moves the text position, as a move or delete leaves
+                    // behind) draws nothing, so it isn't an object.
+                    let has_glyphs = op.args.iter().any(|t| match t {
+                        Tok::Str(s) => !s.is_empty(),
+                        Tok::Arr(items) => items.iter().any(|i| matches!(i, Tok::Str(s) if !s.is_empty())),
+                        _ => false,
+                    });
+                    if (fills || strokes) && has_glyphs {
                         let m = mul(&tm, &g.ctm);
                         let (lo, hi) = (g.rise - 0.25 * g.font_size, g.rise + 0.9 * g.font_size);
                         let quad = [apply(&m, 0.0, lo), apply(&m, adv, lo), apply(&m, adv, hi), apply(&m, 0.0, hi)];
