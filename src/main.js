@@ -2822,6 +2822,7 @@ const mergeEl = (id) => document.getElementById(id);
 function readMergeInputs() {
   return {
     column: Number(mergeEl("mergeColumn").value) || 0,
+    kind: mergeEl("mergeKind").value,
     font: mergeEl("mergeFont").value,
     size: Number.parseFloat(mergeEl("mergeSize").value) || 12,
     cmyk: rcValues("merge"),
@@ -2832,7 +2833,17 @@ function readMergeInputs() {
   };
 }
 
+const isBarcode = (f) => !!f.kind && f.kind !== "text";
+
+// Font, size, alignment and shrink only apply to text.
+function showKindOptions(kind) {
+  const barcode = kind !== "text";
+  for (const el of document.querySelectorAll("#mergeBar .merge-text-only")) el.classList.toggle("hidden", barcode);
+}
+
 function showFieldInBar(f) {
+  mergeEl("mergeKind").value = f.kind || "text";
+  showKindOptions(mergeEl("mergeKind").value);
   mergeEl("mergeFont").value = f.font;
   mergeEl("mergeSize").value = String(f.size);
   mergeEl("mergeAlign").value = f.align;
@@ -2860,7 +2871,9 @@ async function autoMergeColour(f) {
     console.error(err);
     return;
   }
-  if (!f.autoColour) return; // the user chose a colour meanwhile
+  // The user chose a colour meanwhile, or it's a barcode, which stays
+  // black so it scans.
+  if (!f.autoColour || isBarcode(f)) return;
   const v = (n) => (inks.find((s) => s.name === n)?.percent || 0) / 100;
   const [c, m, ye, k] = ["Cyan", "Magenta", "Yellow", "Black"].map(v);
   let light = ((1 - c) * 0.3 + (1 - m) * 0.59 + (1 - ye) * 0.11) * (1 - k);
@@ -2996,6 +3009,13 @@ function renderMergeText() {
     box.style.top = `${y * 100}%`;
     box.style.width = `${w * 100}%`;
     box.style.height = `${h * 100}%`;
+    if (isBarcode(f)) {
+      box.style.justifyContent = "center";
+      box.style.alignItems = "center";
+      box.appendChild(barcodePreview(f, (first[f.column] || "").trim(), box));
+      layer.appendChild(box);
+      continue;
+    }
     box.style.justifyContent = { left: "flex-start", right: "flex-end" }[f.align] || "center";
     box.style.alignItems = { top: "flex-start", bottom: "flex-end" }[f.valign] || "center";
     const span = document.createElement("span");
@@ -3024,6 +3044,62 @@ function renderMergeText() {
       span.style.fontSize = `${px}px`;
     }
   }
+}
+
+// Barcode modules from the backend, by type and value, so the preview is
+// the exact code the merge will draw.
+const barcodeCache = new Map();
+
+// The first row's barcode, filling the box as the merge will (with its
+// clear margin). Fetched once per value; the preview redraws when it
+// arrives.
+function barcodePreview(f, value, box) {
+  const label = { qr: "QR code", datamatrix: "Data Matrix", gs1datamatrix: "GS1 Data Matrix" }[f.kind] || "Barcode";
+  const note = (text) => {
+    const span = document.createElement("span");
+    span.className = "placeholder merge-barcode-note";
+    span.textContent = text;
+    span.style.fontSize = "12px";
+    return span;
+  };
+  if (!value) return note(`«${label}»`);
+  const key = `${f.kind}\n${value}`;
+  const m = barcodeCache.get(key);
+  if (!m) {
+    barcodeCache.set(key, null);
+    invoke("barcode_matrix", { kind: f.kind, text: value })
+      .then((res) => barcodeCache.set(key, res))
+      .catch((err) => barcodeCache.set(key, { error: String(err) }))
+      .finally(renderMergeText);
+    return note("…");
+  }
+  if (m.error) {
+    const span = note(m.error);
+    span.classList.add("merge-barcode-error");
+    return span;
+  }
+  const svg = document.createElementNS(SVG_NS, "svg");
+  const q = m.quiet;
+  svg.setAttribute("viewBox", `${-q} ${-q} ${m.width + 2 * q} ${m.height + 2 * q}`);
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  svg.setAttribute("shape-rendering", "crispEdges");
+  svg.style.width = "100%";
+  svg.style.height = "100%";
+  let d = "";
+  for (let y = 0; y < m.height; y++) {
+    for (let x = 0; x < m.width; x++) {
+      if (!m.bits[y * m.width + x]) continue;
+      let end = x;
+      while (end < m.width && m.bits[y * m.width + end]) end++;
+      d += `M${x} ${y}h${end - x}v1h${x - end}z`;
+      x = end;
+    }
+  }
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", d);
+  path.setAttribute("fill", cmykToCss(f.cmyk));
+  svg.appendChild(path);
+  return svg;
 }
 
 function drawMergeOverlay(svg) {
@@ -3161,7 +3237,10 @@ window.addEventListener("mouseup", (ev) => {
 });
 
 async function chooseMergeCsv() {
-  const selected = await open({ multiple: false, filters: [{ name: "CSV", extensions: ["csv", "CSV", "txt"] }] });
+  const selected = await open({
+    multiple: false,
+    filters: [{ name: "CSV or spreadsheet", extensions: ["csv", "CSV", "txt", "xlsx", "XLSX", "xls", "XLS", "xlsm", "ods"] }],
+  });
   if (!selected) return;
   const path = Array.isArray(selected) ? selected[0] : selected;
   try {
@@ -3187,6 +3266,7 @@ function mergeJob() {
   if (!placed.length || !rows.length || !state.path || !page) return null;
   const spec = {
     fields: placed.map((f) => ({
+      kind: f.kind || "text",
       rect: f.rect,
       font: f.font,
       size: f.size,
@@ -3273,7 +3353,17 @@ function initMerge() {
     Object.assign(f, readMergeInputs());
     renderMergePanel();
   };
-  for (const id of ["mergeColumn", "mergeFont", "mergeSize", "mergeAlign", "mergeValign", "mergeShrink", "mergeOverprint"]) {
+  mergeEl("mergeKind").addEventListener("change", () => {
+    const kind = mergeEl("mergeKind").value;
+    showKindOptions(kind);
+    // Barcodes print black, so they scan.
+    if (kind !== "text") {
+      rcInputs("merge").forEach((input, i) => (input.value = i === 3 ? "100" : "0"));
+      updateNewSwatches();
+      if (activeField()) activeField().autoColour = false;
+    }
+  });
+  for (const id of ["mergeColumn", "mergeKind", "mergeFont", "mergeSize", "mergeAlign", "mergeValign", "mergeShrink", "mergeOverprint"]) {
     mergeEl(id).addEventListener("change", save);
     mergeEl(id).addEventListener("input", save);
   }

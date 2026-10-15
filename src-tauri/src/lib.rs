@@ -1,3 +1,4 @@
+mod barcode;
 mod colorcheck;
 mod fonts;
 mod gs;
@@ -779,6 +780,12 @@ fn merge_read_csv(path: String) -> Result<Vec<Vec<String>>, String> {
     pages::read_csv(Path::new(&path))
 }
 
+/// Mail merge preview: the modules of one barcode.
+#[tauri::command]
+fn barcode_matrix(kind: String, text: String) -> Result<barcode::Matrix, String> {
+    barcode::encode(&kind, text.trim())
+}
+
 /// Mail merge: installed fonts that can be embedded.
 #[tauri::command(async)]
 fn system_fonts() -> Vec<sysfonts::SysFont> {
@@ -907,6 +914,7 @@ pub fn run() {
             undo_step,
             undo_counts,
             merge_read_csv,
+            barcode_matrix,
             mail_merge,
             system_fonts,
             read_pdf,

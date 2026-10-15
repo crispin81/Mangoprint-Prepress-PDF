@@ -206,6 +206,10 @@ pub fn delete_pages(path: &Path, pages: &[u32]) -> Result<u32, String> {
 /// The rows of a CSV file, each split into its columns. Blank rows are
 /// left out.
 pub fn read_csv(path: &Path) -> Result<Vec<Vec<String>>, String> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if matches!(ext.as_str(), "xlsx" | "xlsm" | "xlsb" | "xls" | "ods") {
+        return read_spreadsheet(path);
+    }
     let bytes = std::fs::read(path).map_err(|e| format!("Could not read the CSV file: {e}"))?;
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
     // UTF-8, or (as Excel often saves) a Windows / Latin-1 file.
@@ -261,10 +265,36 @@ pub fn read_csv(path: &Path) -> Result<Vec<Vec<String>>, String> {
     Ok(rows)
 }
 
+/// The rows of the first sheet of an Excel or OpenDocument spreadsheet,
+/// as the cells show them. Blank rows are left out.
+fn read_spreadsheet(path: &Path) -> Result<Vec<Vec<String>>, String> {
+    use calamine::{open_workbook_auto, Data, Reader};
+    let mut book = open_workbook_auto(path).map_err(|e| format!("Could not read the spreadsheet: {e}"))?;
+    let range = book
+        .worksheet_range_at(0)
+        .ok_or("The spreadsheet has no sheets.")?
+        .map_err(|e| format!("Could not read the spreadsheet: {e}"))?;
+    let cell = |d: &Data| match d {
+        // Whole numbers without ".0", so codes and phone numbers read as typed.
+        Data::Float(f) if f.fract() == 0.0 && f.abs() < 1e15 => format!("{}", *f as i64),
+        Data::Empty | Data::Error(_) => String::new(),
+        other => other.to_string(),
+    };
+    Ok(range
+        .rows()
+        .map(|r| r.iter().map(|d| cell(d).trim().to_string()).collect::<Vec<_>>())
+        .filter(|r| r.iter().any(|v| !v.is_empty()))
+        .collect())
+}
+
 /// One text box of a mail merge.
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct MergeField {
+    /// "text" (the default), or a barcode: "qr", "datamatrix" or
+    /// "gs1datamatrix".
+    #[serde(default)]
+    pub kind: String,
     /// The box as [left, top, width, height] of the displayed page.
     pub rect: [f64; 4],
     /// "sans", "sans-bold", "serif" or "mono".
@@ -335,7 +365,7 @@ fn font_name(font: &str, font_dir: &Path) -> Result<String, String> {
 
 /// A PostScript program drawing one page per row, each the size of the
 /// template page's MediaBox, with each of the row's values set in its box.
-fn merge_program(rows: &[Vec<String>], placed: &[Placed], fonts: &[String], media: [f64; 4], rotate: i32) -> String {
+fn merge_program(rows: &[Vec<String>], placed: &[Placed], fonts: &[String], media: [f64; 4], rotate: i32) -> Result<String, String> {
     let f = |v: f64| format!("{v:.4}");
     let mut ps = format!(
         "%!PS\n<< /PageSize [{} {}] >> setpagedevice\n",
@@ -344,6 +374,9 @@ fn merge_program(rows: &[Vec<String>], placed: &[Placed], fonts: &[String], medi
     );
     for (j, p) in placed.iter().enumerate() {
         let spec = p.field;
+        if is_barcode(spec) {
+            continue;
+        }
         let font = &fonts[j];
         let (bw, bh) = (f(p.size.0), f(p.size.1));
         let x = match spec.align.as_str() {
@@ -381,13 +414,67 @@ fn merge_program(rows: &[Vec<String>], placed: &[Placed], fonts: &[String], medi
         ));
     }
     for row in rows {
-        for (j, _) in placed.iter().enumerate() {
+        for (j, p) in placed.iter().enumerate() {
             let v = row.get(j).map(String::as_str).unwrap_or("");
-            ps.push_str(&format!("{} MPshow{j} ", ps_hex(v)));
+            if is_barcode(p.field) {
+                ps.push_str(&barcode_ps(p, v, media, rotate)?);
+            } else {
+                ps.push_str(&format!("{} MPshow{j} ", ps_hex(v)));
+            }
         }
         ps.push_str("showpage\n");
     }
-    ps
+    Ok(ps)
+}
+
+fn is_barcode(field: &MergeField) -> bool {
+    !field.kind.is_empty() && field.kind != "text"
+}
+
+/// PostScript drawing `value` as the field's barcode, as large as fits in
+/// its box with the code's clear margin, centred. Each run of dark modules
+/// is one filled rectangle, so the code stays sharp at any size.
+fn barcode_ps(p: &Placed, value: &str, media: [f64; 4], rotate: i32) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(String::new());
+    }
+    let m = crate::barcode::encode(&p.field.kind, value)?;
+    let f = |v: f64| format!("{v:.4}");
+    let (bw, bh) = p.size;
+    let q = m.quiet as f64;
+    let module = (bw / (m.width as f64 + 2.0 * q)).min(bh / (m.height as f64 + 2.0 * q));
+    let left = -(m.width as f64) * module / 2.0;
+    let top = m.height as f64 * module / 2.0;
+    let mut rects = String::new();
+    for y in 0..m.height {
+        let mut x = 0;
+        while x < m.width {
+            if !m.bits[y * m.width + x] {
+                x += 1;
+                continue;
+            }
+            let start = x;
+            while x < m.width && m.bits[y * m.width + x] {
+                x += 1;
+            }
+            rects.push_str(&format!(
+                "{} {} {} {} ",
+                f(left + start as f64 * module),
+                f(top - (y + 1) as f64 * module),
+                f((x - start) as f64 * module),
+                f(module)
+            ));
+        }
+        rects.push('\n');
+    }
+    let [c, mg, ye, k] = p.field.cmyk.map(|v| f((v / 100.0).clamp(0.0, 1.0)));
+    Ok(format!(
+        "gsave {cx} {cy} translate {rotate} rotate {c} {mg} {ye} {k} setcmykcolor {ovp} setoverprint\n[{rects}] rectfill grestore\n",
+        cx = f(p.centre.0 - media[0]),
+        cy = f(p.centre.1 - media[1]),
+        ovp = p.field.overprint,
+    ))
 }
 
 /// Replaces page `page` with one copy of it per row, each with the row's
@@ -399,6 +486,16 @@ pub fn mail_merge(path: &Path, page: u32, rows: &[Vec<String>], spec: &MergeSpec
     }
     if spec.fields.is_empty() {
         return Err("Draw a box for the text first.".into());
+    }
+    // Check every barcode first, so a value that can't be encoded is
+    // reported with its row.
+    for (j, field) in spec.fields.iter().enumerate().filter(|(_, f)| is_barcode(f)) {
+        for (i, row) in rows.iter().enumerate() {
+            let v = row.get(j).map(|s| s.trim()).unwrap_or("");
+            if !v.is_empty() {
+                crate::barcode::encode(&field.kind, v).map_err(|e| format!("Row {}: {e}", i + 1))?;
+            }
+        }
     }
     let mut doc = load(path)?;
     let template = pagebox::page_id_for(&doc, page)?;
@@ -423,7 +520,7 @@ pub fn mail_merge(path: &Path, page: u32, rows: &[Vec<String>], spec: &MergeSpec
     let font_dir = tmp.path().join("fonts");
     std::fs::create_dir_all(&font_dir).map_err(|e| format!("Could not create a temp directory: {e}"))?;
     let fonts = spec.fields.iter().map(|f| font_name(&f.font, &font_dir)).collect::<Result<Vec<_>, _>>()?;
-    let program = merge_program(rows, &placed, &fonts, media, geom.rotate);
+    let program = merge_program(rows, &placed, &fonts, media, geom.rotate)?;
     std::fs::write(&ps_path, program).map_err(|e| format!("Could not write the mail merge program: {e}"))?;
     gs::postscript_to_pdf(&ps_path, &pdf_path, &font_dir)?;
     let mut text = load(&pdf_path)?;
@@ -555,6 +652,7 @@ mod tests {
         move_page(&p, 3, 1).unwrap();
         assert_eq!(ids(&p), before);
         let field = |rect: [f64; 4], align: &str| MergeField {
+            kind: "text".into(),
             rect,
             font: "sans".into(),
             size: 24.0,
@@ -570,8 +668,12 @@ mod tests {
         if georgia.exists() {
             second.font = format!("sys:{}", georgia.display());
         }
-        let spec = MergeSpec { fields: vec![field([0.1, 0.1, 0.5, 0.1], "centre"), second] };
-        let rows: Vec<Vec<String>> = [["Alice", "Leeds"], ["Bob £5", "York"], ["A very long name that will not fit the box at all", ""]]
+        let mut qr = field([0.6, 0.6, 0.3, 0.3], "centre");
+        qr.kind = "qr".into();
+        let mut dm = field([0.1, 0.6, 0.3, 0.3], "centre");
+        dm.kind = "datamatrix".into();
+        let spec = MergeSpec { fields: vec![field([0.1, 0.1, 0.5, 0.1], "centre"), second, qr, dm] };
+        let rows: Vec<Vec<String>> = [["Alice", "Leeds", "https://mangoprint.co.uk", "A1"], ["Bob £5", "York", "Bob", "0123456789"], ["A very long name that will not fit the box at all", "", "", ""]]
             .iter()
             .map(|r| r.iter().map(|s| s.to_string()).collect())
             .collect();

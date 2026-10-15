@@ -1041,6 +1041,7 @@ mod tests {
         let p = dir.path().join("t.pdf");
         std::fs::copy(&src, &p).unwrap();
         let field = crate::pages::MergeField {
+            kind: "text".into(),
             rect: [0.5, 0.3, 0.45, 0.2],
             font: "sans-bold".into(),
             size: 40.0,

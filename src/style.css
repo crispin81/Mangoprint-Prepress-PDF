@@ -2257,6 +2257,19 @@ a:hover > .about__logo {
   opacity: 0.55;
 }
 
+.merge-text span.merge-barcode-note {
+  font-family: system-ui, sans-serif;
+  color: #555;
+  white-space: normal;
+  text-align: center;
+}
+
+.merge-text span.merge-barcode-error {
+  color: #d22;
+  opacity: 1;
+  font-style: normal;
+}
+
 #viewport.merge-tool.merge-over-box #imgWrap {
   cursor: move;
 }
