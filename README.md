@@ -16,6 +16,7 @@ install on Windows.
 
 **[⬇ Download the latest version](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest)**
 
+- **2026-10-16 (v1.2.0):** QR code and Data Matrix (including GS1) boxes in mail merge, mail merge from Excel spreadsheets as well as CSV, a total ink limit check that highlights areas over 280% (or your own limit) in bright green, and a fix for Convert to outlines turning some colours black
 - **2026-10-14 (v1.1.1):** Fixes: moving text after a recolour now moves the text, not just its frame; moves and deletes work straight after an edit without reselecting; Convert to spot colour uses the colour typed in Recolour
 - **2026-10-13 (v1.1.0):** Tabs for several PDFs, a Select tool to move, delete, recolour, overprint (100% black or spot colours) or convert objects to a named spot colour, a Global Colour Change panel, mail merge from a CSV (several boxes and columns, installed fonts, live preview), insert, delete, reorder and multi-select pages, undo and redo, rulers with guides, Save PDF as (Ctrl+S) and Print, a simulated view that shows spot inks as opaque, outlined text that stays grouped by line, and fold-away panel info
 - **2026-10-05 (v1.0.1):** Faster opening, a new Recolour tool (change one object or every object with the same fill or stroke), a Fonts panel that warns about fonts that aren't embedded, and a warning before closing with unexported changes
@@ -84,6 +85,8 @@ Windows 10 and 11 already include the WebView2 runtime the app needs.
 2. **Check it.**
    - **Overprint Preview** — tick *Simulate overprinting* to see what an
      overprint-aware press will actually produce.
+     Tick *Highlight ink over* to show in bright green everywhere the total
+     ink is over 280% (type your own limit, e.g. 300).
    - **Separations** — hover over the page to read the ink % of every
      plate (CMYK and spot colours, plus total ink) at the cursor. Untick
      plates to inspect trapping and knockouts. Spot inks show as opaque.
@@ -111,10 +114,11 @@ Windows 10 and 11 already include the WebView2 runtime the app needs.
      colours to CMYK, convert text to outlines (each line stays one group).
    - **Page Boxes** — trim (red) and bleed (blue) measured in mm in from
      each edge of the page; the lines move as you type.
-6. **Mail merge** (<kbd>M</kbd>) — drag boxes on the page, choose a CSV and
-   each box takes a column, in an installed or built-in font (embedded),
-   with a live preview of the first row. One copy of the page is made per
-   row.
+6. **Mail merge** (<kbd>M</kbd>) — drag boxes on the page, choose a CSV or
+   Excel file and each box takes a column, as text in an installed or
+   built-in font (embedded) or as a QR code, Data Matrix or GS1 Data Matrix
+   code, with a live preview of the first row. One copy of the page is made
+   per row.
 7. **Save PDF as** (<kbd>Ctrl</kbd>+<kbd>S</kbd>) saves a copy with your
    changes; the printer button prints it. <kbd>Ctrl</kbd>+<kbd>Z</kbd> /
    <kbd>Ctrl</kbd>+<kbd>Y</kbd> undo and redo any edit.
