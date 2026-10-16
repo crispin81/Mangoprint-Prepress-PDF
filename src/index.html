@@ -141,7 +141,7 @@
         <div id="mergeEmptyWrap"><span id="mergeEmpty" class="merge-bar__hint">Drag a box where the merge should go.</span></div>
         <div id="mergeOptions" class="merge-bar__opts">
           <div class="merge-bar__row">
-            <label class="merge-bar__field" title="Which column goes in this box">Column
+            <label id="mergeColumnField" class="merge-bar__field" title="Which column goes in this box">Column
               <select id="mergeColumn"></select>
             </label>
             <label class="merge-bar__field" title="Show the value as text, or as a barcode that fits the box">Data type:
@@ -150,8 +150,20 @@
                 <option value="qr">QR code</option>
                 <option value="datamatrix">Data Matrix</option>
                 <option value="gs1datamatrix" title="For GS1 codes written like (01)05012345678900(10)ABC123">GS1 Data Matrix</option>
+                <option value="vcard" title="A QR code that saves a contact (name, phone, email, website…) when scanned">Contact card (QR)</option>
               </select>
             </label>
+          </div>
+          <!-- Contact card: which column fills each part of the card. -->
+          <div id="mergeVcard" class="merge-bar__vcard hidden" title="Which column goes in each part of the contact card">
+            <label>Name <select data-vcard="name"></select></label>
+            <label>Company <select data-vcard="org"></select></label>
+            <label>Job title <select data-vcard="title"></select></label>
+            <label>Phone <select data-vcard="phone"></select></label>
+            <label>Mobile <select data-vcard="mobile"></select></label>
+            <label>Email <select data-vcard="email"></select></label>
+            <label>Website <select data-vcard="web"></select></label>
+            <label>Address <select data-vcard="address"></select></label>
           </div>
           <div class="merge-bar__row merge-text-only">
             <select id="mergeFont" title="Font">

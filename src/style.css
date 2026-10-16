@@ -2288,6 +2288,22 @@ a:hover > .about__logo {
   opacity: 0.75;
 }
 
+.merge-bar__vcard {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 4px 6px;
+  align-items: center;
+}
+
+.merge-bar__vcard label {
+  display: contents;
+}
+
+.merge-bar__vcard select {
+  min-width: 0;
+  width: 100%;
+}
+
 #mergeTextLayer {
   position: absolute;
   inset: 0;

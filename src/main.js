@@ -2936,20 +2936,90 @@ function readMergeInputs() {
     valign: mergeEl("mergeValign").value,
     shrink: mergeEl("mergeShrink").checked,
     overprint: mergeEl("mergeOverprint").checked,
+    vcard: readVcardInputs(),
   };
 }
 
 const isBarcode = (f) => !!f.kind && f.kind !== "text";
+// The barcode the backend draws: a contact card is a QR code.
+const barcodeKind = (f) => (f.kind === "vcard" ? "qr" : f.kind);
 
-// Font, size, alignment and shrink only apply to text.
+// Font, size, alignment and shrink only apply to text; a contact card
+// takes several columns instead of one.
 function showKindOptions(kind) {
   const barcode = kind !== "text";
   for (const el of document.querySelectorAll("#mergeBar .merge-text-only")) el.classList.toggle("hidden", barcode);
+  mergeEl("mergeColumnField").classList.toggle("hidden", kind === "vcard");
+  mergeEl("mergeVcard").classList.toggle("hidden", kind !== "vcard");
+}
+
+// --- contact cards ---
+// A "Contact card" box makes a QR code holding a vCard built from the
+// chosen columns, so scanning it offers to save the contact.
+
+const VCARD_PARTS = ["name", "org", "title", "phone", "mobile", "email", "web", "address"];
+// Column headings that suggest each part, for a first guess.
+const VCARD_GUESS = {
+  name: /^(full ?)?name$|^contact$/i,
+  org: /company|organi[sz]ation|business|^org$/i,
+  title: /title|position|role|job/i,
+  phone: /^(tel|phone|telephone|landline|office)/i,
+  mobile: /mobile|cell/i,
+  email: /e-?mail/i,
+  web: /web|url|site/i,
+  address: /address/i,
+};
+const vcardSelects = () => [...document.querySelectorAll("#mergeVcard select")];
+
+function readVcardInputs() {
+  const v = {};
+  for (const s of vcardSelects()) v[s.dataset.vcard] = s.value === "" ? -1 : Number(s.value);
+  return v;
+}
+
+function guessVcard() {
+  const headings = merge.rows ? merge.rows[0] || [] : [];
+  const v = {};
+  for (const part of VCARD_PARTS) v[part] = headings.findIndex((h) => VCARD_GUESS[part].test(String(h).trim()));
+  return v;
+}
+
+// vCard 3.0 text for one row.
+function buildVcard(map, row) {
+  const val = (part) => {
+    const i = map && map[part];
+    return i >= 0 ? String(row[i] ?? "").trim() : "";
+  };
+  const esc = (s) => s.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1");
+  const name = val("name");
+  if (!VCARD_PARTS.some((p) => val(p))) return "";
+  const words = name.split(/\s+/).filter(Boolean);
+  const last = words.length > 1 ? words.pop() : "";
+  const lines = ["BEGIN:VCARD", "VERSION:3.0", `N:${esc(last)};${esc(words.join(" "))};;;`, `FN:${esc(name || val("org"))}`];
+  if (val("org")) lines.push(`ORG:${esc(val("org"))}`);
+  if (val("title")) lines.push(`TITLE:${esc(val("title"))}`);
+  if (val("phone")) lines.push(`TEL;TYPE=WORK,VOICE:${val("phone")}`);
+  if (val("mobile")) lines.push(`TEL;TYPE=CELL:${val("mobile")}`);
+  if (val("email")) lines.push(`EMAIL:${val("email")}`);
+  if (val("web")) lines.push(`URL:${val("web")}`);
+  if (val("address")) lines.push(`ADR;TYPE=WORK:;;${esc(val("address"))};;;;`);
+  lines.push("END:VCARD");
+  return lines.join("\n");
+}
+
+// What a box shows for one row.
+function fieldValue(f, row) {
+  if (f.kind === "vcard") return buildVcard(f.vcard, row);
+  return row[f.column] ?? "";
 }
 
 function showFieldInBar(f) {
   mergeEl("mergeKind").value = f.kind || "text";
   showKindOptions(mergeEl("mergeKind").value);
+  for (const s of vcardSelects()) {
+    const i = f.vcard ? f.vcard[s.dataset.vcard] : -1;
+    s.value = i >= 0 ? String(i) : "";
+  }
   mergeEl("mergeFont").value = f.font;
   mergeEl("mergeSize").value = String(f.size);
   mergeEl("mergeAlign").value = f.align;
@@ -3030,7 +3100,7 @@ function renderMergePanel() {
   merge.fields.forEach((field, i) => {
     const chip = document.createElement("span");
     chip.className = `merge-chip${i === merge.active ? " active" : ""}${field.rect ? "" : " empty"}`;
-    const name = columns[field.column] || `Column ${field.column + 1}`;
+    const name = field.kind === "vcard" ? "Contact card" : columns[field.column] || `Column ${field.column + 1}`;
     chip.title = `Box ${i + 1}: ${name}`;
     const label = document.createElement("button");
     label.type = "button";
@@ -3076,6 +3146,23 @@ function renderMergePanel() {
     }),
   );
   if (f) select.value = String(Math.min(f.column, columns.length - 1));
+  // The contact card's column menus, each with a "none" choice.
+  for (const s of vcardSelects()) {
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "—";
+    s.replaceChildren(
+      none,
+      ...columns.map((name, i) => {
+        const o = document.createElement("option");
+        o.value = String(i);
+        o.textContent = name;
+        return o;
+      }),
+    );
+    const i = f && f.vcard ? f.vcard[s.dataset.vcard] : -1;
+    s.value = i >= 0 && i < columns.length ? String(i) : "";
+  }
 
   const rows = mergeRows();
   const info = mergeEl("mergeCsvInfo");
@@ -3123,7 +3210,7 @@ function renderMergeText() {
     if (isBarcode(f)) {
       box.style.justifyContent = "center";
       box.style.alignItems = "center";
-      box.appendChild(barcodePreview(f, (first[f.column] || "").trim(), box));
+      box.appendChild(barcodePreview(f, String(fieldValue(f, first)).trim(), box));
       layer.appendChild(box);
       continue;
     }
@@ -3165,7 +3252,7 @@ const barcodeCache = new Map();
 // clear margin). Fetched once per value; the preview redraws when it
 // arrives.
 function barcodePreview(f, value, box) {
-  const label = { qr: "QR code", datamatrix: "Data Matrix", gs1datamatrix: "GS1 Data Matrix" }[f.kind] || "Barcode";
+  const label = { qr: "QR code", datamatrix: "Data Matrix", gs1datamatrix: "GS1 Data Matrix", vcard: "Contact card" }[f.kind] || "Barcode";
   const note = (text) => {
     const span = document.createElement("span");
     span.className = "placeholder merge-barcode-note";
@@ -3178,7 +3265,7 @@ function barcodePreview(f, value, box) {
   const m = barcodeCache.get(key);
   if (!m) {
     barcodeCache.set(key, null);
-    invoke("barcode_matrix", { kind: f.kind, text: value })
+    invoke("barcode_matrix", { kind: barcodeKind(f), text: value })
       .then((res) => barcodeCache.set(key, res))
       .catch((err) => barcodeCache.set(key, { error: String(err) }))
       .finally(renderMergeText);
@@ -3406,6 +3493,7 @@ function currentMergeSetup() {
       valign: f.valign,
       shrink: f.shrink,
       overprint: f.overprint,
+      vcard: f.vcard,
     })),
   });
 }
@@ -3460,12 +3548,12 @@ function mergeJob() {
   const placed = merge.fields.filter((f) => f.rect);
   const page = merge.page;
   const rows = mergeRows()
-    .map((r) => placed.map((f) => r[f.column] ?? ""))
+    .map((r) => placed.map((f) => fieldValue(f, r)))
     .filter((r) => r.some((v) => v));
   if (!placed.length || !rows.length || !state.path || !page) return null;
   const spec = {
     fields: placed.map((f) => ({
-      kind: f.kind || "text",
+      kind: barcodeKind(f) || "text",
       rect: f.rect,
       font: f.font,
       size: f.size,
@@ -3562,11 +3650,17 @@ function initMerge() {
       updateNewSwatches();
       if (activeField()) activeField().autoColour = false;
     }
+    // A new contact card starts from columns whose headings fit.
+    if (kind === "vcard" && Object.values(readVcardInputs()).every((i) => i < 0)) {
+      const guess = guessVcard();
+      for (const s of vcardSelects()) s.value = guess[s.dataset.vcard] >= 0 ? String(guess[s.dataset.vcard]) : "";
+    }
   });
   for (const id of ["mergeColumn", "mergeKind", "mergeFont", "mergeSize", "mergeAlign", "mergeValign", "mergeShrink", "mergeOverprint"]) {
     mergeEl(id).addEventListener("change", save);
     mergeEl(id).addEventListener("input", save);
   }
+  for (const s of vcardSelects()) s.addEventListener("change", save);
   for (const input of rcInputs("merge")) {
     input.addEventListener("input", () => {
       if (activeField()) activeField().autoColour = false;
