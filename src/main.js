@@ -202,6 +202,8 @@ async function loadPdf(source) {
 // Shows a tab's PDF: its working copy, at the page and zoom it was left
 // at. `fresh` = just opened, so run the on-open checks.
 async function showTab(tab, fresh) {
+  // The mail merge boxes belong to the tab they were drawn on.
+  if (activeTab && activeTab !== tab) activeTab.mergeSetup = currentMergeSetup();
   activeTab = tab;
   renderTabs();
   pages.picked = new Set();
@@ -230,6 +232,14 @@ async function showTab(tab, fresh) {
   view.zoom = tab.zoom || "fit";
   await showPage({ reloadDoc: true });
   enableFixes();
+  if (fresh) {
+    try {
+      tab.mergeSetup = await invoke("merge_setup_read", { path: tab.path });
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  if (tab.mergeSetup) await restoreMergeSetup(tab.mergeSetup);
   if (fresh) {
     fontWarningQueued = false;
     fontDialog.classList.add("hidden");
@@ -284,7 +294,10 @@ async function exportPdf() {
   });
   if (!dest) return;
   try {
-    await invoke("export_pdf", { from: state.path, dest });
+    // Boxes not yet made into pages are kept inside the PDF, so reopening
+    // it brings them back.
+    const setup = merge.page && merge.page <= state.pageCount ? currentMergeSetup() : null;
+    await invoke("export_pdf", { from: state.path, dest, mergeSetup: setup });
     state.sourcePath = dest;
     if (activeTab) {
       activeTab.sourcePath = dest;
@@ -3332,6 +3345,11 @@ async function chooseMergeCsv() {
   });
   if (!selected) return;
   const path = Array.isArray(selected) ? selected[0] : selected;
+  await openMergeData(path);
+}
+
+// Reads a CSV or spreadsheet (at `sheet`, if it has one by that name).
+async function openMergeData(path, sheet = null) {
   // A spreadsheet with more than one sheet gets a Sheet menu.
   let sheets = [];
   try {
@@ -3350,7 +3368,67 @@ async function chooseMergeCsv() {
     }),
   );
   mergeEl("mergeSheetRow").classList.toggle("hidden", sheets.length < 2);
-  await loadMergeRows(sheets[0] ?? null);
+  const pick = sheet && sheets.includes(sheet) ? sheet : (sheets[0] ?? null);
+  if (pick) select.value = pick;
+  await loadMergeRows(pick);
+}
+
+// The boxes not yet made into pages, with the data file, sheet and
+// "Skip first row", as saved inside the PDF by Save PDF as. Null when
+// there are no boxes.
+function currentMergeSetup() {
+  const placed = merge.fields.filter((f) => f.rect);
+  if (!placed.length || !merge.page) return null;
+  const sheetSelect = mergeEl("mergeSheet");
+  return JSON.stringify({
+    version: 1,
+    page: merge.page,
+    header: mergeEl("mergeHeader").checked,
+    file: merge.path || null,
+    sheet: merge.path && sheetSelect.options.length ? sheetSelect.value : null,
+    fields: placed.map((f) => ({
+      rect: f.rect,
+      column: f.column,
+      kind: f.kind || "text",
+      font: f.font,
+      size: f.size,
+      cmyk: f.cmyk,
+      align: f.align,
+      valign: f.valign,
+      shrink: f.shrink,
+      overprint: f.overprint,
+    })),
+  });
+}
+
+// Brings back saved boxes and reopens their data file, if it's still there.
+async function restoreMergeSetup(json) {
+  let setup;
+  try {
+    setup = JSON.parse(json);
+  } catch {
+    return;
+  }
+  if (!setup || !Array.isArray(setup.fields) || !setup.fields.length) return;
+  if (!(setup.page >= 1 && setup.page <= state.pageCount)) return;
+  merge.fields = setup.fields.map((f) => ({ ...f, autoColour: false }));
+  merge.page = setup.page;
+  merge.active = 0;
+  mergeEl("mergeHeader").checked = !!setup.header;
+  showFieldInBar(merge.fields[0]);
+  setMergeTool(true);
+  if (setup.file) {
+    await openMergeData(setup.file, setup.sheet);
+    if (!merge.rows) {
+      setMergeResult(`Mail merge boxes restored. Couldn't open ${baseName(setup.file)}: choose the data file again.`, "err");
+    } else {
+      setMergeResult("Mail merge boxes restored from this PDF.", "ok");
+    }
+  } else {
+    setMergeResult("Mail merge boxes restored from this PDF. Choose a CSV or Excel file.", "ok");
+  }
+  renderMergePanel();
+  drawBoxOverlay();
 }
 
 async function loadMergeRows(sheet) {

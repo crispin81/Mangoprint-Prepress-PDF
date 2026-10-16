@@ -305,6 +305,40 @@ fn read_spreadsheet(path: &Path, sheet: Option<&str>) -> Result<Vec<Vec<String>>
         .collect())
 }
 
+/// Catalog key holding a saved mail merge setup (the app's own JSON).
+/// Other PDF readers ignore keys they don't know.
+const MERGE_SETUP_KEY: &[u8] = b"MPMergeSetup";
+
+/// The mail merge setup saved in the PDF, if there is one.
+pub fn read_merge_setup(path: &Path) -> Result<Option<String>, String> {
+    let doc = load(path)?;
+    let setup = doc
+        .catalog()
+        .ok()
+        .and_then(|c| c.get(MERGE_SETUP_KEY).ok())
+        .and_then(|o| o.as_str().ok())
+        .map(|b| String::from_utf8_lossy(b).into_owned());
+    Ok(setup)
+}
+
+/// Stores `setup` in the PDF, or removes any setup already there. The
+/// file is only rewritten when that changes something.
+pub fn write_merge_setup(path: &Path, setup: Option<&str>) -> Result<(), String> {
+    let mut doc = load(path)?;
+    let root = doc.trailer.get(b"Root").and_then(|o| o.as_reference()).map_err(|_| "The PDF has no catalog.".to_string())?;
+    let catalog = doc.get_dictionary_mut(root).map_err(|_| "The PDF has no catalog.".to_string())?;
+    let had = catalog.has(MERGE_SETUP_KEY);
+    match setup {
+        Some(s) => catalog.set(MERGE_SETUP_KEY, Object::String(s.as_bytes().to_vec(), lopdf::StringFormat::Literal)),
+        None if had => {
+            catalog.remove(MERGE_SETUP_KEY);
+        }
+        None => return Ok(()),
+    }
+    doc.save(path).map_err(|e| format!("Could not save the PDF: {e}"))?;
+    Ok(())
+}
+
 /// One text box of a mail merge.
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -727,5 +761,50 @@ mod sheet_tests {
             m
         });
         println!("row lengths: {widths:?}");
+    }
+}
+
+#[cfg(test)]
+mod merge_dump {
+    /// Prints page 1 of MP_DUMP_PDF and the objects it draws with.
+    #[test]
+    fn dump_merged() {
+        let Ok(p) = std::env::var("MP_DUMP_PDF") else { return };
+        let doc = lopdf::Document::load(&p).unwrap();
+        let id = *doc.get_pages().get(&1).unwrap();
+        let page = doc.get_dictionary(id).unwrap();
+        println!("page: {page:?}");
+        for c in doc.get_page_contents(id) {
+            let s = doc.get_object(c).unwrap().as_stream().unwrap();
+            println!("content {c:?}: {:?}", String::from_utf8_lossy(&s.decompressed_content().unwrap_or(s.content.clone())).chars().take(200).collect::<String>());
+        }
+        let res = page.get(b"Resources").unwrap();
+        println!("res: {res:?}");
+        if let Ok(xo) = res.as_dict().and_then(|d| d.get(b"XObject")).and_then(|o| o.as_dict()) {
+            for (k, v) in xo.iter() {
+                let s = doc.get_object(v.as_reference().unwrap()).unwrap().as_stream().unwrap();
+                println!("xobject {}: {:?}", String::from_utf8_lossy(k), s.dict);
+                println!("  {:?}", String::from_utf8_lossy(&s.decompressed_content().unwrap_or_default()).chars().take(300).collect::<String>());
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod merge_setup_tests {
+    /// Saving, reading back and clearing a setup (MP_PAGES_PDF as the file).
+    #[test]
+    fn setup_round_trip() {
+        let Ok(src) = std::env::var("MP_PAGES_PDF") else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("t.pdf");
+        std::fs::copy(&src, &p).unwrap();
+        assert_eq!(super::read_merge_setup(&p).unwrap(), None);
+        let json = r#"{"version":1,"page":1,"file":"C:\Data\Łódź (labels).xlsx","fields":[]}"#;
+        super::write_merge_setup(&p, Some(json)).unwrap();
+        assert_eq!(super::read_merge_setup(&p).unwrap().as_deref(), Some(json));
+        assert!(crate::pagebox::page_count(&p).unwrap() > 0);
+        super::write_merge_setup(&p, None).unwrap();
+        assert_eq!(super::read_merge_setup(&p).unwrap(), None);
     }
 }

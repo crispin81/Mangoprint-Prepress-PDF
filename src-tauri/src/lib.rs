@@ -184,14 +184,26 @@ fn read_pdf(path: String, doc: tauri::State<DocLock>) -> Result<tauri::ipc::Resp
 
 /// Writes the edited working copy out to `dest`.
 #[tauri::command(async)]
-fn export_pdf(from: String, dest: String, doc: tauri::State<DocLock>) -> Result<(), String> {
+fn export_pdf(
+    from: String,
+    dest: String,
+    // The mail merge boxes not yet made into pages, saved inside the PDF so
+    // reopening it brings them back; None clears any saved setup.
+    merge_setup: Option<String>,
+    doc: tauri::State<DocLock>,
+) -> Result<(), String> {
     let _r = read_lock(&doc)?;
-    if Path::new(&from) == Path::new(&dest) {
-        return Ok(());
+    if Path::new(&from) != Path::new(&dest) {
+        std::fs::copy(&from, &dest).map_err(|e| format!("Could not save the PDF to {dest}: {e}"))?;
     }
-    std::fs::copy(&from, &dest)
-        .map(|_| ())
-        .map_err(|e| format!("Could not save the PDF to {dest}: {e}"))
+    pages::write_merge_setup(Path::new(&dest), merge_setup.as_deref())
+}
+
+/// The mail merge setup saved in the PDF, if any.
+#[tauri::command(async)]
+fn merge_setup_read(path: String, doc: tauri::State<DocLock>) -> Result<Option<String>, String> {
+    let _r = read_lock(&doc)?;
+    pages::read_merge_setup(Path::new(&path))
 }
 
 #[tauri::command(async)]
@@ -982,6 +994,7 @@ pub fn run() {
             undo_counts,
             merge_read_csv,
             merge_sheets,
+            merge_setup_read,
             barcode_matrix,
             mail_merge,
             system_fonts,
