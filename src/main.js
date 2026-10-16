@@ -1658,10 +1658,13 @@ function sparkle(el) {
     s.style.animationDelay = `${(Math.random() * 0.8).toFixed(2)}s, 0s`;
     el.appendChild(s);
   }
-  el._sparkleTimer = setTimeout(() => {
-    el.classList.remove("sparkle");
-    el.querySelectorAll(".rc-spark").forEach((s) => s.remove());
-  }, 5000);
+  el._sparkleTimer = setTimeout(() => stopSparkle(el), 5000);
+}
+
+function stopSparkle(el) {
+  clearTimeout(el._sparkleTimer);
+  el.classList.remove("sparkle");
+  el.querySelectorAll(".rc-spark").forEach((s) => s.remove());
 }
 
 // The Recolour panel recolours the selected objects; "same colour"
@@ -2436,7 +2439,6 @@ function setSelectTool(on) {
   if (on) {
     setTextMode(false);
     clearInks();
-    document.getElementById("recolourPanel").scrollIntoView({ behavior: "smooth", block: "start" });
     // Coming back (e.g. after recolouring): the same objects, re-read so
     // the panel shows their new colours.
     const saved = sel.saved;
@@ -2877,6 +2879,8 @@ function setMergeTool(on) {
   if (!on && merge.dropper) setMergeDropper(false);
   positionMergeBar();
   renderMergePanel();
+  // Point out what to do first: draw a box.
+  if (on && !mergeEl("mergeEmpty").classList.contains("hidden")) sparkle(mergeEl("mergeEmptyWrap"));
 }
 
 // The options bar floats over the top left of the page view, or wherever
@@ -3055,6 +3059,7 @@ function renderMergePanel() {
       ? `Drag a box for box ${merge.active + 1}.`
       : "";
   hint.classList.toggle("hidden", !hint.textContent);
+  if (!hint.textContent) stopSparkle(mergeEl("mergeEmptyWrap")); // the box is drawn
   mergeEl("mergeOptions").classList.toggle("waiting", !f);
 
   const select = mergeEl("mergeColumn");

@@ -1621,14 +1621,25 @@ a:hover > .about__logo {
   initial-value: 0deg;
 }
 
-#recolourPanel {
+#recolourPanel,
+#mergeEmptyWrap {
   position: relative;
 }
 
-#recolourPanel.sparkle::before {
+/* The mail merge prompt ("Drag a box…") gets the same frame, closer in. */
+#mergeEmptyWrap {
+  --sparkle-inset: -5px -6px;
+  margin: 4px 0;
+}
+
+#mergeEmptyWrap:has(> .hidden) {
+  margin: 0;
+}
+
+.sparkle::before {
   content: "";
   position: absolute;
-  inset: -8px -8px 4px -8px;
+  inset: var(--sparkle-inset, -8px -8px 4px -8px);
   border-radius: 8px;
   padding: 2px;
   background: conic-gradient(from var(--rc-angle), #00aeef, #ec008c, #fff200, #ffcc33, #00aeef);
