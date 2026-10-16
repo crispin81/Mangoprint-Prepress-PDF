@@ -1021,3 +1021,33 @@ pub fn run() {
         });
 }
 
+
+#[cfg(test)]
+mod plate_stats {
+    /// Mean ink of each plate in MP_SEP_DIR (if set).
+    #[test]
+    fn plate_means() {
+        let Ok(dir) = std::env::var("MP_SEP_DIR") else { return };
+        for e in std::fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            let img = image::open(&p).unwrap();
+            let g = img.to_luma8();
+            let mean: f64 = g.pixels().map(|p| 255.0 - p.0[0] as f64).sum::<f64>() / (g.width() * g.height()) as f64 / 2.55;
+            println!("{:?} {:?} {}x{} mean ink {mean:.1}%", p.file_name().unwrap(), img.color(), g.width(), g.height());
+        }
+    }
+}
+
+#[cfg(test)]
+mod outline_repro {
+    /// MP_OUTLINE_IN -> MP_OUTLINE_OUT the way the Outlines button does it.
+    #[test]
+    fn outline_like_app() {
+        let (Ok(src), Ok(out)) = (std::env::var("MP_OUTLINE_IN"), std::env::var("MP_OUTLINE_OUT")) else { return };
+        let tmp = tempfile::TempDir::new().unwrap();
+        let grouped = tmp.path().join("grouped.pdf");
+        crate::objects::group_text_blocks(std::path::Path::new(&src), &grouped).unwrap();
+        std::fs::copy(&grouped, format!("{out}.grouped.pdf")).unwrap();
+        crate::gs::convert_pdf(&grouped, std::path::Path::new(&out), crate::gs::Conversion::Outlines).unwrap();
+    }
+}

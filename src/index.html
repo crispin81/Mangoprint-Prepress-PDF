@@ -199,6 +199,11 @@
             <input type="checkbox" id="overprintToggle" />
             Simulate overprinting
           </label>
+          <div class="ink-limit">
+            <label title="Show in bright green everywhere the inks add up to more than this"><input type="checkbox" id="inkLimitOn" checked /> Highlight ink over</label>
+            <input type="number" id="inkLimit" min="100" max="400" step="5" value="280" title="Total ink limit, %" /> %
+          </div>
+          <p id="inkLimitInfo" class="ink-limit__info"></p>
           <p class="hint">
             Off: the page is drawn exactly as the PDF describes it — vectors
             and text as vectors (sharp at any zoom), images at their own
@@ -217,11 +222,6 @@
             </div>
           </div>
           <ul id="separationsList"><li class="hint">Open a PDF to see its separations.</li></ul>
-          <div class="ink-limit">
-            <label title="Show in bright green everywhere the inks add up to more than this"><input type="checkbox" id="inkLimitOn" checked /> Highlight ink over</label>
-            <input type="number" id="inkLimit" min="100" max="400" step="5" value="280" title="Total ink limit, %" /> %
-          </div>
-          <p id="inkLimitInfo" class="ink-limit__info"></p>
           <p class="hint">
             Hover over the page to read the ink at the cursor. Untick plates to inspect
             trapping — e.g. whether black text overprints (colours still

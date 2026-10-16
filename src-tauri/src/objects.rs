@@ -547,28 +547,41 @@ pub fn delete_objects(path: &Path, page: u32, indices: &[usize]) -> Result<EditR
 /// a group with a clip a little larger than the text, which survives the
 /// conversion. The Select tool then picks up a whole line of outlined text
 /// as one object. Writes the result to `dest`.
+/// Graphics and text state operators allowed inside BT … ET whose effect
+/// lasts beyond it.
+const CARRIED_STATE: [&str; 27] = [
+    "cs", "CS", "sc", "SC", "scn", "SCN", "g", "G", "rg", "RG", "k", "K", "gs", "w", "J", "j", "M", "d", "ri", "i", "Tc", "Tw", "Tz", "TL", "Tf", "Tr", "Ts",
+];
+
 pub fn group_text_blocks(src: &Path, dest: &Path) -> Result<(), String> {
     let mut doc = Document::load(src).map_err(|e| format!("Could not open PDF: {e}"))?;
     let pages: Vec<ObjectId> = doc.get_pages().into_values().collect();
     for page_id in pages {
         let walk = walk_page(&doc, page_id, true);
         let data = &walk.data[0];
-        // BT … ET blocks in the page's own stream.
-        let mut blocks: Vec<(usize, usize)> = Vec::new();
-        let mut open: Option<usize> = None;
+        // BT … ET blocks in the page's own stream, each with the state
+        // changes made inside it (colour, text state, ExtGState), which
+        // carry on after ET.
+        let mut blocks: Vec<(usize, usize, Vec<(usize, usize)>)> = Vec::new();
+        let mut open: Option<(usize, Vec<(usize, usize)>)> = None;
         for op in crate::recolour::lex(data) {
             match op.name.as_str() {
-                "BT" => open = Some(op.start),
+                "BT" => open = Some((op.start, Vec::new())),
                 "ET" => {
-                    if let Some(st) = open.take() {
-                        blocks.push((st, op.end));
+                    if let Some((st, state)) = open.take() {
+                        blocks.push((st, op.end, state));
+                    }
+                }
+                name if CARRIED_STATE.contains(&name) => {
+                    if let Some((_, state)) = open.as_mut() {
+                        state.push((op.start, op.end));
                     }
                 }
                 _ => {}
             }
         }
         let mut edits = Edits::new();
-        for (st, en) in blocks {
+        for (st, en, state) in blocks {
             // The block's text, in page space, and the transformation it's in.
             let mut pts: Vec<(f64, f64)> = Vec::new();
             let mut ctm = None;
@@ -602,7 +615,16 @@ pub fn group_text_blocks(src: &Path, dest: &Path) -> Result<(), String> {
                 num(c[0].0), num(c[0].1), num(c[1].0), num(c[1].1), num(c[2].0), num(c[2].1), num(c[3].0), num(c[3].1)
             );
             insert(&mut edits, st, 1, path);
-            insert(&mut edits, en, 0, " Q\n".into());
+            // Q undoes the block's state changes as well as the clip, so
+            // they're made again after it: otherwise a colour set inside
+            // the text (often what the next shape is filled with) is lost.
+            let mut after = String::from(" Q");
+            for &(a, b) in &state {
+                after.push(' ');
+                after.push_str(&String::from_utf8_lossy(&data[a..b]));
+            }
+            after.push('\n');
+            insert(&mut edits, en, 0, after);
         }
         if !edits.is_empty() {
             replace_page_content(&mut doc, page_id, splice(data, edits))?;
