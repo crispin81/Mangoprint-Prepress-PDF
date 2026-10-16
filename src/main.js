@@ -3054,7 +3054,7 @@ function renderMergePanel() {
 
   const hint = mergeEl("mergeEmpty");
   hint.textContent = !merge.fields.length
-    ? "Drag a box where the text should go."
+    ? "Drag a box where the merge should go."
     : f && !f.rect
       ? `Drag a box for box ${merge.active + 1}.`
       : "";
@@ -3327,7 +3327,7 @@ window.addEventListener("mouseup", (ev) => {
       ? merge.fields.findIndex((f) => f.rect && ax >= f.rect[0] && ax <= f.rect[0] + f.rect[2] && ay >= f.rect[1] && ay <= f.rect[1] + f.rect[3])
       : -1;
     if (hit >= 0) activateField(hit);
-    else setMergeResult("Drag out a box on the page for the text.", "err");
+    else setMergeResult("Drag out a box on the page for the merge.", "err");
     return;
   }
   // All the boxes go on one page: drawing on another page starts again.
