@@ -144,12 +144,14 @@
             <label class="merge-bar__field" title="Which column goes in this box">Column
               <select id="mergeColumn"></select>
             </label>
-            <select id="mergeKind" title="Show the value as text, or as a barcode that fits the box">
-              <option value="text" selected>Text</option>
-              <option value="qr">QR code</option>
-              <option value="datamatrix">Data Matrix</option>
-              <option value="gs1datamatrix" title="For GS1 codes written like (01)05012345678900(10)ABC123">GS1 Data Matrix</option>
-            </select>
+            <label class="merge-bar__field" title="Show the value as text, or as a barcode that fits the box">Data type:
+              <select id="mergeKind">
+                <option value="text" selected>Text</option>
+                <option value="qr">QR code</option>
+                <option value="datamatrix">Data Matrix</option>
+                <option value="gs1datamatrix" title="For GS1 codes written like (01)05012345678900(10)ABC123">GS1 Data Matrix</option>
+              </select>
+            </label>
           </div>
           <div class="merge-bar__row merge-text-only">
             <select id="mergeFont" title="Font">
