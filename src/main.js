@@ -3059,7 +3059,11 @@ function renderMergePanel() {
       ? `Drag a box for box ${merge.active + 1}.`
       : "";
   hint.classList.toggle("hidden", !hint.textContent);
-  if (!hint.textContent) stopSparkle(mergeEl("mergeEmptyWrap")); // the box is drawn
+  // A new prompt (e.g. after + or Clear boxes) gets the animated frame;
+  // it goes once the box is drawn.
+  if (!hint.textContent) stopSparkle(mergeEl("mergeEmptyWrap"));
+  else if (hint.textContent !== merge.lastHint && state.mergeTool) sparkle(mergeEl("mergeEmptyWrap"));
+  merge.lastHint = hint.textContent;
   mergeEl("mergeOptions").classList.toggle("waiting", !f);
 
   const select = mergeEl("mergeColumn");
