@@ -68,7 +68,7 @@
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
-  scrollbar-color: #3a3b45 transparent;
+  scrollbar-color: var(--accent) transparent;
 }
 
 /* WebView2 (Windows) and WebKit (Linux/macOS) both support these, so the
@@ -81,13 +81,13 @@
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background-color: #3a3b45;
+  background-color: var(--accent);
   border-radius: 5px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background-color: var(--accent);
+  background-color: var(--accent-text);
 }
 
 button,
