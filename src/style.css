@@ -1782,7 +1782,8 @@ a:hover > .about__logo {
 .thumbs__bar {
   position: sticky;
   top: 0;
-  z-index: 1;
+  /* Above the thumbnails and their outlines, so the + menu covers them. */
+  z-index: 30;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1816,10 +1817,6 @@ a:hover > .about__logo {
 
 .thumbs__btn--add {
   color: #6fcf7f;
-}
-
-.thumbs__bar {
-  position: relative;
 }
 
 /* The + button's menu: insert above or below the selected page. */
