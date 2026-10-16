@@ -342,6 +342,67 @@ fn render_separation_composite(
 }
 
 #[derive(serde::Serialize)]
+struct InkLimit {
+    /// Transparent PNG, bright green where total ink is over the limit.
+    image: String,
+    /// Highest total ink on the page, %.
+    max: f32,
+    /// Share of the page over the limit, 0–1.
+    over: f32,
+}
+
+/// Where the page's total ink (all plates added up) is over `limit` %,
+/// from the same tiffsep plates as the ink readings.
+#[tauri::command(async)]
+fn ink_limit_overlay(
+    path: String,
+    page: u32,
+    dpi: u32,
+    limit: f32,
+    cache: tauri::State<SepCache>,
+    doc: tauri::State<DocLock>,
+) -> Result<InkLimit, String> {
+    let plates = {
+        let _r = read_lock(&doc)?;
+        separations(&cache, &path, page, dpi)?
+    };
+    let mut images = Vec::with_capacity(plates.len());
+    for (name, tif) in &plates {
+        let img = image::open(tif)
+            .map_err(|e| format!("Could not read separation plate '{name}': {e}"))?
+            .to_luma8();
+        images.push(img);
+    }
+    let (w, h) = images.first().map(|i| i.dimensions()).ok_or("The page has no separations.")?;
+    // Plate values are 255 = no ink, 0 = 100%; compare in those units.
+    let limit_units = limit / 100.0 * 255.0;
+    let mut out = image::RgbaImage::new(w, h);
+    let (mut max, mut over) = (0u32, 0u64);
+    for y in 0..h {
+        for x in 0..w {
+            let total: u32 = images
+                .iter()
+                .filter(|i| i.dimensions() == (w, h))
+                .map(|i| 255 - i.get_pixel(x, y).0[0] as u32)
+                .sum();
+            max = max.max(total);
+            if total as f32 > limit_units + 0.5 {
+                over += 1;
+                out.put_pixel(x, y, image::Rgba([0, 255, 0, 255]));
+            }
+        }
+    }
+    let tmp = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
+    let out_path = tmp.path().join("inklimit.png");
+    out.save(&out_path).map_err(|e| format!("Could not encode the ink limit PNG: {e}"))?;
+    Ok(InkLimit {
+        image: png_to_data_uri(&out_path)?,
+        max: max as f32 / 255.0 * 100.0,
+        over: over as f32 / (w as f32 * h as f32),
+    })
+}
+
+#[derive(serde::Serialize)]
 struct PageContent {
     /// [lowest, highest] effective raster image resolution in whole PPI;
     /// `None` when the page has no raster images.
@@ -922,6 +983,7 @@ pub fn run() {
             render_overprint,
             list_separations,
             render_separation_composite,
+            ink_limit_overlay,
             page_image_dpi,
             check_rgb,
             spot_colours,

@@ -298,6 +298,7 @@ async function exportPdf() {
 
 function updatePageControls() {
   clearInks(); // readings belong to the previous page/file
+  hideInkLimit(); // so is the ink limit highlight, until it's worked out again
   els.pageLabel.textContent = state.path ? `Page ${state.page} / ${state.pageCount}` : "–";
   els.prevPage.disabled = !state.path || state.page <= 1;
   els.nextPage.disabled = !state.path || state.page >= state.pageCount;
@@ -326,6 +327,7 @@ async function loadSeparationsList() {
     return;
   }
   if (forPage !== state.page || forPath !== state.path) return; // user moved on
+  updateInkLimit();
   state.separationNames = names;
   if (state.activeSeparations.size === 0) {
     state.activeSeparations = new Set(names);
@@ -375,6 +377,93 @@ function renderSeparationsList() {
   total.innerHTML = '<span class="ink-name">Total ink</span><span class="ink-value" data-total="1"></span>';
   els.separationsList.appendChild(total);
 }
+
+// --- ink limit ---
+// Everywhere the plates add up to more than the limit (280% unless the
+// user types another) is shown in bright green over the page. Both the
+// tick box and the limit are remembered.
+
+// Looked up when used, as the page controls can call in before this runs.
+var inkLimitRequest = 0;
+function inkLimitEl(id) {
+  return document.getElementById(id);
+}
+
+function inkLimitLayer() {
+  let img = document.getElementById("inkLimitLayer");
+  if (!img) {
+    img = document.createElement("img");
+    img.id = "inkLimitLayer";
+    img.alt = "";
+    img.className = "hidden";
+    els.imgWrap.appendChild(img);
+  }
+  return img;
+}
+
+function hideInkLimit() {
+  inkLimitRequest++;
+  inkLimitLayer().classList.add("hidden");
+  inkLimitEl("inkLimitInfo").textContent = "";
+}
+
+async function updateInkLimit() {
+  const limit = Number.parseFloat(inkLimitEl("inkLimit").value);
+  if (!inkLimitEl("inkLimitOn").checked || !state.path || !(limit > 0)) {
+    hideInkLimit();
+    return;
+  }
+  const req = ++inkLimitRequest;
+  const forPath = state.path;
+  const forPage = state.page;
+  let res;
+  try {
+    res = await invoke("ink_limit_overlay", { path: forPath, page: forPage, dpi: SAMPLE_DPI, limit });
+  } catch (err) {
+    if (req === inkLimitRequest) inkLimitEl("inkLimitInfo").textContent = String(err);
+    return;
+  }
+  if (req !== inkLimitRequest || forPath !== state.path || forPage !== state.page) return;
+  const img = inkLimitLayer();
+  img.src = res.image;
+  img.classList.toggle("hidden", res.over === 0);
+  const max = Math.round(res.max);
+  if (res.over === 0) {
+    inkLimitEl("inkLimitInfo").textContent = `Nothing over ${limit}% on this page (highest ${max}%).`;
+    inkLimitEl("inkLimitInfo").className = "ink-limit__info ok";
+  } else {
+    const share = res.over * 100;
+    const pct = share < 1 ? "under 1" : String(Math.round(share));
+    inkLimitEl("inkLimitInfo").textContent = `Over ${limit}% on ${pct}% of this page (highest ${max}%).`;
+    inkLimitEl("inkLimitInfo").className = "ink-limit__info warn";
+  }
+}
+
+try {
+  const saved = JSON.parse(localStorage.getItem("inkLimit") || "null");
+  if (saved) {
+    inkLimitEl("inkLimitOn").checked = !!saved.on;
+    if (saved.limit > 0) inkLimitEl("inkLimit").value = String(saved.limit);
+  }
+} catch {}
+
+function saveInkLimit() {
+  try {
+    localStorage.setItem("inkLimit", JSON.stringify({ on: inkLimitEl("inkLimitOn").checked, limit: Number.parseFloat(inkLimitEl("inkLimit").value) }));
+  } catch {}
+}
+
+inkLimitEl("inkLimitOn").addEventListener("change", () => {
+  saveInkLimit();
+  updateInkLimit();
+});
+inkLimitEl("inkLimit").addEventListener("change", () => {
+  saveInkLimit();
+  updateInkLimit();
+});
+inkLimitEl("inkLimit").addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") inkLimitEl("inkLimit").blur();
+});
 
 // True when every plate is ticked (the normal, full-colour view).
 const allPlatesOn = () => state.separationNames.every((n) => state.activeSeparations.has(n));

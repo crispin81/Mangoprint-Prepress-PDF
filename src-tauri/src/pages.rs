@@ -689,3 +689,25 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod sheet_tests {
+    /// Prints the rows of the spreadsheet in MP_SHEET (if set).
+    #[test]
+    fn dump_sheet() {
+        let Ok(p) = std::env::var("MP_SHEET") else { return };
+        let rows = super::read_csv(std::path::Path::new(&p)).unwrap();
+        println!("{} rows", rows.len());
+        for r in rows.iter().take(12) {
+            println!("{r:?}");
+        }
+        for r in rows.iter().rev().take(3) {
+            println!("{r:?}");
+        }
+        let widths: std::collections::BTreeMap<usize, usize> = rows.iter().fold(Default::default(), |mut m, r| {
+            *m.entry(r.len()).or_default() += 1;
+            m
+        });
+        println!("row lengths: {widths:?}");
+    }
+}
