@@ -123,8 +123,19 @@ pub fn insert_pdfs(path: &Path, sources: &[String], at: u32) -> Result<u32, Stri
     let mut doc = load(path)?;
     let mut new = Vec::new();
     for s in sources {
-        let src = load(Path::new(s))?;
-        new.extend(import(&mut doc, src));
+        let p = Path::new(s);
+        let mut src = Document::load(p).ok();
+        // Some PDFs' page trees can't be read in full (only some pages
+        // come through). Ghostscript reads them properly, so when it finds
+        // more pages, insert a clean copy it writes instead.
+        let found = src.as_ref().map_or(0, |d| d.get_pages().len() as u32);
+        if gs::page_count(p).map_or(src.is_none(), |n| n > found) {
+            let tmp = tempfile::TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
+            let clean = tmp.path().join("clean.pdf");
+            gs::rewrite_pdf(p, &clean)?;
+            src = Some(load(&clean)?);
+        }
+        new.extend(import(&mut doc, src.ok_or_else(|| format!("Could not open {s}"))?));
     }
     if new.is_empty() {
         return Err("Those PDFs have no pages to insert.".into());
@@ -806,5 +817,23 @@ mod merge_setup_tests {
         assert!(crate::pagebox::page_count(&p).unwrap() > 0);
         super::write_merge_setup(&p, None).unwrap();
         assert_eq!(super::read_merge_setup(&p).unwrap(), None);
+    }
+}
+
+#[cfg(test)]
+mod insert_tests {
+    /// Inserting a multi-page PDF (MP_INSERT_SRC) adds every page.
+    #[test]
+    fn insert_all_pages() {
+        let (Ok(dest), Ok(src)) = (std::env::var("MP_PAGES_PDF"), std::env::var("MP_INSERT_SRC")) else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("t.pdf");
+        std::fs::copy(&dest, &p).unwrap();
+        let before = crate::pagebox::page_count(&p).unwrap();
+        let add = crate::pagebox::page_count(std::path::Path::new(&src)).unwrap();
+        let count = super::insert_pdfs(&p, &[src.clone()], 1).unwrap();
+        println!("before {before} adding {add} -> {count}, reread {}", crate::pagebox::page_count(&p).unwrap());
+        assert_eq!(count, before + add);
+        assert_eq!(crate::pagebox::page_count(&p).unwrap(), before + add);
     }
 }

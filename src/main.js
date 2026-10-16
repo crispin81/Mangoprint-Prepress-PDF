@@ -2329,11 +2329,39 @@ async function deleteCurrentPage() {
   }
 }
 
-document.getElementById("insertPagesBtn").addEventListener("click", async () => {
+// The + button opens a menu: insert above the selected page(s) or below
+// them. Every page of each chosen PDF is inserted.
+const insertMenu = document.getElementById("insertMenu");
+
+function insertRange() {
+  const picked = pages.picked.size ? [...pages.picked] : [state.page];
+  return [Math.min(...picked), Math.max(...picked)];
+}
+
+document.getElementById("insertPagesBtn").addEventListener("click", (ev) => {
   if (!state.path) return;
+  ev.stopPropagation();
+  const [first, last] = insertRange();
+  document.getElementById("insertAboveBtn").textContent = first === last ? `Insert above page ${first}` : `Insert above pages ${first}–${last}`;
+  document.getElementById("insertBelowBtn").textContent = first === last ? `Insert below page ${last}` : `Insert below pages ${first}–${last}`;
+  insertMenu.classList.toggle("hidden");
+});
+
+async function insertWhere(below) {
+  insertMenu.classList.add("hidden");
+  const [first, last] = insertRange();
   const selected = await open({ multiple: true, filters: PDF_FILTER, title: "Insert pages from" });
   if (!selected) return;
-  await insertPagesFrom(Array.isArray(selected) ? selected : [selected], state.page);
+  await insertPagesFrom(Array.isArray(selected) ? selected : [selected], below ? last : first - 1);
+}
+
+document.getElementById("insertAboveBtn").addEventListener("click", () => insertWhere(false));
+document.getElementById("insertBelowBtn").addEventListener("click", () => insertWhere(true));
+document.addEventListener("click", (ev) => {
+  if (!insertMenu.classList.contains("hidden") && !insertMenu.contains(ev.target)) insertMenu.classList.add("hidden");
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") insertMenu.classList.add("hidden");
 });
 document.getElementById("deletePageBtn").addEventListener("click", deleteCurrentPage);
 

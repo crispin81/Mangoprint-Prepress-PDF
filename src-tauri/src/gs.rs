@@ -477,6 +477,12 @@ pub fn postscript_to_pdf(ps: &Path, output: &Path, font_dir: &Path) -> Result<()
     Ok(())
 }
 
+/// Rewrites `input` to `output` unchanged (colours and fonts as they are):
+/// a clean copy of a PDF whose structure couldn't be read directly.
+pub fn rewrite_pdf(input: &Path, output: &Path) -> Result<(), String> {
+    pdfwrite(&[input], output, &UNCHANGED, None)
+}
+
 /// Rewrites `input` to `output` applying `conv` to every page.
 pub fn convert_pdf(input: &Path, output: &Path, conv: Conversion) -> Result<(), String> {
     pdfwrite(&[input], output, conversion_args(conv), None)

@@ -1818,6 +1818,32 @@ a:hover > .about__logo {
   color: #6fcf7f;
 }
 
+.thumbs__bar {
+  position: relative;
+}
+
+/* The + button's menu: insert above or below the selected page. */
+.insert-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 6px;
+  right: 6px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--field-border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.insert-menu button {
+  text-align: left;
+  white-space: nowrap;
+}
+
 .thumbs__btn--del {
   color: var(--danger);
 }
