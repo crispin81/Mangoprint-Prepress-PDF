@@ -16,6 +16,7 @@ install on Windows.
 
 **[⬇ Download the latest version](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest)**
 
+- **2026-10-16 (v1.2.2):** Insert pages above or below the selected page, every page of an inserted PDF comes in, a Pages panel you can drag wider for bigger thumbnails, yellow scrollbars that are easy to see, and a mail merge preview that matches the merged text exactly (hyphens and apostrophes print as typed)
 - **2026-10-16 (v1.2.1):** Contact card QR codes in mail merge (name, job title, phone, address, email and website in one code that saves the contact), choose which sheet of a spreadsheet to merge, mail merge boxes saved inside the PDF so a template can be reopened and merged again, and clearer mail merge prompts
 - **2026-10-16 (v1.2.0):** QR code and Data Matrix (including GS1) boxes in mail merge, mail merge from Excel spreadsheets as well as CSV, a total ink limit check that highlights areas over 280% (or your own limit) in bright green, and a fix for Convert to outlines turning some colours black
 - **2026-10-14 (v1.1.1):** Fixes: moving text after a recolour now moves the text, not just its frame; moves and deletes work straight after an edit without reselecting; Convert to spot colour uses the colour typed in Recolour
@@ -104,7 +105,8 @@ Windows 10 and 11 already include the WebView2 runtime the app needs.
    - **Recolour** — new CMYK fill and stroke for the selection.
    - **Selected Objects** — set to overprint (100% black or spot colours
      only), convert to a named spot colour, delete.
-4. **Pages panel** — <kbd>+</kbd> or drag PDFs in to insert pages, drag
+4. **Pages panel** — <kbd>+</kbd> (above or below the selected page) or drag
+   PDFs in to insert pages, drag its right edge to resize the thumbnails, drag
    thumbnails to reorder, Ctrl/Shift-click to select several and the red ×
    (or <kbd>Delete</kbd>) to delete them, ↺ ↻ to rotate.
 5. **Fix the whole document.** Everything in the gold *Apply edits to* box
