@@ -3214,33 +3214,42 @@ function renderMergeText() {
       layer.appendChild(box);
       continue;
     }
-    box.style.justifyContent = { left: "flex-start", right: "flex-end" }[f.align] || "center";
-    box.style.alignItems = { top: "flex-start", bottom: "flex-end" }[f.valign] || "center";
-    const span = document.createElement("span");
+    // Drawn as SVG text so the baseline, size and alignment match the merge
+    // exactly (same baseline formula as merge_program in pages.rs).
     const value = first[f.column];
-    span.textContent = value || `«${columns[f.column] || `Column ${f.column + 1}`}»`;
-    if (!value) span.classList.add("placeholder");
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("class", "merge-text__svg");
+    const text = document.createElementNS(SVG_NS, "text");
+    text.textContent = value || `«${columns[f.column] || `Column ${f.column + 1}`}»`;
+    if (!value) text.classList.add("placeholder");
     const opt = [...mergeEl("mergeFont").options].find((o) => o.value === f.font);
     if (opt && opt.dataset.family) {
-      span.style.fontFamily = `"${opt.dataset.family}"`;
-      span.style.fontWeight = /bold|black|heavy/i.test(opt.dataset.style) ? "bold" : /light|thin/i.test(opt.dataset.style) ? "300" : "normal";
-      span.style.fontStyle = /italic|oblique/i.test(opt.dataset.style) ? "italic" : "normal";
+      text.style.fontFamily = `"${opt.dataset.family}"`;
+      text.style.fontWeight = /bold|black|heavy/i.test(opt.dataset.style) ? "bold" : /light|thin/i.test(opt.dataset.style) ? "300" : "normal";
+      text.style.fontStyle = /italic|oblique/i.test(opt.dataset.style) ? "italic" : "normal";
     } else {
       const [family, weight] = MERGE_CSS_FONTS[f.font] || MERGE_CSS_FONTS.sans;
-      span.style.fontFamily = family;
-      span.style.fontWeight = weight;
+      text.style.fontFamily = family;
+      text.style.fontWeight = weight;
     }
-    let px = f.size * view.scale;
-    span.style.fontSize = `${px}px`;
-    span.style.color = cmykToCss(f.cmyk);
-    box.appendChild(span);
+    text.setAttribute("fill", cmykToCss(f.cmyk));
+    text.setAttribute("text-anchor", { left: "start", right: "end" }[f.align] || "middle");
+    svg.appendChild(text);
+    box.appendChild(svg);
     layer.appendChild(box);
+    const bw = box.clientWidth;
+    const bh = box.clientHeight;
+    let px = f.size * view.scale;
+    text.style.fontSize = `${px}px`;
     // Shrink to fit, as the merge will.
-    const room = box.clientWidth;
-    if (f.shrink && span.scrollWidth > room && room > 0) {
-      px *= room / span.scrollWidth;
-      span.style.fontSize = `${px}px`;
+    const len = text.getComputedTextLength();
+    if (f.shrink && len > bw && bw > 0) {
+      px *= bw / len;
+      text.style.fontSize = `${px}px`;
     }
+    text.setAttribute("x", String({ left: 0, right: bw }[f.align] ?? bw / 2));
+    const baseline = { top: 0.72 * px, bottom: bh - 0.22 * px }[f.valign] ?? bh / 2 + 0.35 * px;
+    text.setAttribute("y", String(baseline));
   }
 }
 

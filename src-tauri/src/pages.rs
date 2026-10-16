@@ -446,7 +446,7 @@ fn merge_program(rows: &[Vec<String>], placed: &[Placed], fonts: &[String], medi
         ps.push_str(&format!(
             "/MPFont{j} /{font} findfont dup length dict begin\n\
              {{ 1 index /FID ne {{ def }} {{ pop pop }} ifelse }} forall\n\
-             /Encoding ISOLatin1Encoding def currentdict end definefont pop\n\
+             /Encoding ISOLatin1Encoding 256 array copy dup 45 /hyphen put dup 39 /quotesingle put dup 96 /grave put def currentdict end definefont pop\n\
              /MPshow{j} {{\n\
                /s exch def /fs {size} def\n\
                /MPFont{j} findfont fs scalefont setfont s stringwidth pop /sw exch def\n\
@@ -725,7 +725,7 @@ mod tests {
         let mut dm = field([0.1, 0.6, 0.3, 0.3], "centre");
         dm.kind = "datamatrix".into();
         let spec = MergeSpec { fields: vec![field([0.1, 0.1, 0.5, 0.1], "centre"), second, qr, dm] };
-        let rows: Vec<Vec<String>> = [["Alice", "Leeds", "https://mangoprint.co.uk", "A1"], ["Bob £5", "York", "Bob", "0123456789"], ["A very long name that will not fit the box at all", "", "", ""]]
+        let rows: Vec<Vec<String>> = [["Alice-Mary O'Neil", "Leeds", "https://mangoprint.co.uk", "A1"], ["Bob £5", "York", "Bob", "0123456789"], ["A very long name that will not fit the box at all", "", "", ""]]
             .iter()
             .map(|r| r.iter().map(|s| s.to_string()).collect())
             .collect();

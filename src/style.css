@@ -2322,6 +2322,23 @@ a:hover > .about__logo {
   line-height: 1;
 }
 
+.merge-text__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.merge-text__svg text {
+  white-space: pre;
+}
+
+.merge-text__svg text.placeholder {
+  font-style: italic;
+  opacity: 0.55;
+}
+
 .merge-text span.placeholder {
   font-style: italic;
   opacity: 0.55;
