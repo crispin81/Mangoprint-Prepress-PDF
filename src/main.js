@@ -3053,14 +3053,7 @@ async function autoMergeColour(f) {
   const v = (n) => (inks.find((s) => s.name === n)?.percent || 0) / 100;
   const [c, m, ye, k] = ["Cyan", "Magenta", "Yellow", "Black"].map(v);
   let light = ((1 - c) * 0.3 + (1 - m) * 0.59 + (1 - ye) * 0.11) * (1 - k);
-  // Other spot inks darken the page, but white ink, varnish and cutter
-  // lines don't, so they're left out (a white underprint plate made
-  // every box look dark).
-  const notDark = /white|weiss|blanc|varnish|gloss|matt|uv|lack|cut|die|crease|perf|foil|emboss|braille/i;
-  for (const s of inks) {
-    if (["Cyan", "Magenta", "Yellow", "Black"].includes(s.name) || notDark.test(s.name)) continue;
-    light *= 1 - 0.7 * (s.percent / 100);
-  }
+  for (const s of inks) if (!["Cyan", "Magenta", "Yellow", "Black"].includes(s.name)) light *= 1 - 0.7 * (s.percent / 100);
   f.cmyk = light < 0.5 ? [0, 0, 0, 0] : [0, 0, 0, 100];
   if (f === activeField()) showFieldInBar(f);
   renderMergePanel();
