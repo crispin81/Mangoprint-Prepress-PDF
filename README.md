@@ -16,6 +16,7 @@ install on Windows.
 
 **[⬇ Download the latest version](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest)**
 
+- **2026-10-16 (v1.2.1):** Contact card QR codes in mail merge (name, job title, phone, address, email and website in one code that saves the contact), choose which sheet of a spreadsheet to merge, mail merge boxes saved inside the PDF so a template can be reopened and merged again, and clearer mail merge prompts
 - **2026-10-16 (v1.2.0):** QR code and Data Matrix (including GS1) boxes in mail merge, mail merge from Excel spreadsheets as well as CSV, a total ink limit check that highlights areas over 280% (or your own limit) in bright green, and a fix for Convert to outlines turning some colours black
 - **2026-10-14 (v1.1.1):** Fixes: moving text after a recolour now moves the text, not just its frame; moves and deletes work straight after an edit without reselecting; Convert to spot colour uses the colour typed in Recolour
 - **2026-10-13 (v1.1.0):** Tabs for several PDFs, a Select tool to move, delete, recolour, overprint (100% black or spot colours) or convert objects to a named spot colour, a Global Colour Change panel, mail merge from a CSV (several boxes and columns, installed fonts, live preview), insert, delete, reorder and multi-select pages, undo and redo, rulers with guides, Save PDF as (Ctrl+S) and Print, a simulated view that shows spot inks as opaque, outlined text that stays grouped by line, and fold-away panel info
@@ -118,7 +119,10 @@ Windows 10 and 11 already include the WebView2 runtime the app needs.
    Excel file and each box takes a column, as text in an installed or
    built-in font (embedded) or as a QR code, Data Matrix or GS1 Data Matrix
    code, with a live preview of the first row. One copy of the page is made
-   per row.
+   per row. *QR code (contact card)* builds a contact card from your Name,
+   Title, Phone, Address, Email and Web columns. Pick the sheet of a
+   spreadsheet with *Sheet*. Save PDF as before *Create pages* keeps the boxes
+   in the PDF, so reopening it brings them back.
 7. **Save PDF as** (<kbd>Ctrl</kbd>+<kbd>S</kbd>) saves a copy with your
    changes; the printer button prints it. <kbd>Ctrl</kbd>+<kbd>Z</kbd> /
    <kbd>Ctrl</kbd>+<kbd>Y</kbd> undo and redo any edit.
