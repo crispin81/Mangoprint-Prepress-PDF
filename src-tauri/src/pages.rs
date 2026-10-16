@@ -203,12 +203,26 @@ pub fn delete_pages(path: &Path, pages: &[u32]) -> Result<u32, String> {
 // ---------------------------------------------------------------------------
 // Mail merge
 
-/// The rows of a CSV file, each split into its columns. Blank rows are
-/// left out.
-pub fn read_csv(path: &Path) -> Result<Vec<Vec<String>>, String> {
+fn is_spreadsheet(path: &Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    if matches!(ext.as_str(), "xlsx" | "xlsm" | "xlsb" | "xls" | "ods") {
-        return read_spreadsheet(path);
+    matches!(ext.as_str(), "xlsx" | "xlsm" | "xlsb" | "xls" | "ods")
+}
+
+/// The names of a spreadsheet's sheets, in order; empty for a CSV file.
+pub fn sheet_names(path: &Path) -> Result<Vec<String>, String> {
+    if !is_spreadsheet(path) {
+        return Ok(Vec::new());
+    }
+    use calamine::{open_workbook_auto, Reader};
+    let book = open_workbook_auto(path).map_err(|e| format!("Could not read the spreadsheet: {e}"))?;
+    Ok(book.sheet_names())
+}
+
+/// The rows of a CSV file, or of a spreadsheet's sheet (`sheet`, or the
+/// first one), each split into its columns. Blank rows are left out.
+pub fn read_csv(path: &Path, sheet: Option<&str>) -> Result<Vec<Vec<String>>, String> {
+    if is_spreadsheet(path) {
+        return read_spreadsheet(path, sheet);
     }
     let bytes = std::fs::read(path).map_err(|e| format!("Could not read the CSV file: {e}"))?;
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
@@ -265,15 +279,19 @@ pub fn read_csv(path: &Path) -> Result<Vec<Vec<String>>, String> {
     Ok(rows)
 }
 
-/// The rows of the first sheet of an Excel or OpenDocument spreadsheet,
-/// as the cells show them. Blank rows are left out.
-fn read_spreadsheet(path: &Path) -> Result<Vec<Vec<String>>, String> {
+/// The rows of one sheet (`sheet`, or the first) of an Excel or
+/// OpenDocument spreadsheet, as the cells show them. Blank rows are left
+/// out.
+fn read_spreadsheet(path: &Path, sheet: Option<&str>) -> Result<Vec<Vec<String>>, String> {
     use calamine::{open_workbook_auto, Data, Reader};
     let mut book = open_workbook_auto(path).map_err(|e| format!("Could not read the spreadsheet: {e}"))?;
-    let range = book
-        .worksheet_range_at(0)
-        .ok_or("The spreadsheet has no sheets.")?
-        .map_err(|e| format!("Could not read the spreadsheet: {e}"))?;
+    let range = match sheet {
+        Some(name) => book.worksheet_range(name).map_err(|e| format!("Could not read the sheet \"{name}\": {e}"))?,
+        None => book
+            .worksheet_range_at(0)
+            .ok_or("The spreadsheet has no sheets.")?
+            .map_err(|e| format!("Could not read the spreadsheet: {e}"))?,
+    };
     let cell = |d: &Data| match d {
         // Whole numbers without ".0", so codes and phone numbers read as typed.
         Data::Float(f) if f.fract() == 0.0 && f.abs() < 1e15 => format!("{}", *f as i64),
@@ -613,12 +631,12 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let p = dir.path().join("a.csv");
         std::fs::write(&p, "\u{FEFF}Name,Town\r\n\"Smith, Jo\",Leeds\n\nO'Neil\n\"Say \"\"hi\"\"\"\n£5").unwrap();
-        let rows = read_csv(&p).unwrap();
+        let rows = read_csv(&p, None).unwrap();
         let first: Vec<&str> = rows.iter().map(|r| r[0].as_str()).collect();
         assert_eq!(first, ["Name", "Smith, Jo", "O'Neil", "Say \"hi\"", "£5"]);
         assert_eq!(rows[1], ["Smith, Jo", "Leeds"]);
         std::fs::write(&p, "a;b;c\n1;2;3\n").unwrap();
-        assert_eq!(read_csv(&p).unwrap()[1], ["1", "2", "3"]);
+        assert_eq!(read_csv(&p, None).unwrap()[1], ["1", "2", "3"]);
     }
 
     #[test]
@@ -696,7 +714,7 @@ mod sheet_tests {
     #[test]
     fn dump_sheet() {
         let Ok(p) = std::env::var("MP_SHEET") else { return };
-        let rows = super::read_csv(std::path::Path::new(&p)).unwrap();
+        let rows = super::read_csv(std::path::Path::new(&p), None).unwrap();
         println!("{} rows", rows.len());
         for r in rows.iter().take(12) {
             println!("{r:?}");

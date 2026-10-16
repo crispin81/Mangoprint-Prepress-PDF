@@ -3332,9 +3332,32 @@ async function chooseMergeCsv() {
   });
   if (!selected) return;
   const path = Array.isArray(selected) ? selected[0] : selected;
+  // A spreadsheet with more than one sheet gets a Sheet menu.
+  let sheets = [];
   try {
-    merge.rows = await invoke("merge_read_csv", { path });
-    merge.csvName = baseName(path);
+    sheets = await invoke("merge_sheets", { path });
+  } catch (err) {
+    setMergeResult(String(err), "err");
+  }
+  merge.path = path;
+  const select = mergeEl("mergeSheet");
+  select.replaceChildren(
+    ...sheets.map((name) => {
+      const o = document.createElement("option");
+      o.value = name;
+      o.textContent = name;
+      return o;
+    }),
+  );
+  mergeEl("mergeSheetRow").classList.toggle("hidden", sheets.length < 2);
+  await loadMergeRows(sheets[0] ?? null);
+}
+
+async function loadMergeRows(sheet) {
+  const path = merge.path;
+  try {
+    merge.rows = await invoke("merge_read_csv", { path, sheet });
+    merge.csvName = sheet && mergeEl("mergeSheet").options.length > 1 ? `${baseName(path)} › ${sheet}` : baseName(path);
     setMergeResult("");
   } catch (err) {
     merge.rows = null;
@@ -3423,6 +3446,7 @@ function initMerge() {
   mergeEl("mergeDropper").addEventListener("click", () => setMergeDropper(!merge.dropper));
   mergeEl("mergeCsvBtn").addEventListener("click", chooseMergeCsv);
   mergeEl("mergeHeader").addEventListener("change", renderMergePanel);
+  mergeEl("mergeSheet").addEventListener("change", () => loadMergeRows(mergeEl("mergeSheet").value));
   mergeEl("mergeRunBtn").addEventListener("click", runMerge);
   loadSystemFonts();
   mergeEl("mergeAddBtn").addEventListener("click", () => {

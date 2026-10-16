@@ -837,8 +837,14 @@ fn delete_page(
 
 /// Mail merge: the rows of a CSV file, split into columns.
 #[tauri::command(async)]
-fn merge_read_csv(path: String) -> Result<Vec<Vec<String>>, String> {
-    pages::read_csv(Path::new(&path))
+fn merge_read_csv(path: String, sheet: Option<String>) -> Result<Vec<Vec<String>>, String> {
+    pages::read_csv(Path::new(&path), sheet.as_deref())
+}
+
+/// Mail merge: the sheets of a spreadsheet (empty for a CSV file).
+#[tauri::command(async)]
+fn merge_sheets(path: String) -> Result<Vec<String>, String> {
+    pages::sheet_names(Path::new(&path))
 }
 
 /// Mail merge preview: the modules of one barcode.
@@ -975,6 +981,7 @@ pub fn run() {
             undo_step,
             undo_counts,
             merge_read_csv,
+            merge_sheets,
             barcode_matrix,
             mail_merge,
             system_fonts,

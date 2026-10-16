@@ -125,8 +125,13 @@
           <button id="mergeCloseBtn" type="button" class="merge-bar__close" title="Close mail merge (Esc or M)">×</button>
         </div>
         <div class="merge-bar__row">
-          <button id="mergeCsvBtn" type="button" title="A CSV file or an Excel spreadsheet (first sheet)">Choose CSV or Excel…</button>
+          <button id="mergeCsvBtn" type="button" title="A CSV file or an Excel spreadsheet">Choose CSV or Excel…</button>
           <label class="merge-bar__check" title="Leave out the first row, e.g. column headings such as Name"><input type="checkbox" id="mergeHeader" /> Skip first row</label>
+        </div>
+        <div id="mergeSheetRow" class="merge-bar__row hidden">
+          <label class="merge-bar__field" title="Which sheet of the spreadsheet to merge">Sheet
+            <select id="mergeSheet"></select>
+          </label>
         </div>
         <span id="mergeCsvInfo" class="merge-bar__info"></span>
         <div class="merge-bar__row">
