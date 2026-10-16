@@ -626,7 +626,47 @@ async function loadVectorPage() {
 // Rebuilt whenever the document is (re)loaded, e.g. after a rotation.
 // Thumbnails render lazily as they scroll into view.
 
-const THUMB_SIZE = 120; // CSS px, longest side
+// Longest side of a thumbnail, CSS px. Dragging the panel's right edge
+// changes it (remembered); thumbnails stretch while dragging and are
+// redrawn sharp at the new size when the drag ends.
+const THUMB_MIN = 80;
+const THUMB_MAX = 400;
+let thumbSize = 120;
+try {
+  const saved = Number(localStorage.getItem("thumbSize"));
+  if (saved >= THUMB_MIN && saved <= THUMB_MAX) thumbSize = saved;
+} catch {}
+document.getElementById("thumbs").style.setProperty("--thumb-size", `${thumbSize}px`);
+
+(() => {
+  const handle = document.getElementById("thumbsResizer");
+  const box = document.getElementById("thumbs");
+  let drag = null;
+  handle.addEventListener("mousedown", (ev) => {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    drag = { x: ev.clientX, size: thumbSize };
+    handle.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+  });
+  window.addEventListener("mousemove", (ev) => {
+    if (!drag) return;
+    thumbSize = Math.round(Math.min(THUMB_MAX, Math.max(THUMB_MIN, drag.size + ev.clientX - drag.x)));
+    box.style.setProperty("--thumb-size", `${thumbSize}px`);
+  });
+  window.addEventListener("mouseup", () => {
+    if (!drag) return;
+    const changed = drag.size !== thumbSize;
+    drag = null;
+    handle.classList.remove("dragging");
+    document.body.style.cursor = "";
+    if (!changed) return;
+    try {
+      localStorage.setItem("thumbSize", String(thumbSize));
+    } catch {}
+    buildThumbs(); // redraw sharp at the new size
+  });
+})();
 
 function buildThumbs() {
   const box = document.getElementById("thumbs");
@@ -635,6 +675,7 @@ function buildThumbs() {
   if (view.thumbObserver) view.thumbObserver.disconnect();
   list.replaceChildren();
   box.classList.toggle("hidden", !view.doc);
+  document.getElementById("thumbsResizer").classList.toggle("hidden", !view.doc);
   if (!view.doc) return;
   const doc = view.doc;
   const observer = new IntersectionObserver(
@@ -676,14 +717,16 @@ async function renderThumb(doc, item) {
   const page = await doc.getPage(Number(item.dataset.page));
   if (doc !== view.doc) return; // document reloaded meanwhile
   const base = page.getViewport({ scale: 1 });
-  const scale = THUMB_SIZE / Math.max(base.width, base.height);
+  const longest = Math.max(base.width, base.height);
+  const scale = thumbSize / longest;
   const dpr = window.devicePixelRatio || 1;
   const viewport = page.getViewport({ scale: scale * dpr });
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(viewport.width);
   canvas.height = Math.ceil(viewport.height);
-  canvas.style.width = `${viewport.width / dpr}px`;
-  canvas.style.height = `${viewport.height / dpr}px`;
+  // Sized from the panel's thumbnail size, so it follows a drag at once.
+  canvas.style.width = `calc(var(--thumb-size) * ${(base.width / longest).toFixed(4)})`;
+  canvas.style.height = `calc(var(--thumb-size) * ${(base.height / longest).toFixed(4)})`;
   await page.render({ canvasContext: canvas.getContext("2d"), viewport, background: "white" }).promise;
   item.querySelector(".thumb__img").replaceChildren(canvas);
 }

@@ -436,7 +436,9 @@ main {
 /* --- page thumbnails --- */
 
 .thumbs {
-  width: 150px;
+  /* Thumbnail size; the panel is dragged wider or narrower to change it. */
+  --thumb-size: 120px;
+  width: calc(var(--thumb-size) + 30px);
   flex-shrink: 0;
   overflow-y: auto;
   background: var(--panel);
@@ -449,12 +451,12 @@ main {
 }
 
 .thumb {
-  width: 128px;
+  width: calc(var(--thumb-size) + 8px);
   cursor: pointer;
 }
 
 .thumb__img {
-  height: 128px;
+  height: calc(var(--thumb-size) + 8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1838,7 +1840,21 @@ a:hover > .about__logo {
 
 .insert-menu button {
   text-align: left;
-  white-space: nowrap;
+  padding: 5px 10px;
+}
+
+/* Drag handle on the Pages panel's right edge. */
+.thumbs-resizer {
+  flex: 0 0 5px;
+  margin-left: -3px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 5;
+}
+
+.thumbs-resizer:hover,
+.thumbs-resizer.dragging {
+  background: var(--accent);
 }
 
 .thumbs__btn--del {
