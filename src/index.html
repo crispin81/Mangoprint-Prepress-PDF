@@ -219,12 +219,13 @@
         </label>
         <div class="panel">
           <div class="panel-header">
-            <label class="panel-toggle" title="Preview the page through the chosen press profile (soft proof)"><input type="checkbox" id="proofToggle" /><h2>Colour Profiles</h2></label>
+            <h2>Colour Profiles</h2>
             <span id="iccSummary" class="muted"></span>
           </div>
           <ul id="iccList" class="font-list"><li class="hint">Open a PDF to see its colour profiles.</li></ul>
           <div class="proof-row">
-            <label title="The CMYK press profile the preview uses">Preview with <select id="proofProfile"></select></label>
+            <label title="Preview the page as it would print with this CMYK press profile (soft proof)"><input type="checkbox" id="proofToggle" /> Preview with</label>
+            <select id="proofProfile" title="The CMYK press profile the preview uses"></select>
             <button type="button" id="proofAddBtn" class="link-btn" title="Preview with an .icc press profile from your computer">Add your own profile…</button>
             <label class="proof-paper" title="Show the paper's own colour (absolute colorimetric) instead of pure white"><input type="checkbox" id="proofPaper" /> Show paper colour</label>
           </div>
@@ -232,7 +233,7 @@
             The ICC profiles embedded in the PDF. The output intent is the press
             condition the file was made for (e.g. Coated FOGRA39 for PDF/X).
             Other profiles describe the colours of images and artwork. Colours
-            with no profile are plain CMYK, RGB or grey. Tick the heading to
+            with no profile are plain CMYK, RGB or grey. Tick Preview with to
             preview the page as it would print with the chosen CMYK profile.
           </p>
         </div>
