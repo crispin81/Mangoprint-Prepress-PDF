@@ -4774,12 +4774,12 @@ function imposeSpec() {
     shiftX: (Number(impEl("impShiftRight").value) || 0) - (Number(impEl("impShiftLeft").value) || 0),
     shiftY: (Number(impEl("impShiftTop").value) || 0) - (Number(impEl("impShiftBottom").value) || 0),
     // Backs (sheets 2, 4…) mirror the shift unless switched off.
-    mirrorX: !impEl("impNoMirrorX").checked,
-    mirrorY: !impEl("impNoMirrorY").checked,
+    mirrorX: impEl("impMirrorX").checked,
+    mirrorY: impEl("impMirrorY").checked,
   };
 }
 
-const IMPOSE_FIELDS = ["impMode", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impNoMirrorX", "impNoMirrorY"];
+const IMPOSE_FIELDS = ["impMode", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY"];
 
 function saveImposeSettings() {
   const v = {};
