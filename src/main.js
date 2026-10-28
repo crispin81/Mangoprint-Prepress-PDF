@@ -5041,7 +5041,7 @@ function fillImposePresets(selected = "") {
   const sel = impEl("impPreset");
   const names = Object.keys(imposePresets()).sort((a, b) => a.localeCompare(b));
   sel.replaceChildren(
-    ...[["", names.length ? "Choose a preset…" : "No presets yet"], ...names.map((n) => [n, n])].map(([v, t]) => {
+    ...[["", names.length ? "Choose a preset…" : "No presets yet"], ...names.map((n) => [n, n]), ["__new", "New preset…"]].map(([v, t]) => {
       const o = document.createElement("option");
       o.value = v;
       o.textContent = t;
@@ -5058,8 +5058,17 @@ function currentImposeValues() {
   return v;
 }
 
+let presetChosen = ""; // the preset shown before "New preset…" was picked
 impEl("impPreset").addEventListener("change", () => {
   const name = impEl("impPreset").value;
+  // "New preset…": ask for a name for the current settings.
+  if (name === "__new") {
+    impEl("impPreset").value = presetChosen;
+    impEl("impPresetDelete").disabled = !presetChosen;
+    showPresetName(true);
+    return;
+  }
+  presetChosen = name;
   impEl("impPresetDelete").disabled = !name;
   const v = imposePresets()[name];
   if (!v) return;
@@ -5077,7 +5086,7 @@ function showPresetName(on) {
   impEl("impPresetNameRow").classList.toggle("hidden", !on);
   impEl("impPresetNameLabel").classList.toggle("hidden", !on);
   if (on) {
-    impEl("impPresetName").value = impEl("impPreset").value || "";
+    impEl("impPresetName").value = "";
     impEl("impPresetName").focus();
   }
 }
@@ -5091,10 +5100,10 @@ function savePreset() {
     localStorage.setItem("imposePresets", JSON.stringify(all));
   } catch {}
   fillImposePresets(name);
+  presetChosen = name;
   showPresetName(false);
 }
 
-impEl("impPresetSave").addEventListener("click", () => showPresetName(true));
 impEl("impPresetCancel").addEventListener("click", () => showPresetName(false));
 impEl("impPresetOk").addEventListener("click", savePreset);
 impEl("impPresetName").addEventListener("keydown", (ev) => {
