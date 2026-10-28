@@ -1559,7 +1559,7 @@ function fillIntentOptions(profiles) {
   intentCurrent = current ? current.id : "none";
   const opts = [["none", "None"]];
   for (const p of profiles.filter((x) => x.colour_space === "CMYK")) {
-    opts.push([p.id, p.output_intent ? `${p.condition && p.condition !== "Custom" ? p.condition : p.name} (current)` : p.name]);
+    opts.push([p.id, p.output_intent && p.condition && p.condition !== "Custom" ? p.condition : p.name]);
   }
   if (proofFile) opts.push([`file:${proofFile.path}`, `${proofFile.name} (your profile)`]);
   intentSelect.replaceChildren(
@@ -1571,11 +1571,17 @@ function fillIntentOptions(profiles) {
     }),
   );
   intentSelect.value = intentCurrent;
-  intentApplyBtn.disabled = true;
+  setIntentApply(false);
+}
+
+// Apply is only lit up when a different output intent is chosen.
+function setIntentApply(on) {
+  intentApplyBtn.disabled = !on;
+  intentApplyBtn.classList.toggle("btn-primary", on);
 }
 
 intentSelect.addEventListener("change", () => {
-  intentApplyBtn.disabled = !state.path || intentSelect.value === intentCurrent;
+  setIntentApply(!!state.path && intentSelect.value !== intentCurrent);
 });
 
 intentApplyBtn.addEventListener("click", async () => {
@@ -1594,11 +1600,11 @@ intentApplyBtn.addEventListener("click", async () => {
     );
     if (!ok) {
       intentSelect.value = intentCurrent;
-      intentApplyBtn.disabled = true;
+      setIntentApply(false);
       return;
     }
   }
-  intentApplyBtn.disabled = true;
+  setIntentApply(false);
   if (convert) setProgress(40, "Converting colours…");
   try {
     const converted = await invoke("set_output_intent", {
@@ -1631,7 +1637,7 @@ intentApplyBtn.addEventListener("click", async () => {
     }
   } catch (err) {
     alert(`Could not set the output intent:\n${err}`);
-    intentApplyBtn.disabled = false;
+    setIntentApply(true);
   } finally {
     if (convert) hideProgress();
   }
@@ -2282,11 +2288,9 @@ function pageList(pages) {
 // button to save it as an .icc file.
 async function loadProfiles() {
   const list = document.getElementById("iccList");
-  const summary = document.getElementById("iccSummary");
   const forPath = state.path;
   if (!forPath) return;
   list.innerHTML = '<li class="hint">Reading colour profiles…</li>';
-  summary.textContent = "";
   let profiles;
   try {
     profiles = await invoke("list_icc_profiles", { path: forPath });
@@ -2303,9 +2307,6 @@ async function loadProfiles() {
   list.innerHTML = "";
   lastProfiles = profiles;
   fillProofProfiles(profiles);
-  const intent = profiles.find((p) => p.output_intent);
-  summary.className = "font-summary";
-  summary.textContent = intent ? `output intent: ${intent.condition || intent.name}` : profiles.length ? "no output intent" : "none";
   if (!profiles.length) {
     list.innerHTML = '<li class="hint">No embedded profiles: colours are plain CMYK, RGB or grey.</li>';
     return;
@@ -2325,7 +2326,7 @@ async function loadProfiles() {
     const status = document.createElement("span");
     status.className = "font-status";
     status.textContent = p.output_intent
-      ? `Output intent${p.standard ? ` · ${p.standard}` : ""}${p.condition ? ` · ${p.condition}` : ""}`
+      ? `Output intent${p.standard ? ` · ${p.standard}` : ""}${p.condition && p.condition !== "Custom" ? ` · ${p.condition}` : ""}`
       : `${p.colour_space} · ${p.class}`;
     const meta = document.createElement("span");
     meta.className = "font-meta";
