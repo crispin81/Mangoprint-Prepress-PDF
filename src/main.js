@@ -2069,7 +2069,82 @@ function pageList(pages) {
   return pages.length === 1 ? `page ${pages[0]}` : `pages ${pageRanges(pages)}`;
 }
 
+// The ICC profiles embedded in the PDF: the output intent first, then the
+// profiles its colour spaces use, each with what its header says and a
+// button to save it as an .icc file.
+async function loadProfiles() {
+  const list = document.getElementById("iccList");
+  const summary = document.getElementById("iccSummary");
+  const forPath = state.path;
+  if (!forPath) return;
+  list.innerHTML = '<li class="hint">Reading colour profiles…</li>';
+  summary.textContent = "";
+  let profiles;
+  try {
+    profiles = await invoke("list_icc_profiles", { path: forPath });
+  } catch (err) {
+    if (forPath !== state.path) return;
+    list.innerHTML = "";
+    const li = document.createElement("li");
+    li.className = "hint";
+    li.textContent = String(err);
+    list.appendChild(li);
+    return;
+  }
+  if (forPath !== state.path) return;
+  list.innerHTML = "";
+  const intent = profiles.find((p) => p.output_intent);
+  summary.className = "font-summary";
+  summary.textContent = intent ? `output intent: ${intent.condition || intent.name}` : profiles.length ? "no output intent" : "none";
+  if (!profiles.length) {
+    list.innerHTML = '<li class="hint">No embedded profiles: colours are plain CMYK, RGB or grey.</li>';
+    return;
+  }
+  const kb = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  for (const p of profiles) {
+    const li = document.createElement("li");
+    li.className = "ok icc-item";
+    const lines = [p.name, `${p.colour_space} · ${p.class} · ICC v${p.version}`];
+    if (p.output_intent) lines.push(`Output intent${p.standard ? ` (${p.standard})` : ""}: ${[p.condition, p.condition_info].filter(Boolean).join(" · ")}`);
+    if (p.created) lines.push(`Created ${p.created}`);
+    if (p.copyright) lines.push(p.copyright);
+    li.title = lines.join("\n");
+    const name = document.createElement("span");
+    name.className = "font-name";
+    name.textContent = p.name;
+    const status = document.createElement("span");
+    status.className = "font-status";
+    status.textContent = p.output_intent
+      ? `Output intent${p.standard ? ` · ${p.standard}` : ""}${p.condition ? ` · ${p.condition}` : ""}`
+      : `${p.colour_space} · ${p.class}`;
+    const meta = document.createElement("span");
+    meta.className = "font-meta";
+    const used = p.pages.length ? pageList(p.pages) : p.output_intent ? "whole document" : "not used on a page";
+    meta.textContent = `${p.output_intent ? `${p.colour_space} · ` : ""}ICC v${p.version} · ${kb(p.size)} · ${used}`;
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "link-btn icc-save";
+    saveBtn.textContent = "Save .icc";
+    saveBtn.title = "Save this profile as an .icc file";
+    saveBtn.addEventListener("click", async () => {
+      const dest = await save({
+        defaultPath: `${p.name.replace(/[\\/:*?"<>|]+/g, "").trim() || "profile"}.icc`,
+        filters: [{ name: "ICC profile", extensions: ["icc", "icm"] }],
+      });
+      if (!dest) return;
+      try {
+        await invoke("save_icc_profile", { path: state.path, id: p.id, dest });
+      } catch (err) {
+        alert(`Could not save the profile:\n${err}`);
+      }
+    });
+    li.append(name, status, meta, saveBtn);
+    list.appendChild(li);
+  }
+}
+
 async function loadFonts({ warn = false } = {}) {
+  loadProfiles(); // the profiles change with the same edits as the fonts
   const list = document.getElementById("fontList");
   const summary = document.getElementById("fontSummary");
   const forPath = state.path;

@@ -3,6 +3,7 @@ mod colorcheck;
 mod fonts;
 mod gs;
 mod history;
+mod iccprofiles;
 mod imageres;
 mod objects;
 mod overprint;
@@ -501,6 +502,23 @@ fn spot_swatches(
 fn list_fonts(path: String, doc: tauri::State<DocLock>) -> Result<Vec<fonts::FontInfo>, String> {
     let _r = read_lock(&doc)?;
     fonts::list_fonts(Path::new(&path))
+}
+
+/// ICC colour profiles embedded in the PDF (output intent and colour spaces).
+#[tauri::command(async)]
+fn list_icc_profiles(path: String, doc: tauri::State<DocLock>) -> Result<Vec<iccprofiles::IccProfile>, String> {
+    let _r = read_lock(&doc)?;
+    iccprofiles::list_profiles(Path::new(&path))
+}
+
+/// Saves one embedded ICC profile (`id` from list_icc_profiles) as a file.
+#[tauri::command(async)]
+fn save_icc_profile(path: String, id: String, dest: String, doc: tauri::State<DocLock>) -> Result<(), String> {
+    let bytes = {
+        let _r = read_lock(&doc)?;
+        iccprofiles::profile_bytes(Path::new(&path), &id)?
+    };
+    std::fs::write(&dest, bytes).map_err(|e| format!("Could not save the profile: {e}"))
 }
 
 /// Spot colour names used anywhere in the PDF.
@@ -1022,6 +1040,8 @@ pub fn run() {
             recolour_find,
             recolour_apply,
             list_fonts,
+            list_icc_profiles,
+            save_icc_profile,
             take_pending_open,
         ])
         .build(tauri::generate_context!())

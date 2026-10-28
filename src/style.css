@@ -1607,6 +1607,18 @@ a:hover > .about__logo {
   color: var(--faint);
 }
 
+/* Colour Profiles: name over its status, then details and a save link. */
+.icc-item .font-status {
+  grid-column: 1 / -1;
+}
+
+.icc-save {
+  grid-column: 1 / -1;
+  justify-self: start;
+  font-size: 11px;
+  padding: 0;
+}
+
 .font-summary.good {
   color: #6fcf7f;
 }
