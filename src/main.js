@@ -5005,3 +5005,91 @@ for (const [id, step] of [["impPrev", -1], ["impNext", 1]]) {
     drawImposePreview(...imposeLast);
   });
 }
+
+// Impose presets: named sets of all the settings, kept on this computer.
+function imposePresets() {
+  try {
+    return JSON.parse(localStorage.getItem("imposePresets") || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+
+function fillImposePresets(selected = "") {
+  const sel = impEl("impPreset");
+  const names = Object.keys(imposePresets()).sort((a, b) => a.localeCompare(b));
+  sel.replaceChildren(
+    ...[["", names.length ? "Choose a preset…" : "No presets yet"], ...names.map((n) => [n, n])].map(([v, t]) => {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = t;
+      return o;
+    }),
+  );
+  sel.value = names.includes(selected) ? selected : "";
+  impEl("impPresetDelete").disabled = !sel.value;
+}
+
+function currentImposeValues() {
+  const v = {};
+  for (const id of IMPOSE_FIELDS) v[id] = impEl(id).type === "checkbox" ? impEl(id).checked : impEl(id).value;
+  return v;
+}
+
+impEl("impPreset").addEventListener("change", () => {
+  const name = impEl("impPreset").value;
+  impEl("impPresetDelete").disabled = !name;
+  const v = imposePresets()[name];
+  if (!v) return;
+  for (const id of IMPOSE_FIELDS) {
+    if (!(id in v)) continue;
+    if (impEl(id).type === "checkbox") impEl(id).checked = !!v[id];
+    else impEl(id).value = v[id];
+  }
+  showOrientButtons();
+  saveImposeSettings();
+  updateImposeSummary();
+});
+
+function showPresetName(on) {
+  impEl("impPresetNameRow").classList.toggle("hidden", !on);
+  impEl("impPresetNameLabel").classList.toggle("hidden", !on);
+  if (on) {
+    impEl("impPresetName").value = impEl("impPreset").value || "";
+    impEl("impPresetName").focus();
+  }
+}
+
+function savePreset() {
+  const name = impEl("impPresetName").value.trim();
+  if (!name) return;
+  const all = imposePresets();
+  all[name] = currentImposeValues();
+  try {
+    localStorage.setItem("imposePresets", JSON.stringify(all));
+  } catch {}
+  fillImposePresets(name);
+  showPresetName(false);
+}
+
+impEl("impPresetSave").addEventListener("click", () => showPresetName(true));
+impEl("impPresetCancel").addEventListener("click", () => showPresetName(false));
+impEl("impPresetOk").addEventListener("click", savePreset);
+impEl("impPresetName").addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") savePreset();
+  if (ev.key === "Escape") {
+    ev.stopPropagation();
+    showPresetName(false);
+  }
+});
+impEl("impPresetDelete").addEventListener("click", async () => {
+  const name = impEl("impPreset").value;
+  if (!name || !(await ask(`Delete the preset "${name}"?`, { title: "Delete preset", kind: "warning" }))) return;
+  const all = imposePresets();
+  delete all[name];
+  try {
+    localStorage.setItem("imposePresets", JSON.stringify(all));
+  } catch {}
+  fillImposePresets();
+});
+fillImposePresets();

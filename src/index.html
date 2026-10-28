@@ -493,6 +493,18 @@
         <p class="impose__lead">Lay the pages out on press sheets with crop marks. The result opens in a new tab for Save PDF as; this PDF isn't changed.</p>
         <div class="impose__body">
         <div class="impose__grid">
+          <label for="impPreset">Preset</label>
+          <span class="impose__presets">
+            <select id="impPreset" title="Load saved settings"><option value="">No preset</option></select>
+            <button type="button" id="impPresetSave" title="Save these settings as a preset">Save as…</button>
+            <button type="button" id="impPresetDelete" disabled title="Delete the chosen preset">Delete</button>
+          </span>
+          <span id="impPresetNameLabel" class="hidden">Preset name</span>
+          <span id="impPresetNameRow" class="impose__presets hidden">
+            <input type="text" id="impPresetName" placeholder="e.g. Business cards SRA3" maxlength="60" />
+            <button type="button" id="impPresetOk" class="btn-primary">Save</button>
+            <button type="button" id="impPresetCancel">Cancel</button>
+          </span>
           <label for="impMode">Layout</label>
           <select id="impMode">
             <option value="repeat">Step and repeat: each page fills its own sheet (front and back line up)</option>

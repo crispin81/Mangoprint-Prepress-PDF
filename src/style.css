@@ -3047,3 +3047,16 @@ input::placeholder {
   height: 24px;
   padding: 0;
 }
+
+.impose__presets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.impose__presets select,
+.impose__presets input {
+  flex: 1;
+  min-width: 0;
+}
