@@ -4773,10 +4773,13 @@ function imposeSpec() {
     // Image shift: right minus left, up minus down.
     shiftX: (Number(impEl("impShiftRight").value) || 0) - (Number(impEl("impShiftLeft").value) || 0),
     shiftY: (Number(impEl("impShiftTop").value) || 0) - (Number(impEl("impShiftBottom").value) || 0),
+    // Backs (sheets 2, 4…) mirror the shift unless switched off.
+    mirrorX: !impEl("impNoMirrorX").checked,
+    mirrorY: !impEl("impNoMirrorY").checked,
   };
 }
 
-const IMPOSE_FIELDS = ["impMode", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight"];
+const IMPOSE_FIELDS = ["impMode", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impNoMirrorX", "impNoMirrorY"];
 
 function saveImposeSettings() {
   const v = {};
@@ -4907,8 +4910,11 @@ function drawImposePreview(p, spec) {
   const gridW = cols * iw + (cols - 1) * hg;
   const gridH = rows * ih + (rows - 1) * vg;
   // Centred, then the image shift (+y is up, so down the screen is minus).
-  const gx = (sw - gridW) / 2 + spec.shiftX;
-  const gy = (sh - gridH) / 2 - spec.shiftY;
+  const back = imposeSheet % 2 === 1;
+  const sx = back && spec.mirrorX ? -spec.shiftX : spec.shiftX;
+  const sy = back && spec.mirrorY ? -spec.shiftY : spec.shiftY;
+  const gx = (sw - gridW) / 2 + sx;
+  const gy = (sh - gridH) / 2 - sy;
   const b = spec.bleed;
   const innerX = Math.min(b, hg / 2);
   const innerY = Math.min(b, vg / 2);
@@ -4975,7 +4981,7 @@ function drawImposePreview(p, spec) {
       }
     }
   }
-  label.textContent = `Sheet ${imposeSheet + 1} of ${p.sheets}`;
+  label.textContent = `Sheet ${imposeSheet + 1} of ${p.sheets}${p.sheets > 1 ? (back ? " (back)" : " (front)") : ""}`;
   impEl("impPrev").disabled = imposeSheet <= 0;
   impEl("impNext").disabled = imposeSheet >= p.sheets - 1;
 }

@@ -45,6 +45,13 @@ pub struct ImposeSpec {
     pub shift_x: f64,
     #[serde(default)]
     pub shift_y: f64,
+    /// Sheets come in front/back pairs (1 and 2, 3 and 4…). On a back the
+    /// shift is mirrored so it lines up with its front once turned:
+    /// left/right (work and turn) and/or up/down (work and tumble).
+    #[serde(default)]
+    pub mirror_x: bool,
+    #[serde(default)]
+    pub mirror_y: bool,
 }
 
 /// The layout a spec gives, for the dialog's summary line.
@@ -263,8 +270,7 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
     let (hg, vg) = gaps(spec, sw, sh);
     let grid_w = cols as f64 * iw + (cols - 1) as f64 * hg;
     let grid_h = rows as f64 * ih + (rows - 1) as f64 * vg;
-    let gx = (sw - grid_w) / 2.0 + spec.shift_x * MM;
-    let gy = (sh - grid_h) / 2.0 + spec.shift_y * MM;
+    // Centred; the image shift is added per sheet (mirrored on backs).
     // Bleed shown between items: no more than half the gap, so neighbours
     // never overlap; full bleed on the outside edges.
     let inner_x = b.min(hg / 2.0);
@@ -304,6 +310,11 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
 
     let mut new_pages = Vec::new();
     for sheet in 0..plan.sheets as usize {
+        let back = sheet % 2 == 1;
+        let sx = if back && spec.mirror_x { -spec.shift_x } else { spec.shift_x };
+        let sy = if back && spec.mirror_y { -spec.shift_y } else { spec.shift_y };
+        let gx = (sw - grid_w) / 2.0 + sx * MM;
+        let gy = (sh - grid_h) / 2.0 + sy * MM;
         let mut ops = String::new();
         let mut xobjects = Dictionary::new();
         for row in 0..rows as usize {
@@ -413,7 +424,7 @@ mod tests {
     use super::*;
 
     fn spec(mode: &str) -> ImposeSpec {
-        ImposeSpec { mode: mode.into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "auto".into(), bleed: 3.0, allow_rotate: true, crop_marks: true, shift_x: 0.0, shift_y: 0.0 }
+        ImposeSpec { mode: mode.into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "auto".into(), bleed: 3.0, allow_rotate: true, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: false }
     }
 
     #[test]
