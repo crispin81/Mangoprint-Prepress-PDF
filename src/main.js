@@ -510,7 +510,7 @@ const view = {
 };
 
 // Vector view unless overprint is being simulated or a plate is switched off.
-const isVectorMode = () => !state.simulateOverprint && allPlatesOn();
+const isVectorMode = () => !state.simulateOverprint && allPlatesOn() && !proofOn();
 
 async function loadPdfjs() {
   if (!view.lib) {
@@ -910,10 +910,28 @@ async function renderRaster() {
   if (!state.path || isVectorMode()) return;
   const dpi = rasterDpi();
   const key = `${state.path}|${state.page}|${dpi}|${state.simulateOverprint}|${[...state.activeSeparations].sort()}|${Object.keys(state.spotSwatches || {}).length}`;
-  if (key === state.rasterKey) return;
+  const proof = proofOn() ? proofChoice() : null;
+  const fullKey = `${key}|${proof ? `${proof.id || proof.file}|${proof.paper}` : ""}`;
+  if (fullKey === state.rasterKey) return;
   const token = ++state.renderToken;
   setLoading(true);
   try {
+    if (proof) {
+      // Soft proof through the chosen press profile (all plates).
+      const uri = await invoke("render_proof", {
+        path: state.path,
+        page: state.page,
+        dpi,
+        simulate: state.simulateOverprint,
+        profileId: proof.id || null,
+        profileFile: proof.file || null,
+        paper: proof.paper,
+      });
+      if (token !== state.renderToken) return;
+      els.preview.src = uri;
+      state.rasterKey = fullKey;
+      return;
+    }
     let dataUri;
     // Built from the separations, so overprint is exact and spot inks
     // show as opaque (on top, like metallic ink) rather than mixing in.
@@ -928,7 +946,7 @@ async function renderRaster() {
     });
     if (token !== state.renderToken) return; // a newer render superseded this one
     els.preview.src = dataUri;
-    state.rasterKey = key;
+    state.rasterKey = fullKey;
   } catch (err) {
     if (token === state.renderToken) alert(`Render failed:\n${err}`);
   } finally {
@@ -1478,6 +1496,99 @@ els.overprintToggle.addEventListener("change", () => {
   state.simulateOverprint = els.overprintToggle.checked;
   renderCurrent();
 });
+
+// --- proof colours ---
+// Shows the page through a CMYK press profile: the PDF's output intent,
+// another CMYK profile embedded in it, or an .icc file the user chooses
+// (remembered). Only profiles from the user's own files are used.
+
+const proofToggle = document.getElementById("proofToggle");
+const proofSelect = document.getElementById("proofProfile");
+const proofPaper = document.getElementById("proofPaper");
+let proofFile = null; // { path, name } of a chosen .icc file
+var lastProfiles = []; // the open PDF's profiles, from loadProfiles
+try {
+  proofFile = JSON.parse(localStorage.getItem("proofFile") || "null");
+} catch {}
+
+function proofOn() {
+  return proofToggle.checked && !!proofSelect.value && proofSelect.value !== "choose";
+}
+
+// { id } (embedded) or { file } (chosen file), plus the paper setting.
+function proofChoice() {
+  const v = proofSelect.value;
+  return v.startsWith("file:") ? { file: v.slice(5), paper: proofPaper.checked } : { id: v, paper: proofPaper.checked };
+}
+
+// Fills the profile menu from the open PDF's CMYK profiles.
+function fillProofProfiles(profiles) {
+  const before = proofSelect.value;
+  const opts = [];
+  for (const p of profiles.filter((x) => x.colour_space === "CMYK")) {
+    opts.push([p.id, p.output_intent ? `Output intent: ${p.condition || p.name}` : p.name]);
+  }
+  if (proofFile) opts.push([`file:${proofFile.path}`, proofFile.name]);
+  opts.push(["choose", "Choose a profile file…"]);
+  proofSelect.replaceChildren(
+    ...opts.map(([value, label]) => {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = label;
+      return o;
+    }),
+  );
+  proofSelect.value = opts.some(([v]) => v === before) ? before : opts[0][0];
+  if (proofToggle.checked) renderCurrent();
+}
+
+async function chooseProofFile() {
+  const selected = await open({ multiple: false, filters: [{ name: "ICC profile", extensions: ["icc", "icm", "ICC", "ICM"] }] });
+  if (!selected) return false;
+  const path = Array.isArray(selected) ? selected[0] : selected;
+  let info;
+  try {
+    info = await invoke("read_icc_file", { path });
+  } catch (err) {
+    alert(String(err));
+    return false;
+  }
+  if (info.colour_space !== "CMYK") {
+    alert(`${info.name} is a ${info.colour_space} profile. Proofing needs a CMYK press profile.`);
+    return false;
+  }
+  proofFile = { path, name: info.name };
+  try {
+    localStorage.setItem("proofFile", JSON.stringify(proofFile));
+  } catch {}
+  return true;
+}
+
+proofSelect.addEventListener("change", async () => {
+  if (proofSelect.value === "choose") {
+    const ok = await chooseProofFile();
+    const keep = ok ? `file:${proofFile.path}` : proofSelect.options[0].value;
+    fillProofProfiles(lastProfiles);
+    proofSelect.value = keep;
+    if (ok) proofToggle.checked = true;
+  }
+  renderCurrent();
+});
+proofToggle.addEventListener("change", async () => {
+  if (proofToggle.checked && proofSelect.value === "choose" && !(await chooseProofFile())) {
+    proofToggle.checked = false;
+    return;
+  }
+  if (proofToggle.checked && proofSelect.value === "choose") {
+    fillProofProfiles(lastProfiles);
+    proofSelect.value = `file:${proofFile.path}`;
+  }
+  renderCurrent();
+});
+proofPaper.addEventListener("change", () => {
+  if (proofOn()) renderCurrent();
+});
+fillProofProfiles([]);
 
 // --- overprint warning on open ---
 // Black overprinting is normal; any other colour overprinting (white,
@@ -2093,6 +2204,8 @@ async function loadProfiles() {
   }
   if (forPath !== state.path) return;
   list.innerHTML = "";
+  lastProfiles = profiles;
+  fillProofProfiles(profiles);
   const intent = profiles.find((p) => p.output_intent);
   summary.className = "font-summary";
   summary.textContent = intent ? `output intent: ${intent.condition || intent.name}` : profiles.length ? "no output intent" : "none";

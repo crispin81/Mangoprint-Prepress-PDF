@@ -272,6 +272,53 @@ pub fn render_overprint_png(
     Ok(())
 }
 
+/// Soft proof: renders the page as it would print on the press described
+/// by the CMYK `profile` (the PDF's output intent or a profile the user
+/// chose), converted to screen colours. Every CMYK colour, including ones
+/// that carry their own profile, is read through the proof profile, as a
+/// RIP set up for that press would. `paper` uses absolute colorimetric so
+/// the paper's own white shows; otherwise relative colorimetric.
+pub fn render_proof_png(
+    pdf_path: &Path,
+    page: u32,
+    simulate: bool,
+    dpi: u32,
+    profile: &Path,
+    paper: bool,
+    out_png: &Path,
+) -> Result<(), String> {
+    // Ghostscript reads these names as PostScript strings; forward slashes
+    // work on every platform and need no escaping.
+    let profile_arg = format!("-sDefaultCMYKProfile={}", profile.to_string_lossy().replace('\\', "/"));
+    let mut cmd = gs_command()?;
+    cmd.args([
+        "-q",
+        "-dBATCH",
+        "-dNOPAUSE",
+        "-dSAFER",
+        "-sDEVICE=png16m",
+        PRESERVE_CMYK,
+        &profile_arg,
+        if paper { "-dRenderIntent=3" } else { "-dRenderIntent=1" },
+        &format!("-r{dpi}"),
+        &format!("-dFirstPage={page}"),
+        &format!("-dLastPage={page}"),
+        if simulate { "-sOverprint=simulate" } else { "-sOverprint=disable" },
+        &output_file_arg(out_png),
+    ]);
+    if paper {
+        // Unprinted areas are the paper: paint each page with CMYK 0/0/0/0
+        // first, which absolute colorimetric turns into the paper's colour.
+        cmd.args(["-c", "<< /BeginPage { pop gsave 0 0 0 0 setcmykcolor clippath fill grestore } >> setpagedevice", "-f"]);
+    }
+    let status = cmd.arg(pdf_path).output().map_err(|e| format!("Failed to run Ghostscript: {e}"))?;
+    if !status.status.success() || !out_png.exists() {
+        let stderr = String::from_utf8_lossy(&status.stderr);
+        return Err(format!("Ghostscript couldn't proof the page with that profile:\n{stderr}"));
+    }
+    Ok(())
+}
+
 /// Extracts the colorant name from a tiffsep plate filename. Ghostscript
 /// names plates `<base>(<Colorant>).tif`, e.g. `sep(Cyan).tif` or
 /// `sep(PANTONE 186 C).tif`; the older `sep.Cyan.tif` form is accepted too.

@@ -237,6 +237,11 @@
             <input type="checkbox" id="overprintToggle" />
             Simulate overprinting
           </label>
+          <div class="proof-row">
+            <label title="Show the page as it would print on the press a CMYK profile describes"><input type="checkbox" id="proofToggle" /> Proof colours with</label>
+            <select id="proofProfile" title="The press profile to proof with"></select>
+            <label class="proof-paper" title="Show the paper's own colour (absolute colorimetric) instead of pure white"><input type="checkbox" id="proofPaper" /> Show paper colour</label>
+          </div>
           <div class="ink-limit">
             <label title="Show in bright green everywhere the inks add up to more than this"><input type="checkbox" id="inkLimitOn" /> Highlight ink over</label>
             <input type="number" id="inkLimit" min="100" max="400" step="5" value="280" title="Total ink limit, %" /> %

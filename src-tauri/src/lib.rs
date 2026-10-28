@@ -511,6 +511,44 @@ fn list_icc_profiles(path: String, doc: tauri::State<DocLock>) -> Result<Vec<icc
     iccprofiles::list_profiles(Path::new(&path))
 }
 
+/// Soft proof of a page through a CMYK profile: `profile_id` = one embedded
+/// in the PDF ("12 0"), or `profile_file` = an .icc file the user chose.
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+fn render_proof(
+    path: String,
+    page: u32,
+    dpi: u32,
+    simulate: bool,
+    profile_id: Option<String>,
+    profile_file: Option<String>,
+    paper: bool,
+    doc: tauri::State<DocLock>,
+) -> Result<String, String> {
+    let _r = read_lock(&doc)?;
+    let tmp = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
+    let profile = match (profile_id, profile_file) {
+        (Some(id), _) => {
+            let p = tmp.path().join("proof.icc");
+            std::fs::write(&p, iccprofiles::profile_bytes(Path::new(&path), &id)?)
+                .map_err(|e| format!("Could not write the profile: {e}"))?;
+            p
+        }
+        (None, Some(f)) => PathBuf::from(f),
+        (None, None) => return Err("Choose a profile to proof with.".into()),
+    };
+    let out_png = tmp.path().join("proof.png");
+    gs::render_proof_png(Path::new(&path), page, simulate, dpi, &profile, paper, &out_png)?;
+    png_to_data_uri(&out_png)
+}
+
+/// Header details of an .icc file the user chose, to check it can proof.
+#[tauri::command(async)]
+fn read_icc_file(path: String) -> Result<iccprofiles::IccProfile, String> {
+    let bytes = std::fs::read(&path).map_err(|e| format!("Could not read the profile: {e}"))?;
+    iccprofiles::describe_bytes(&bytes).ok_or_else(|| "That file isn't an ICC colour profile.".to_string())
+}
+
 /// Saves one embedded ICC profile (`id` from list_icc_profiles) as a file.
 #[tauri::command(async)]
 fn save_icc_profile(path: String, id: String, dest: String, doc: tauri::State<DocLock>) -> Result<(), String> {
@@ -1042,6 +1080,8 @@ pub fn run() {
             list_fonts,
             list_icc_profiles,
             save_icc_profile,
+            render_proof,
+            read_icc_file,
             take_pending_open,
         ])
         .build(tauri::generate_context!())

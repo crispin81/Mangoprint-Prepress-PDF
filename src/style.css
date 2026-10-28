@@ -2309,6 +2309,29 @@ a:hover > .about__logo {
   display: none;
 }
 
+.proof-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.proof-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.proof-row select {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.proof-paper {
+  flex-basis: 100%;
+}
+
 .ink-limit {
   display: flex;
   align-items: center;

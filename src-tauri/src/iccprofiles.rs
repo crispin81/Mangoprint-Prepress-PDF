@@ -204,33 +204,40 @@ impl Finder<'_> {
     }
 }
 
+/// An ICC profile's details from its bytes (no PDF context), or None when
+/// the bytes aren't a profile.
+pub fn describe_bytes(data: &[u8]) -> Option<IccProfile> {
+    if data.len() < 128 || data.get(36..40) != Some(b"acsp") {
+        return None;
+    }
+    let h = read_header(data);
+    Some(IccProfile {
+        id: String::new(),
+        name: if h.name.is_empty() { "(no description)".into() } else { h.name },
+        colour_space: h.colour_space,
+        class: h.class,
+        version: h.version,
+        created: h.created,
+        copyright: h.copyright,
+        size: data.len(),
+        output_intent: false,
+        condition: String::new(),
+        condition_info: String::new(),
+        standard: String::new(),
+        pages: Vec::new(),
+    })
+}
+
 pub fn list_profiles(path: &Path) -> Result<Vec<IccProfile>, String> {
     let doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
     let mut profiles: BTreeMap<ObjectId, IccProfile> = BTreeMap::new();
     let make = |doc: &Document, id: ObjectId| -> Option<IccProfile> {
         let stream = doc.get_object(id).ok()?.as_stream().ok()?;
         let data = stream.decompressed_content().unwrap_or_else(|_| stream.content.clone());
-        if data.len() < 128 || data.get(36..40) != Some(b"acsp") {
-            return None;
-        }
-        let h = read_header(&data);
-        Some(IccProfile {
-            id: format!("{} {}", id.0, id.1),
-            name: if h.name.is_empty() { "(no description)".into() } else { h.name },
-            colour_space: h.colour_space,
-            class: h.class,
-            version: h.version,
-            created: h.created,
-            copyright: h.copyright,
-            size: data.len(),
-            output_intent: false,
-            condition: String::new(),
-            condition_info: String::new(),
-            standard: String::new(),
-            pages: Vec::new(),
-        })
+        let mut p = describe_bytes(&data)?;
+        p.id = format!("{} {}", id.0, id.1);
+        Some(p)
     };
-
     // The output intents, in the catalog.
     if let Ok(catalog) = doc.catalog() {
         if let Ok(Object::Array(intents)) = catalog.get(b"OutputIntents").map(|o| deref(&doc, o)) {
