@@ -3125,5 +3125,5 @@ input::placeholder {
 }
 
 .beta-warning strong {
-  color: var(--danger);
+  color: var(--accent);
 }
