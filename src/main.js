@@ -4776,10 +4776,11 @@ function imposeSpec() {
     // Backs (sheets 2, 4…) mirror the shift unless switched off.
     mirrorX: impEl("impMirrorX").checked,
     mirrorY: impEl("impMirrorY").checked,
+    rotateBacks: impEl("impRotateBacks").checked,
   };
 }
 
-const IMPOSE_FIELDS = ["impMode", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY"];
+const IMPOSE_FIELDS = ["impMode", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY", "impRotateBacks"];
 
 function saveImposeSettings() {
   const v = {};
@@ -4971,7 +4972,9 @@ function drawImposeSheet(svg, p, spec, k) {
           width: dw,
           height: dh,
           preserveAspectRatio: "xMidYMid slice",
-          transform: p.rotated ? `translate(${x} ${y + ih}) rotate(-90)` : `translate(${x} ${y})`,
+          transform:
+            (back && spec.rotateBacks ? `rotate(180 ${x + iw / 2} ${y + ih / 2}) ` : "") +
+            (p.rotated ? `translate(${x} ${y + ih}) rotate(-90)` : `translate(${x} ${y})`),
         });
       } else {
         el("rect", { x, y, width: iw, height: ih, fill: "#e8e8ec" });

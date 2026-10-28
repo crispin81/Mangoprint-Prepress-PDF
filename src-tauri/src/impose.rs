@@ -52,6 +52,10 @@ pub struct ImposeSpec {
     pub mirror_x: bool,
     #[serde(default)]
     pub mirror_y: bool,
+    /// Turn the artwork on back sheets 180° in its place, for presses
+    /// that turn the sheet across the artwork's top and bottom.
+    #[serde(default)]
+    pub rotate_backs: bool,
 }
 
 /// The layout a spec gives, for the dialog's summary line.
@@ -331,6 +335,9 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
                     // Display size before turning is (ih, iw); turn 90° anticlockwise.
                     m = mul(m, [0.0, 1.0, -1.0, 0.0, iw, 0.0]);
                 }
+                if back && spec.rotate_backs {
+                    m = mul(m, [-1.0, 0.0, 0.0, -1.0, iw, ih]);
+                }
                 m = mul(m, [1.0, 0.0, 0.0, 1.0, x, y]);
                 let left = if col == 0 { b } else { inner_x };
                 let right = if col + 1 == cols as usize { b } else { inner_x };
@@ -424,7 +431,7 @@ mod tests {
     use super::*;
 
     fn spec(mode: &str) -> ImposeSpec {
-        ImposeSpec { mode: mode.into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "auto".into(), bleed: 3.0, allow_rotate: true, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: false }
+        ImposeSpec { mode: mode.into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "auto".into(), bleed: 3.0, allow_rotate: true, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: false, rotate_backs: false }
     }
 
     #[test]
@@ -452,9 +459,11 @@ mod tests {
     #[test]
     fn impose_file() {
         let (Ok(i), Ok(o)) = (std::env::var("MP_IMPOSE_PDF"), std::env::var("MP_IMPOSE_OUT")) else { return };
-        for mode in ["repeat", "nup", "cutstack"] {
+        for mode in ["repeat", "nup", "cutstack", "repeat-rotated-backs"] {
             let out = format!("{o}.{mode}.pdf");
-            let plan = impose(Path::new(&i), Path::new(&out), &spec(mode)).unwrap();
+            let mut sp = spec(mode.split('-').next().unwrap());
+            sp.rotate_backs = mode.ends_with("backs");
+            let plan = impose(Path::new(&i), Path::new(&out), &sp).unwrap();
             println!("{mode}: {plan:?}");
         }
     }
