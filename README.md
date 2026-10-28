@@ -16,6 +16,7 @@ install on Windows.
 
 **[⬇ Download the latest version](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest)**
 
+- **2026-10-28 (v1.2.3):** A Colour Profiles panel listing the ICC profiles in the PDF (output intent and image profiles, each can be saved as .icc), Preview with to soft-proof the page through a CMYK press profile (with paper colour), and Output intent: set one, or change it and the colours are converted to the new press with 100% black kept
 - **2026-10-16 (v1.2.2):** Insert pages above or below the selected page, every page of an inserted PDF comes in, a Pages panel you can drag wider for bigger thumbnails, yellow scrollbars that are easy to see, and a mail merge preview that matches the merged text exactly (hyphens and apostrophes print as typed)
 - **2026-10-16 (v1.2.1):** Contact card QR codes in mail merge (name, job title, phone, address, email and website in one code that saves the contact), choose which sheet of a spreadsheet to merge, mail merge boxes saved inside the PDF so a template can be reopened and merged again, and clearer mail merge prompts
 - **2026-10-16 (v1.2.0):** QR code and Data Matrix (including GS1) boxes in mail merge, mail merge from Excel spreadsheets as well as CSV, a total ink limit check that highlights areas over 280% (or your own limit) in bright green, and a fix for Convert to outlines turning some colours black
@@ -85,6 +86,12 @@ Windows 10 and 11 already include the WebView2 runtime the app needs.
    as true vectors, sharp at any zoom, with images at their own resolution.
    Rulers in mm run along the top and left: drag from them to add guides.
 2. **Check it.**
+   - **Colour Profiles** — lists the ICC profiles in the PDF (the output
+     intent first). Tick *Preview with* to see the page as it would print
+     on a CMYK press profile (yours or the PDF's), optionally on the paper's
+     own colour. *Output intent* sets the press the file is for; changing it
+     from one profile to another converts the colours (100% black kept).
+     The app ships no profiles: use ones in your PDF or on your computer.
    - **Overprint Preview** — tick *Simulate overprinting* to see what an
      overprint-aware press will actually produce.
      Tick *Highlight ink over* to show in bright green everywhere the total
