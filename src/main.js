@@ -4882,19 +4882,34 @@ impEl("impGo").addEventListener("click", async () => {
 // Live preview of sheet 1 in the Impose window: the sheet, its printable
 // area, each item with its bleed and the page's thumbnail, and the crop
 // marks, laid out as impose.rs does (grid centred, gaps by edge).
-let imposeSheet = 0; // the sheet shown in the preview (0-based)
+let imposePair = 0; // the physical sheet (front and back) shown, 0-based
 let imposeLast = null; // [plan, spec] last drawn, for paging
 
+// Each physical sheet is a pair of imposed pages: front (1, 3, 5…) and
+// back (2, 4, 6…), shown side by side.
 function drawImposePreview(p, spec) {
   imposeLast = p ? [p, spec] : null;
-  if (p) imposeSheet = Math.min(imposeSheet, p.sheets - 1);
-  const svg = impEl("impPreview");
   const label = impEl("impPreviewLabel");
-  svg.replaceChildren();
+  const front = impEl("impPreview");
+  const backSvg = impEl("impPreviewBack");
   if (!p) {
+    front.replaceChildren();
+    backSvg.replaceChildren();
     label.textContent = "";
     return;
   }
+  const pairs = Math.ceil(p.sheets / 2);
+  imposePair = Math.min(imposePair, pairs - 1);
+  drawImposeSheet(front, p, spec, imposePair * 2);
+  drawImposeSheet(backSvg, p, spec, imposePair * 2 + 1);
+  label.textContent = `Sheet ${imposePair + 1} of ${pairs}`;
+  impEl("impPrev").disabled = imposePair <= 0;
+  impEl("impNext").disabled = imposePair >= pairs - 1;
+}
+
+// One side: imposed page `k` (0-based); blank when there isn't one.
+function drawImposeSheet(svg, p, spec, k) {
+  svg.replaceChildren();
   const NS = "http://www.w3.org/2000/svg";
   const el = (name, attrs) => {
     const e = document.createElementNS(NS, name);
@@ -4910,7 +4925,7 @@ function drawImposePreview(p, spec) {
   const gridW = cols * iw + (cols - 1) * hg;
   const gridH = rows * ih + (rows - 1) * vg;
   // Centred, then the image shift (+y is up, so down the screen is minus).
-  const back = imposeSheet % 2 === 1;
+  const back = k % 2 === 1;
   const sx = back && spec.mirrorX ? -spec.shiftX : spec.shiftX;
   const sy = back && spec.mirrorY ? -spec.shiftY : spec.shiftY;
   const gx = (sw - gridW) / 2 + sx;
@@ -4920,7 +4935,12 @@ function drawImposePreview(p, spec) {
   const innerY = Math.min(b, vg / 2);
   const hair = Math.max(sw, sh) / 400;
 
-  el("rect", { x: 0, y: 0, width: sw, height: sh, fill: "#fff", stroke: "#888", "stroke-width": hair });
+  el("rect", { x: 0, y: 0, width: sw, height: sh, fill: k < p.sheets ? "#fff" : "#3a3b45", stroke: "#888", "stroke-width": hair });
+  if (k >= p.sheets) {
+    const t = el("text", { x: sw / 2, y: sh / 2, "font-size": sw / 10, "text-anchor": "middle", "dominant-baseline": "central", fill: "#a5a6b0" });
+    t.textContent = "No back";
+    return;
+  }
   if (spec.margin > 0) {
     el("rect", { x: spec.margin, y: spec.margin, width: sw - 2 * spec.margin, height: sh - 2 * spec.margin, fill: "none", stroke: "#bbb", "stroke-width": hair, "stroke-dasharray": `${hair * 6} ${hair * 4}` });
   }
@@ -4928,7 +4948,6 @@ function drawImposePreview(p, spec) {
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const cell = r * cols + c;
-      const k = imposeSheet;
       const page =
         spec.mode === "repeat" ? k + 1 : spec.mode === "cutstack" ? cell * p.sheets + k + 1 : k * p.per_sheet + cell + 1;
       if (page > count) continue;
@@ -4981,9 +5000,6 @@ function drawImposePreview(p, spec) {
       }
     }
   }
-  label.textContent = `Sheet ${imposeSheet + 1} of ${p.sheets}${p.sheets > 1 ? (back ? " (back)" : " (front)") : ""}`;
-  impEl("impPrev").disabled = imposeSheet <= 0;
-  impEl("impNext").disabled = imposeSheet >= p.sheets - 1;
 }
 
 // Sheet orientation buttons (portrait / landscape / auto) drive the hidden
@@ -5007,7 +5023,7 @@ showOrientButtons();
 for (const [id, step] of [["impPrev", -1], ["impNext", 1]]) {
   impEl(id).addEventListener("click", () => {
     if (!imposeLast) return;
-    imposeSheet = Math.max(0, Math.min(imposeLast[0].sheets - 1, imposeSheet + step));
+    imposePair = Math.max(0, Math.min(Math.ceil(imposeLast[0].sheets / 2) - 1, imposePair + step));
     drawImposePreview(...imposeLast);
   });
 }

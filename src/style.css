@@ -2820,8 +2820,8 @@ input::placeholder {
 
 /* --- Impose dialog --- */
 .impose {
-  max-width: 980px;
-  width: min(980px, 96vw);
+  max-width: 1100px;
+  width: min(1100px, 96vw);
   text-align: left;
 }
 
@@ -2881,7 +2881,7 @@ input::placeholder {
 }
 
 .impose__preview {
-  flex: 0 0 380px;
+  flex: 0 0 500px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2894,8 +2894,8 @@ input::placeholder {
 }
 
 .impose__preview svg {
-  width: 240px;
-  height: 320px;
+  width: 170px;
+  height: 240px;
 }
 
 .impose__preview-label {
@@ -2999,8 +2999,23 @@ input::placeholder {
   gap: 4px;
 }
 
-.shift-grid svg {
+.shift-grid .sheet-pair {
   grid-area: sheet;
+  display: flex;
+  gap: 10px;
+}
+
+.sheet-pair figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.sheet-pair figcaption {
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .shift-top {
