@@ -2911,3 +2911,75 @@ input::placeholder {
     flex-basis: auto;
   }
 }
+
+/* Sheet menu with portrait / landscape / auto buttons beside it. */
+.impose__sheet {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.impose__sheet select {
+  flex: 1;
+  min-width: 0;
+}
+
+.impose__orient {
+  display: flex;
+  gap: 3px;
+}
+
+.orient-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 26px;
+  padding: 0;
+}
+
+.orient-btn.orient-auto {
+  width: auto;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+.orient-btn.active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.orient-icon {
+  display: flex;
+  transition: transform 0.25s ease;
+}
+
+.orient-icon.landscape {
+  transform: rotate(90deg);
+}
+
+/* The chosen one turns as it's picked. */
+.orient-btn.active .orient-icon {
+  animation: orient-turn 0.3s ease;
+}
+
+@keyframes orient-turn {
+  from {
+    transform: rotate(-90deg);
+  }
+}
+
+.orient-btn.active .orient-icon.landscape {
+  animation-name: orient-turn-l;
+}
+
+@keyframes orient-turn-l {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(90deg);
+  }
+}

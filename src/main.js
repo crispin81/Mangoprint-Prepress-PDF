@@ -4967,3 +4967,21 @@ function drawImposePreview(p, spec) {
   }
   label.textContent = `Sheet 1 of ${p.sheets}`;
 }
+
+// Sheet orientation buttons (portrait / landscape / auto) drive the hidden
+// orientation menu; the active one is lit and its page icon turns.
+function showOrientButtons() {
+  const v = impEl("impOrient").value;
+  for (const b of document.querySelectorAll(".orient-btn")) b.classList.toggle("active", b.dataset.orient === v);
+}
+
+for (const b of document.querySelectorAll(".orient-btn")) {
+  b.addEventListener("click", () => {
+    const sel = impEl("impOrient");
+    if (sel.value === b.dataset.orient) return;
+    sel.value = b.dataset.orient;
+    showOrientButtons();
+    sel.dispatchEvent(new Event("change"));
+  });
+}
+showOrientButtons();

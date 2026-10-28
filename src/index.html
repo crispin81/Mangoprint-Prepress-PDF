@@ -500,22 +500,28 @@
             <option value="cutstack">Unique, cut and stack: variable data stays in order once cut</option>
           </select>
           <label for="impSheet">Sheet</label>
-          <select id="impSheet">
-            <option value="320x450" selected>SRA3 · 320 × 450 mm</option>
-            <option value="225x320">SRA4 · 225 × 320 mm</option>
-            <option value="330x488">330 × 488 mm</option>
-            <option value="297x420">A3 · 297 × 420 mm</option>
-            <option value="210x297">A4 · 210 × 297 mm</option>
-            <option value="304.8x457.2">12 × 18 in</option>
-            <option value="330.2x482.6">13 × 19 in</option>
-            <option value="custom">Custom…</option>
-          </select>
-          <label for="impOrient">Sheet orientation</label>
-          <select id="impOrient">
-            <option value="auto" selected>Auto (whichever fits more)</option>
-            <option value="portrait">Portrait</option>
-            <option value="landscape">Landscape</option>
-          </select>
+          <span class="impose__sheet">
+            <select id="impSheet">
+              <option value="320x450" selected>SRA3 · 320 × 450 mm</option>
+              <option value="225x320">SRA4 · 225 × 320 mm</option>
+              <option value="330x488">330 × 488 mm</option>
+              <option value="297x420">A3 · 297 × 420 mm</option>
+              <option value="210x297">A4 · 210 × 297 mm</option>
+              <option value="304.8x457.2">12 × 18 in</option>
+              <option value="330.2x482.6">13 × 19 in</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <span class="impose__orient" role="group" aria-label="Sheet orientation">
+              <button type="button" class="orient-btn" data-orient="portrait" title="Portrait sheet"><span class="orient-icon"><svg width="12" height="16" viewBox="0 0 12 16" aria-hidden="true"><rect x="1" y="1" width="10" height="14" rx="1" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M7 1v4h4" fill="none" stroke="currentColor" stroke-width="1.2" /></svg></span></button>
+              <button type="button" class="orient-btn" data-orient="landscape" title="Landscape sheet"><span class="orient-icon landscape"><svg width="12" height="16" viewBox="0 0 12 16" aria-hidden="true"><rect x="1" y="1" width="10" height="14" rx="1" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M7 1v4h4" fill="none" stroke="currentColor" stroke-width="1.2" /></svg></span></button>
+              <button type="button" class="orient-btn orient-auto" data-orient="auto" title="Whichever way round fits more">Auto</button>
+            </span>
+            <select id="impOrient" class="hidden">
+              <option value="auto" selected>Auto</option>
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape</option>
+            </select>
+          </span>
           <span id="impCustomLabel" class="hidden">Custom size</span>
           <span id="impCustom" class="impose__pair hidden"><input type="number" id="impW" min="50" max="2000" step="1" value="320" /> × <input type="number" id="impH" min="50" max="2000" step="1" value="450" /> mm</span>
           <label for="impBleed">Bleed</label>
