@@ -52,8 +52,9 @@ pub struct ImposeSpec {
     pub mirror_x: bool,
     #[serde(default)]
     pub mirror_y: bool,
-    /// Turn the artwork on back sheets 180° in its place, for presses
-    /// that turn the sheet across the artwork's top and bottom.
+    /// When items are turned 90° to fit, turn the artwork on back sheets a
+    /// further 180° in its place, so it reads the right way up once the
+    /// sheet is turned over. Items placed upright are left alone.
     #[serde(default)]
     pub rotate_backs: bool,
 }
@@ -335,7 +336,7 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
                     // Display size before turning is (ih, iw); turn 90° anticlockwise.
                     m = mul(m, [0.0, 1.0, -1.0, 0.0, iw, 0.0]);
                 }
-                if back && spec.rotate_backs {
+                if back && spec.rotate_backs && plan.rotated {
                     m = mul(m, [-1.0, 0.0, 0.0, -1.0, iw, ih]);
                 }
                 m = mul(m, [1.0, 0.0, 0.0, 1.0, x, y]);

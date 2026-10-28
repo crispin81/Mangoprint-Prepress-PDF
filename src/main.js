@@ -4973,7 +4973,7 @@ function drawImposeSheet(svg, p, spec, k) {
           height: dh,
           preserveAspectRatio: "xMidYMid slice",
           transform:
-            (back && spec.rotateBacks ? `rotate(180 ${x + iw / 2} ${y + ih / 2}) ` : "") +
+            (back && spec.rotateBacks && p.rotated ? `rotate(180 ${x + iw / 2} ${y + ih / 2}) ` : "") +
             (p.rotated ? `translate(${x} ${y + ih}) rotate(-90)` : `translate(${x} ${y})`),
         });
       } else {
