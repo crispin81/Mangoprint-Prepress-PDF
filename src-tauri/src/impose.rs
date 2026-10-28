@@ -400,6 +400,12 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
         let mut page = Dictionary::new();
         page.set("Type", Object::Name(b"Page".to_vec()));
         page.set("MediaBox", Object::Array(vec![0.into(), 0.into(), Object::Real(sw as f32), Object::Real(sh as f32)]));
+        // TrimBox: the outermost trim lines of the grid on this sheet (with
+        // its image shift), i.e. where the outer crop marks point.
+        page.set(
+            "TrimBox",
+            Object::Array(vec![Object::Real(gx as f32), Object::Real(gy as f32), Object::Real((gx + grid_w) as f32), Object::Real((gy + grid_h) as f32)]),
+        );
         page.set("Resources", Object::Dictionary(res));
         page.set("Contents", Object::Reference(content_id));
         new_pages.push(doc.add_object(page));
@@ -467,5 +473,28 @@ mod tests {
             let plan = impose(Path::new(&i), Path::new(&out), &sp).unwrap();
             println!("{mode}: {plan:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod trim_tests {
+    use super::*;
+
+    /// Each sheet's TrimBox is the grid's outer trim lines.
+    #[test]
+    fn sheet_trim_box() {
+        let Ok(i) = std::env::var("MP_IMPOSE_PDF") else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let out = dir.path().join("x.pdf");
+        let spec = ImposeSpec { mode: "repeat".into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "portrait".into(), bleed: 3.0, allow_rotate: false, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: true, rotate_backs: true };
+        let plan = impose(Path::new(&i), &out, &spec).unwrap();
+        let doc = Document::load(&out).unwrap();
+        let page = doc.get_dictionary(*doc.get_pages().get(&1).unwrap()).unwrap();
+        let t = rect(&doc, page, b"TrimBox").unwrap();
+        let w_mm = (t[2] - t[0]) / MM;
+        let expect = plan.cols as f64 * plan.item_w + (plan.cols - 1) as f64 * 6.0;
+        println!("trim {t:?} width {w_mm} mm, expected {expect}");
+        assert!((w_mm - expect).abs() < 0.1);
+        assert!(((t[0] + t[2]) / 2.0 - 160.0 * MM).abs() < 0.5, "centred");
     }
 }
