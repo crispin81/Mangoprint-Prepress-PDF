@@ -277,6 +277,7 @@ function setEdited(edited) {
   state.edited = edited;
   els.exportBtn.disabled = !state.path;
   document.getElementById("printBtn").disabled = !state.path;
+  document.getElementById("imposeBtn").disabled = !state.path;
   if (activeTab) {
     activeTab.edited = edited;
     renderTabs();
@@ -287,7 +288,8 @@ function setEdited(edited) {
 // choosing; the tab then carries that file's name.
 async function exportPdf() {
   if (!state.path) return;
-  const suggested = state.edited ? state.sourcePath.replace(/(\.pdf)?$/i, "_edited.pdf") : state.sourcePath;
+  // A new document (an imposed PDF) suggests its own name, not "_edited".
+  const suggested = activeTab && activeTab.isNew ? state.sourcePath : state.edited ? state.sourcePath.replace(/(\.pdf)?$/i, "_edited.pdf") : state.sourcePath;
   const dest = await save({
     defaultPath: suggested,
     filters: [{ name: "PDF", extensions: ["pdf"] }],
@@ -302,6 +304,7 @@ async function exportPdf() {
     if (activeTab) {
       activeTab.sourcePath = dest;
       activeTab.saved = true;
+      activeTab.isNew = false;
     }
     setEdited(false);
   } catch (err) {
@@ -4744,3 +4747,123 @@ renderPageBoxesPanel();
 renderRotationPanel();
 renderSelectPanel();
 initMerge();
+
+// --- imposition ---
+// The Impose button lays the open PDF out on press sheets (see impose.rs)
+// and opens the result as a new, unsaved tab. Settings are remembered.
+
+const imposeDialog = document.getElementById("imposeDialog");
+const impEl = (id) => document.getElementById(id);
+let imposePlanToken = 0;
+
+function imposeSpec() {
+  const sheet = impEl("impSheet").value;
+  const [w, h] = sheet === "custom" ? [Number(impEl("impW").value), Number(impEl("impH").value)] : sheet.split("x").map(Number);
+  return {
+    mode: impEl("impMode").value,
+    sheetW: w || 320,
+    sheetH: h || 450,
+    margin: Math.max(0, Number(impEl("impMargin").value) || 0),
+    gutter: Math.max(0, Number(impEl("impGutter").value) || 0),
+    bleed: Math.max(0, Number(impEl("impBleed").value) || 0),
+    allowRotate: impEl("impRotate").checked,
+    cropMarks: impEl("impMarks").checked,
+  };
+}
+
+const IMPOSE_FIELDS = ["impMode", "impSheet", "impW", "impH", "impBleed", "impGutter", "impMargin", "impRotate", "impMarks"];
+
+function saveImposeSettings() {
+  const v = {};
+  for (const id of IMPOSE_FIELDS) v[id] = impEl(id).type === "checkbox" ? impEl(id).checked : impEl(id).value;
+  try {
+    localStorage.setItem("imposeSettings", JSON.stringify(v));
+  } catch {}
+}
+
+try {
+  const saved = JSON.parse(localStorage.getItem("imposeSettings") || "null");
+  if (saved) {
+    for (const id of IMPOSE_FIELDS) {
+      if (!(id in saved)) continue;
+      if (impEl(id).type === "checkbox") impEl(id).checked = !!saved[id];
+      else impEl(id).value = saved[id];
+    }
+  }
+} catch {}
+
+// The summary line: "21 up · 2 sheets", worked out for this PDF.
+async function updateImposeSummary() {
+  const custom = impEl("impSheet").value === "custom";
+  impEl("impCustom").classList.toggle("hidden", !custom);
+  impEl("impCustomLabel").classList.toggle("hidden", !custom);
+  const out = impEl("impSummary");
+  if (!state.path) return;
+  const token = ++imposePlanToken;
+  try {
+    const p = await invoke("impose_plan", { path: state.path, spec: imposeSpec() });
+    if (token !== imposePlanToken) return;
+    const mm = (v) => (Math.round(v * 10) / 10).toString();
+    out.className = "impose__summary";
+    out.textContent =
+      `${p.per_sheet} up (${p.cols} × ${p.rows}${p.rotated ? ", turned" : ""}) · ` +
+      `${p.sheets} sheet${p.sheets === 1 ? "" : "s"} of ${mm(p.sheet_w)} × ${mm(p.sheet_h)} mm · ` +
+      `items ${mm(p.item_w)} × ${mm(p.item_h)} mm`;
+    impEl("impGo").disabled = false;
+  } catch (err) {
+    if (token !== imposePlanToken) return;
+    out.className = "impose__summary err";
+    out.textContent = String(err);
+    impEl("impGo").disabled = true;
+  }
+}
+
+function showImpose(on) {
+  imposeDialog.classList.toggle("hidden", !on);
+  if (on) updateImposeSummary();
+}
+
+impEl("imposeBtn").addEventListener("click", () => {
+  if (state.path) showImpose(true);
+});
+impEl("impCancel").addEventListener("click", () => showImpose(false));
+for (const id of IMPOSE_FIELDS) {
+  impEl(id).addEventListener("change", () => {
+    saveImposeSettings();
+    updateImposeSummary();
+  });
+  impEl(id).addEventListener("input", updateImposeSummary);
+}
+window.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && !imposeDialog.classList.contains("hidden")) showImpose(false);
+});
+
+impEl("impGo").addEventListener("click", async () => {
+  if (!state.path) return;
+  saveImposeSettings();
+  const source = state.sourcePath || state.path;
+  const name = `${baseName(source).replace(/\.pdf$/i, "")}_imposed.pdf`;
+  showImpose(false);
+  setProgress(30, "Imposing…");
+  let res;
+  try {
+    res = await invoke("impose_pdf", { path: state.path, name, spec: imposeSpec() });
+  } catch (err) {
+    hideProgress();
+    alert(`Could not impose the PDF:\n${err}`);
+    return;
+  }
+  hideProgress();
+  await loadPdf(res.path);
+  // A new, unsaved document: Save PDF as suggests the original's folder.
+  const tab = tabs.find((t) => t.sourcePath === res.path);
+  if (tab) {
+    const dir = source.slice(0, Math.max(source.lastIndexOf("\\"), source.lastIndexOf("/")) + 1);
+    tab.sourcePath = `${dir}${name}`;
+    tab.isNew = true;
+    if (tab === activeTab) {
+      state.sourcePath = tab.sourcePath;
+      setEdited(true);
+    }
+  }
+});

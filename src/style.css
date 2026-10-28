@@ -2817,3 +2817,52 @@ input::placeholder {
 .merge-bar {
   background: var(--panel);
 }
+
+/* --- Impose dialog --- */
+.impose {
+  max-width: 560px;
+  text-align: left;
+}
+
+.impose__lead {
+  margin: 0 0 12px;
+  color: var(--muted);
+}
+
+.impose__grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.impose__grid select {
+  min-width: 0;
+  width: 100%;
+}
+
+.impose__pair {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.impose__pair input {
+  width: 6em;
+}
+
+.impose__check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.impose__summary {
+  margin: 14px 0 0;
+  min-height: 1.4em;
+  color: var(--accent-text);
+}
+
+.impose__summary.err {
+  color: var(--danger-text);
+}

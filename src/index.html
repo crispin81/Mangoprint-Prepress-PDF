@@ -36,6 +36,10 @@
         <button id="printBtn" type="button" disabled title="Print the PDF, with your edits (Ctrl+P)" aria-label="Print">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px"><path d="M6 9V2h12v7" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect width="12" height="8" x="6" y="14" /></svg>
         </button>
+        <button id="imposeBtn" type="button" disabled title="Impose: lay the pages out on press sheets with crop marks" aria-label="Impose">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px"><rect x="3" y="3" width="7" height="5" /><rect x="14" y="3" width="7" height="5" /><rect x="3" y="10" width="7" height="5" /><rect x="14" y="10" width="7" height="5" /><rect x="3" y="17" width="7" height="4" /><rect x="14" y="17" width="7" height="4" /></svg>
+          <span class="tool-label">Impose</span>
+        </button>
       </div>
       <div class="toolbar__centre">
         <button id="prevPage" disabled>‹</button>
@@ -479,6 +483,49 @@
         <ul id="fontDialogList" class="op-warning__list"></ul>
         <div class="op-warning__actions">
           <button type="button" id="fontDialogOk" class="btn-primary">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="imposeDialog" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="imposeTitle">
+      <div class="about impose">
+        <h1 id="imposeTitle" class="about__title">Impose</h1>
+        <p class="impose__lead">Lay the pages out on press sheets with crop marks. The result opens in a new tab for Save PDF as; this PDF isn't changed.</p>
+        <div class="impose__grid">
+          <label for="impMode">Layout</label>
+          <select id="impMode">
+            <option value="repeat">Repeat each page on its own sheet (cards, double-sided)</option>
+            <option value="nup">Pages in order (N-up)</option>
+            <option value="cutstack">Cut and stack (keeps numbered or merged items in order)</option>
+          </select>
+          <label for="impSheet">Sheet</label>
+          <select id="impSheet">
+            <option value="320x450" selected>SRA3 · 320 × 450 mm</option>
+            <option value="225x320">SRA4 · 225 × 320 mm</option>
+            <option value="330x488">330 × 488 mm</option>
+            <option value="297x420">A3 · 297 × 420 mm</option>
+            <option value="210x297">A4 · 210 × 297 mm</option>
+            <option value="304.8x457.2">12 × 18 in</option>
+            <option value="330.2x482.6">13 × 19 in</option>
+            <option value="custom">Custom…</option>
+          </select>
+          <span id="impCustomLabel" class="hidden">Custom size</span>
+          <span id="impCustom" class="impose__pair hidden"><input type="number" id="impW" min="50" max="2000" step="1" value="320" /> × <input type="number" id="impH" min="50" max="2000" step="1" value="450" /> mm</span>
+          <label for="impBleed">Bleed</label>
+          <span class="impose__pair"><input type="number" id="impBleed" min="0" max="20" step="0.5" value="3" /> mm</span>
+          <label for="impGutter">Gap between items</label>
+          <span class="impose__pair"><input type="number" id="impGutter" min="0" max="50" step="0.5" value="6" /> mm</span>
+          <label for="impMargin">Sheet margin</label>
+          <span class="impose__pair"><input type="number" id="impMargin" min="0" max="50" step="0.5" value="5" /> mm</span>
+          <span></span>
+          <label class="impose__check"><input type="checkbox" id="impRotate" checked /> Turn items to fit more</label>
+          <span></span>
+          <label class="impose__check"><input type="checkbox" id="impMarks" checked /> Crop marks</label>
+        </div>
+        <p id="impSummary" class="impose__summary"></p>
+        <div class="op-warning__actions">
+          <button type="button" id="impCancel">Cancel</button>
+          <button type="button" id="impGo" class="btn-primary">Impose</button>
         </div>
       </div>
     </div>

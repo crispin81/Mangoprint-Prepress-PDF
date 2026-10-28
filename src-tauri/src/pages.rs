@@ -29,7 +29,7 @@ const INHERITABLE: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate
 
 /// Copies inherited attributes onto the page itself, so it keeps them when
 /// it moves to a different page tree (or is copied).
-fn own_inherited(doc: &mut Document, page_id: ObjectId) {
+pub(crate) fn own_inherited(doc: &mut Document, page_id: ObjectId) {
     for key in INHERITABLE {
         if doc.get_dictionary(page_id).map(|d| d.has(key)).unwrap_or(true) {
             continue;

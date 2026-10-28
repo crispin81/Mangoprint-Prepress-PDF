@@ -5,6 +5,7 @@ mod gs;
 mod history;
 mod iccprofiles;
 mod imageres;
+mod impose;
 mod objects;
 mod overprint;
 mod pagebox;
@@ -502,6 +503,33 @@ fn spot_swatches(
 fn list_fonts(path: String, doc: tauri::State<DocLock>) -> Result<Vec<fonts::FontInfo>, String> {
     let _r = read_lock(&doc)?;
     fonts::list_fonts(Path::new(&path))
+}
+
+/// Imposition: the layout the settings would give (for the summary line).
+#[tauri::command(async)]
+fn impose_plan(path: String, spec: impose::ImposeSpec, doc: tauri::State<DocLock>) -> Result<impose::ImposePlan, String> {
+    let _r = read_lock(&doc)?;
+    impose::plan(Path::new(&path), &spec)
+}
+
+#[derive(serde::Serialize)]
+struct Imposed {
+    /// The imposed PDF, in a temp folder, to open as a new tab.
+    path: String,
+    plan: impose::ImposePlan,
+}
+
+/// Imposition: writes the open PDF laid out on press sheets to a new file
+/// named `name` in a fresh temp folder (the working copy is unchanged).
+#[tauri::command(async)]
+fn impose_pdf(path: String, name: String, spec: impose::ImposeSpec, doc: tauri::State<DocLock>) -> Result<Imposed, String> {
+    let _r = read_lock(&doc)?;
+    let dir = std::env::temp_dir().join("mangoprint-impose").join(format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create a temp folder: {e}"))?;
+    let safe: String = name.chars().filter(|c| !"\\/:*?\"<>|".contains(*c)).collect();
+    let out = dir.join(if safe.is_empty() { "imposed.pdf".to_string() } else { safe });
+    let plan = impose::impose(Path::new(&path), &out, &spec)?;
+    Ok(Imposed { path: out.to_string_lossy().into_owned(), plan })
 }
 
 /// ICC colour profiles embedded in the PDF (output intent and colour spaces).
@@ -1107,6 +1135,8 @@ pub fn run() {
             recolour_apply,
             list_fonts,
             list_icc_profiles,
+            impose_plan,
+            impose_pdf,
             save_icc_profile,
             render_proof,
             read_icc_file,
