@@ -2364,6 +2364,15 @@ a:hover > .about__logo {
   flex-basis: 100%;
 }
 
+/* Small link right under the profile menu, on the right. */
+.proof-add {
+  flex-basis: 100%;
+  margin-top: -4px;
+  padding: 0;
+  font-size: 11px;
+  text-align: right;
+}
+
 .ink-limit {
   display: flex;
   align-items: center;
