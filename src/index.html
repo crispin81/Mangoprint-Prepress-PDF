@@ -229,6 +229,10 @@
             <button type="button" id="proofAddBtn" class="link-btn" title="Preview with an .icc press profile from your computer">Add your own profile…</button>
             <label class="proof-paper" title="Show the paper's own colour (absolute colorimetric) instead of pure white"><input type="checkbox" id="proofPaper" /> Show paper colour</label>
           </div>
+          <div class="intent-row">
+            <label title="The press and paper the PDF is made for, saved in the file. CMYK values are not changed.">Output intent <select id="intentSelect"></select></label>
+            <button type="button" id="intentApplyBtn" disabled title="Save this as the PDF's output intent (Ctrl+Z undoes it)">Apply</button>
+          </div>
           <p class="hint">
             The ICC profiles embedded in the PDF. The output intent is the press
             condition the file was made for (e.g. Coated FOGRA39 for PDF/X).

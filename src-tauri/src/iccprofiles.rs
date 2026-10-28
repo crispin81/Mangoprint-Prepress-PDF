@@ -319,6 +319,86 @@ pub fn list_profiles(path: &Path) -> Result<Vec<IccProfile>, String> {
     Ok(merged)
 }
 
+/// Where a new output intent's profile comes from.
+pub enum IntentSource {
+    /// A profile already embedded in the PDF ("12 0").
+    Embedded(String),
+    /// An .icc file the user chose.
+    File(std::path::PathBuf),
+    /// No output intent: remove it.
+    None,
+}
+
+/// Sets (or removes) the PDF's output intent. The CMYK values in the
+/// file are not touched; this only records which press and paper they
+/// were made for. Saved in place.
+pub fn set_output_intent(path: &Path, source: IntentSource) -> Result<(), String> {
+    let mut doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
+    let root = doc.trailer.get(b"Root").and_then(|o| o.as_reference()).map_err(|_| "The PDF has no catalog.".to_string())?;
+    let profile: Option<(ObjectId, String)> = match source {
+        IntentSource::None => None,
+        IntentSource::Embedded(id) => {
+            let mut parts = id.split_whitespace().map(|s| s.parse::<u32>());
+            let (Some(Ok(n)), Some(Ok(g))) = (parts.next(), parts.next()) else { return Err("Unknown profile.".into()) };
+            let pid = (n, g as u16);
+            // Already the output intent: keep it as it is (with its
+            // registered condition name).
+            let current = doc
+                .catalog()
+                .ok()
+                .and_then(|c| c.get(b"OutputIntents").ok())
+                .map(|o| deref(&doc, o))
+                .and_then(|o| o.as_array().ok())
+                .and_then(|a| a.first())
+                .and_then(|o| deref(&doc, o).as_dict().ok())
+                .and_then(|d| d.get(b"DestOutputProfile").ok())
+                .and_then(|o| o.as_reference().ok());
+            if current == Some(pid) {
+                return Ok(());
+            }
+            let bytes = profile_bytes(path, &id)?;
+            let p = describe_bytes(&bytes).ok_or("That isn't an ICC colour profile.")?;
+            if p.colour_space != "CMYK" {
+                return Err(format!("{} is a {} profile; an output intent for print needs a CMYK profile.", p.name, p.colour_space));
+            }
+            Some((pid, p.name))
+        }
+        IntentSource::File(f) => {
+            let bytes = std::fs::read(&f).map_err(|e| format!("Could not read the profile: {e}"))?;
+            let p = describe_bytes(&bytes).ok_or("That file isn't an ICC colour profile.")?;
+            if p.colour_space != "CMYK" {
+                return Err(format!("{} is a {} profile; an output intent for print needs a CMYK profile.", p.name, p.colour_space));
+            }
+            let mut d = Dictionary::new();
+            d.set("N", Object::Integer(4));
+            d.set("Alternate", Object::Name(b"DeviceCMYK".to_vec()));
+            let mut s = lopdf::Stream::new(d, bytes);
+            let _ = s.compress();
+            Some((doc.add_object(s), p.name))
+        }
+    };
+    let catalog = doc.get_dictionary_mut(root).map_err(|_| "The PDF has no catalog.".to_string())?;
+    match profile {
+        None => {
+            catalog.remove(b"OutputIntents");
+        }
+        Some((pid, name)) => {
+            let mut intent = Dictionary::new();
+            intent.set("Type", Object::Name(b"OutputIntent".to_vec()));
+            intent.set("S", Object::Name(b"GTS_PDFX".to_vec()));
+            // Not one of the registered conditions, so "Custom" plus the
+            // profile's own name, as PDF/X allows.
+            intent.set("OutputConditionIdentifier", Object::string_literal("Custom"));
+            intent.set("OutputCondition", Object::string_literal(name.as_str()));
+            intent.set("Info", Object::string_literal(name.as_str()));
+            intent.set("DestOutputProfile", Object::Reference(pid));
+            catalog.set("OutputIntents", Object::Array(vec![Object::Dictionary(intent)]));
+        }
+    }
+    doc.save(path).map_err(|e| format!("Could not save the PDF: {e}"))?;
+    Ok(())
+}
+
 /// The raw bytes of profile `id` ("12 0"), for saving as an .icc file.
 pub fn profile_bytes(path: &Path, id: &str) -> Result<Vec<u8>, String> {
     let doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
@@ -368,6 +448,26 @@ mod tests {
         println!("{:?}", list[0]);
         assert!(list[0].output_intent && list[0].standard == "PDF/X" && list[0].condition == "FOGRA39");
         assert_eq!(profile_bytes(&out, &list[0].id).unwrap().len(), list[0].size);
+    }
+
+    /// Setting an output intent from an embedded profile, then from an
+    /// .icc file (MP_ICC_FILE), then removing it.
+    #[test]
+    fn set_intent_file() {
+        let (Ok(p), Ok(icc)) = (std::env::var("MP_ICC_PDF"), std::env::var("MP_ICC_FILE")) else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let out = dir.path().join("x.pdf");
+        std::fs::copy(&p, &out).unwrap();
+        let cmyk = list_profiles(&out).unwrap().into_iter().find(|x| x.colour_space == "CMYK").unwrap();
+        set_output_intent(&out, IntentSource::Embedded(cmyk.id.clone())).unwrap();
+        let l = list_profiles(&out).unwrap();
+        assert!(l[0].output_intent && l[0].name == cmyk.name && l[0].condition == "Custom");
+        set_output_intent(&out, IntentSource::File(icc.clone().into())).unwrap();
+        let l = list_profiles(&out).unwrap();
+        println!("{:?}", l[0]);
+        assert!(l[0].output_intent && l[0].colour_space == "CMYK" && l[0].name != cmyk.name);
+        set_output_intent(&out, IntentSource::None).unwrap();
+        assert!(!list_profiles(&out).unwrap().iter().any(|x| x.output_intent));
     }
 
     #[test]

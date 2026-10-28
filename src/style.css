@@ -2340,6 +2340,26 @@ a:hover > .about__logo {
   min-width: 0;
 }
 
+.intent-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.intent-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.intent-row select {
+  flex: 1;
+  min-width: 0;
+}
+
 .proof-paper {
   flex-basis: 100%;
 }

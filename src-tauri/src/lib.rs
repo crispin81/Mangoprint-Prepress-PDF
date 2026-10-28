@@ -542,6 +542,32 @@ fn render_proof(
     png_to_data_uri(&out_png)
 }
 
+/// Sets the PDF's output intent to an embedded profile (`profile_id`) or
+/// an .icc file (`profile_file`), or removes it when neither is given.
+/// Colour values aren't changed. Undoable like any other edit.
+#[tauri::command(async)]
+fn set_output_intent(
+    path: String,
+    profile_id: Option<String>,
+    profile_file: Option<String>,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
+    doc: tauri::State<DocLock>,
+) -> Result<(), String> {
+    let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
+    let source = match (profile_id, profile_file) {
+        (Some(id), _) => iccprofiles::IntentSource::Embedded(id),
+        (None, Some(f)) => iccprofiles::IntentSource::File(PathBuf::from(f)),
+        (None, None) => iccprofiles::IntentSource::None,
+    };
+    iccprofiles::set_output_intent(Path::new(&path), source)?;
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
+    Ok(())
+}
+
 /// Header details of an .icc file the user chose, to check it can proof.
 #[tauri::command(async)]
 fn read_icc_file(path: String) -> Result<iccprofiles::IccProfile, String> {
@@ -1082,6 +1108,7 @@ pub fn run() {
             save_icc_profile,
             render_proof,
             read_icc_file,
+            set_output_intent,
             take_pending_open,
         ])
         .build(tauri::generate_context!())

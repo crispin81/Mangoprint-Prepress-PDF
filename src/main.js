@@ -1541,8 +1541,60 @@ function fillProofProfiles(profiles) {
     }),
   );
   proofSelect.value = opts.some(([v]) => v === before) ? before : opts[0][0];
+  fillIntentOptions(profiles);
   if (proofToggle.checked) renderCurrent();
 }
+
+// --- output intent ---
+// Starts on the PDF's own output intent (or None). Choosing another
+// profile and clicking Apply saves it into the working copy; the CMYK
+// values are not changed. Undo takes it back.
+
+const intentSelect = document.getElementById("intentSelect");
+const intentApplyBtn = document.getElementById("intentApplyBtn");
+let intentCurrent = "none";
+
+function fillIntentOptions(profiles) {
+  const current = profiles.find((p) => p.output_intent);
+  intentCurrent = current ? current.id : "none";
+  const opts = [["none", "None"]];
+  for (const p of profiles.filter((x) => x.colour_space === "CMYK")) {
+    opts.push([p.id, p.output_intent ? `${p.condition && p.condition !== "Custom" ? p.condition : p.name} (current)` : p.name]);
+  }
+  if (proofFile) opts.push([`file:${proofFile.path}`, `${proofFile.name} (your profile)`]);
+  intentSelect.replaceChildren(
+    ...opts.map(([value, label]) => {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = label;
+      return o;
+    }),
+  );
+  intentSelect.value = intentCurrent;
+  intentApplyBtn.disabled = true;
+}
+
+intentSelect.addEventListener("change", () => {
+  intentApplyBtn.disabled = !state.path || intentSelect.value === intentCurrent;
+});
+
+intentApplyBtn.addEventListener("click", async () => {
+  if (!state.path) return;
+  const v = intentSelect.value;
+  intentApplyBtn.disabled = true;
+  try {
+    await invoke("set_output_intent", {
+      path: state.path,
+      profileId: v !== "none" && !v.startsWith("file:") ? v : null,
+      profileFile: v.startsWith("file:") ? v.slice(5) : null,
+    });
+    setEdited(true);
+    await loadProfiles();
+  } catch (err) {
+    alert(`Could not set the output intent:\n${err}`);
+    intentApplyBtn.disabled = false;
+  }
+});
 
 // Asks for an .icc file; true when a CMYK profile was chosen.
 async function chooseProofFile() {
