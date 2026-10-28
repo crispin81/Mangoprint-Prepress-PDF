@@ -4764,14 +4764,15 @@ function imposeSpec() {
     sheetW: w || 320,
     sheetH: h || 450,
     margin: Math.max(0, Number(impEl("impMargin").value) || 0),
-    gutter: Math.max(0, Number(impEl("impGutter").value) || 0),
+    gutterShort: Math.max(0, Number(impEl("impGutterShort").value) || 0),
+    gutterLong: Math.max(0, Number(impEl("impGutterLong").value) || 0),
     bleed: Math.max(0, Number(impEl("impBleed").value) || 0),
     allowRotate: impEl("impRotate").checked,
     cropMarks: impEl("impMarks").checked,
   };
 }
 
-const IMPOSE_FIELDS = ["impMode", "impSheet", "impW", "impH", "impBleed", "impGutter", "impMargin", "impRotate", "impMarks"];
+const IMPOSE_FIELDS = ["impMode", "impSheet", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks"];
 
 function saveImposeSettings() {
   const v = {};

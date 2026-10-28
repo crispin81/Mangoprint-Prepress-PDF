@@ -26,8 +26,10 @@ pub struct ImposeSpec {
     pub sheet_h: f64,
     /// Space the press can't print on, every edge, mm.
     pub margin: f64,
-    /// Gap between items, mm.
-    pub gutter: f64,
+    /// Gap between items beside their short edges, mm.
+    pub gutter_short: f64,
+    /// Gap between items beside their long edges, mm.
+    pub gutter_long: f64,
     /// Bleed kept around each item, mm.
     pub bleed: f64,
     /// Turn items 90° when more fit that way.
@@ -121,6 +123,14 @@ fn display_matrix(p: &PageInfo) -> M {
     }
 }
 
+/// The gaps (pt) between columns and between rows for an item placed
+/// `iw` × `ih`: side by side, items meet along their vertical edges, so the
+/// column gap is the short-edge gap when those edges are the short ones.
+fn gaps(spec: &ImposeSpec, iw: f64, ih: f64) -> (f64, f64) {
+    let (short, long) = (spec.gutter_short * MM, spec.gutter_long * MM);
+    if iw >= ih { (short, long) } else { (long, short) }
+}
+
 /// How many fit along a length: n items of size `item` with `gap` between.
 fn fit(avail: f64, item: f64, gap: f64) -> u32 {
     if item <= 0.0 || avail < item {
@@ -133,7 +143,7 @@ fn fit(avail: f64, item: f64, gap: f64) -> u32 {
 /// when allowed, the item turned 90°. Returns (cols, rows, rotated, sheet w, sheet h) in pt.
 fn best_grid(spec: &ImposeSpec, item: (f64, f64)) -> (u32, u32, bool, f64, f64) {
     let (sw, sh) = (spec.sheet_w * MM, spec.sheet_h * MM);
-    let (m, g, b) = (spec.margin * MM, spec.gutter * MM, spec.bleed * MM);
+    let (m, b) = (spec.margin * MM, spec.bleed * MM);
     // The outer bleed has to fit inside the printable area too.
     let mut best = (0, 0, false, sw, sh);
     let mut best_n = 0;
@@ -143,8 +153,9 @@ fn best_grid(spec: &ImposeSpec, item: (f64, f64)) -> (u32, u32, bool, f64, f64) 
                 continue;
             }
             let (iw, ih) = if rot { (item.1, item.0) } else { item };
-            let cols = fit(w - 2.0 * m - 2.0 * b, iw, g);
-            let rows = fit(h - 2.0 * m - 2.0 * b, ih, g);
+            let (hg, vg) = gaps(spec, iw, ih);
+            let cols = fit(w - 2.0 * m - 2.0 * b, iw, hg);
+            let rows = fit(h - 2.0 * m - 2.0 * b, ih, vg);
             let n = cols * rows;
             if n > best_n {
                 best_n = n;
@@ -229,17 +240,19 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
     let forms = pages.iter().map(|p| page_form(&mut doc, p)).collect::<Result<Vec<_>, _>>()?;
 
     let (sw, sh) = (plan.sheet_w * MM, plan.sheet_h * MM);
-    let (g, b) = (spec.gutter * MM, spec.bleed * MM);
+    let b = spec.bleed * MM;
     let (iw, ih) = (plan.item_w * MM, plan.item_h * MM);
     let (cols, rows) = (plan.cols, plan.rows);
     // The grid of trims, centred on the sheet.
-    let grid_w = cols as f64 * iw + (cols - 1) as f64 * g;
-    let grid_h = rows as f64 * ih + (rows - 1) as f64 * g;
+    let (hg, vg) = gaps(spec, iw, ih);
+    let grid_w = cols as f64 * iw + (cols - 1) as f64 * hg;
+    let grid_h = rows as f64 * ih + (rows - 1) as f64 * vg;
     let gx = (sw - grid_w) / 2.0;
     let gy = (sh - grid_h) / 2.0;
     // Bleed shown between items: no more than half the gap, so neighbours
     // never overlap; full bleed on the outside edges.
-    let inner = b.min(g / 2.0);
+    let inner_x = b.min(hg / 2.0);
+    let inner_y = b.min(vg / 2.0);
 
     // Registration colour: prints on every plate (Separation /All).
     let mut func = Dictionary::new();
@@ -283,8 +296,8 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
                 let cell = row * cols as usize + col;
                 let Some(pi) = cell_page(sheet, cell) else { continue };
                 let p = &pages[pi];
-                let x = gx + col as f64 * (iw + g);
-                let y = gy + (rows as usize - 1 - row) as f64 * (ih + g);
+                let x = gx + col as f64 * (iw + hg);
+                let y = gy + (rows as usize - 1 - row) as f64 * (ih + vg);
                 // Page → display → (turned) → cell.
                 let mut m = display_matrix(p);
                 if plan.rotated {
@@ -292,10 +305,10 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
                     m = mul(m, [0.0, 1.0, -1.0, 0.0, iw, 0.0]);
                 }
                 m = mul(m, [1.0, 0.0, 0.0, 1.0, x, y]);
-                let left = if col == 0 { b } else { inner };
-                let right = if col + 1 == cols as usize { b } else { inner };
-                let bottom = if row + 1 == rows as usize { b } else { inner };
-                let top = if row == 0 { b } else { inner };
+                let left = if col == 0 { b } else { inner_x };
+                let right = if col + 1 == cols as usize { b } else { inner_x };
+                let bottom = if row + 1 == rows as usize { b } else { inner_y };
+                let top = if row == 0 { b } else { inner_y };
                 let name = format!("P{pi}");
                 xobjects.set(name.as_bytes().to_vec(), Object::Reference(forms[pi]));
                 ops.push_str(&format!(
@@ -321,13 +334,13 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
             ops.push_str("q /All CS 1 SCN 0.25 w\n");
             let mut xs = Vec::new();
             for c in 0..cols as usize {
-                let x = gx + c as f64 * (iw + g);
+                let x = gx + c as f64 * (iw + hg);
                 xs.push(x);
                 xs.push(x + iw);
             }
             let mut ys = Vec::new();
             for r in 0..rows as usize {
-                let y = gy + r as f64 * (ih + g);
+                let y = gy + r as f64 * (ih + vg);
                 ys.push(y);
                 ys.push(y + ih);
             }
@@ -384,7 +397,7 @@ mod tests {
     use super::*;
 
     fn spec(mode: &str) -> ImposeSpec {
-        ImposeSpec { mode: mode.into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter: 6.0, bleed: 3.0, allow_rotate: true, crop_marks: true }
+        ImposeSpec { mode: mode.into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, bleed: 3.0, allow_rotate: true, crop_marks: true }
     }
 
     #[test]
