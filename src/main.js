@@ -1574,6 +1574,15 @@ function fillIntentOptions(profiles) {
   setIntentApply(false);
 }
 
+// Adding a profile here (the same "your profile" as Preview with) picks
+// it as the new output intent, ready to Apply.
+document.getElementById("intentAddBtn").addEventListener("click", async () => {
+  if (!state.path || !(await chooseProofFile())) return;
+  fillProofProfiles(lastProfiles);
+  intentSelect.value = `file:${proofFile.path}`;
+  setIntentApply(intentSelect.value !== intentCurrent);
+});
+
 // Apply is only lit up when a different output intent is chosen.
 function setIntentApply(on) {
   intentApplyBtn.disabled = !on;
