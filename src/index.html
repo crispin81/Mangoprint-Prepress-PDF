@@ -491,6 +491,7 @@
       <div class="about impose">
         <h1 id="imposeTitle" class="about__title">Impose</h1>
         <p class="impose__lead">Lay the pages out on press sheets with crop marks. The result opens in a new tab for Save PDF as; this PDF isn't changed.</p>
+        <div class="impose__body">
         <div class="impose__grid">
           <label for="impMode">Layout</label>
           <select id="impMode">
@@ -523,6 +524,8 @@
           <label class="impose__check"><input type="checkbox" id="impRotate" checked /> Turn items to fit more</label>
           <span></span>
           <label class="impose__check"><input type="checkbox" id="impMarks" checked /> Crop marks</label>
+        </div>
+        <div class="impose__preview" title="Sheet 1, as it will be imposed"><svg id="impPreview" xmlns="http://www.w3.org/2000/svg"></svg><span id="impPreviewLabel" class="impose__preview-label"></span></div>
         </div>
         <p id="impSummary" class="impose__summary"></p>
         <div class="op-warning__actions">

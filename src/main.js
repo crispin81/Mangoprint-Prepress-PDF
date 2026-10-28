@@ -4802,8 +4802,10 @@ async function updateImposeSummary() {
   if (!state.path) return;
   const token = ++imposePlanToken;
   try {
-    const p = await invoke("impose_plan", { path: state.path, spec: imposeSpec() });
+    const spec = imposeSpec();
+    const p = await invoke("impose_plan", { path: state.path, spec });
     if (token !== imposePlanToken) return;
+    drawImposePreview(p, spec);
     const mm = (v) => (Math.round(v * 10) / 10).toString();
     out.className = "impose__summary";
     out.textContent =
@@ -4815,6 +4817,7 @@ async function updateImposeSummary() {
     if (token !== imposePlanToken) return;
     out.className = "impose__summary err";
     out.textContent = String(err);
+    drawImposePreview(null);
     impEl("impGo").disabled = true;
   }
 }
@@ -4868,3 +4871,97 @@ impEl("impGo").addEventListener("click", async () => {
     }
   }
 });
+
+// Live preview of sheet 1 in the Impose window: the sheet, its printable
+// area, each item with its bleed and the page's thumbnail, and the crop
+// marks, laid out as impose.rs does (grid centred, gaps by edge).
+function drawImposePreview(p, spec) {
+  const svg = impEl("impPreview");
+  const label = impEl("impPreviewLabel");
+  svg.replaceChildren();
+  if (!p) {
+    label.textContent = "";
+    return;
+  }
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (name, attrs) => {
+    const e = document.createElementNS(NS, name);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+    svg.appendChild(e);
+    return e;
+  };
+  const { sheet_w: sw, sheet_h: sh, item_w: iw, item_h: ih, cols, rows } = p;
+  svg.setAttribute("viewBox", `${-8} ${-8} ${sw + 16} ${sh + 16}`);
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  const [hg, vg] = iw >= ih ? [spec.gutterShort, spec.gutterLong] : [spec.gutterLong, spec.gutterShort];
+  const gridW = cols * iw + (cols - 1) * hg;
+  const gridH = rows * ih + (rows - 1) * vg;
+  const gx = (sw - gridW) / 2;
+  const gy = (sh - gridH) / 2;
+  const b = spec.bleed;
+  const innerX = Math.min(b, hg / 2);
+  const innerY = Math.min(b, vg / 2);
+  const hair = Math.max(sw, sh) / 400;
+
+  el("rect", { x: 0, y: 0, width: sw, height: sh, fill: "#fff", stroke: "#888", "stroke-width": hair });
+  if (spec.margin > 0) {
+    el("rect", { x: spec.margin, y: spec.margin, width: sw - 2 * spec.margin, height: sh - 2 * spec.margin, fill: "none", stroke: "#bbb", "stroke-width": hair, "stroke-dasharray": `${hair * 6} ${hair * 4}` });
+  }
+  const count = p.pages;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = r * cols + c;
+      const page =
+        spec.mode === "repeat" ? 1 : spec.mode === "cutstack" ? cell * p.sheets + 1 : cell + 1;
+      if (page > count) continue;
+      const x = gx + c * (iw + hg);
+      const y = gy + r * (ih + vg);
+      const left = c === 0 ? b : innerX;
+      const right = c === cols - 1 ? b : innerX;
+      const top = r === 0 ? b : innerY;
+      const bottom = r === rows - 1 ? b : innerY;
+      // Bleed, then the item (its thumbnail when there is one).
+      el("rect", { x: x - left, y: y - top, width: iw + left + right, height: ih + top + bottom, fill: "#ffcc33", opacity: 0.35 });
+      const thumb = document.querySelector(`#thumbList .thumb[data-page="${page}"] canvas`);
+      let src = null;
+      try {
+        if (thumb) src = thumb.toDataURL("image/png");
+      } catch {}
+      if (src) {
+        const [dw, dh] = p.rotated ? [ih, iw] : [iw, ih];
+        el("image", {
+          href: src,
+          width: dw,
+          height: dh,
+          preserveAspectRatio: "xMidYMid slice",
+          transform: p.rotated ? `translate(${x} ${y + ih}) rotate(-90)` : `translate(${x} ${y})`,
+        });
+      } else {
+        el("rect", { x, y, width: iw, height: ih, fill: "#e8e8ec" });
+      }
+      el("rect", { x, y, width: iw, height: ih, fill: "none", stroke: "#555", "stroke-width": hair });
+      if (spec.mode !== "repeat") {
+        const t = el("text", { x: x + iw / 2, y: y + ih / 2, "font-size": Math.min(iw, ih) / 3, "text-anchor": "middle", "dominant-baseline": "central", fill: "#14151a", opacity: 0.7 });
+        t.textContent = page;
+      }
+    }
+  }
+  if (spec.cropMarks) {
+    const off = b + 1;
+    const len = 5;
+    const line = (x1, y1, x2, y2) => el("line", { x1, y1, x2, y2, stroke: "#000", "stroke-width": hair });
+    for (let c = 0; c < cols; c++) {
+      for (const x of [gx + c * (iw + hg), gx + c * (iw + hg) + iw]) {
+        line(x, gy - off, x, gy - off - len);
+        line(x, gy + gridH + off, x, gy + gridH + off + len);
+      }
+    }
+    for (let r = 0; r < rows; r++) {
+      for (const y of [gy + r * (ih + vg), gy + r * (ih + vg) + ih]) {
+        line(gx - off, y, gx - off - len, y);
+        line(gx + gridW + off, y, gx + gridW + off + len, y);
+      }
+    }
+  }
+  label.textContent = `Sheet 1 of ${p.sheets}`;
+}

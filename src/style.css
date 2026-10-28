@@ -2820,7 +2820,8 @@ input::placeholder {
 
 /* --- Impose dialog --- */
 .impose {
-  max-width: 560px;
+  max-width: 900px;
+  width: min(900px, 94vw);
   text-align: left;
 }
 
@@ -2865,4 +2866,48 @@ input::placeholder {
 
 .impose__summary.err {
   color: var(--danger-text);
+}
+
+/* Settings on the left, the live sheet preview on the right. */
+.impose__body {
+  display: flex;
+  gap: 20px;
+  align-items: stretch;
+}
+
+.impose__body .impose__grid {
+  flex: 1 1 320px;
+  align-content: start;
+}
+
+.impose__preview {
+  flex: 0 0 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.impose__preview svg {
+  width: 280px;
+  height: 340px;
+}
+
+.impose__preview-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+@media (max-width: 760px) {
+  .impose__body {
+    flex-direction: column;
+  }
+  .impose__preview {
+    flex-basis: auto;
+  }
 }
