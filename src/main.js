@@ -4770,10 +4770,13 @@ function imposeSpec() {
     orientation: impEl("impOrient").value,
     allowRotate: impEl("impRotate").checked,
     cropMarks: impEl("impMarks").checked,
+    // Image shift: right minus left, up minus down.
+    shiftX: (Number(impEl("impShiftRight").value) || 0) - (Number(impEl("impShiftLeft").value) || 0),
+    shiftY: (Number(impEl("impShiftTop").value) || 0) - (Number(impEl("impShiftBottom").value) || 0),
   };
 }
 
-const IMPOSE_FIELDS = ["impMode", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks"];
+const IMPOSE_FIELDS = ["impMode", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight"];
 
 function saveImposeSettings() {
   const v = {};
@@ -4876,7 +4879,12 @@ impEl("impGo").addEventListener("click", async () => {
 // Live preview of sheet 1 in the Impose window: the sheet, its printable
 // area, each item with its bleed and the page's thumbnail, and the crop
 // marks, laid out as impose.rs does (grid centred, gaps by edge).
+let imposeSheet = 0; // the sheet shown in the preview (0-based)
+let imposeLast = null; // [plan, spec] last drawn, for paging
+
 function drawImposePreview(p, spec) {
+  imposeLast = p ? [p, spec] : null;
+  if (p) imposeSheet = Math.min(imposeSheet, p.sheets - 1);
   const svg = impEl("impPreview");
   const label = impEl("impPreviewLabel");
   svg.replaceChildren();
@@ -4898,8 +4906,9 @@ function drawImposePreview(p, spec) {
   const [hg, vg] = sw <= sh ? [spec.gutterShort, spec.gutterLong] : [spec.gutterLong, spec.gutterShort];
   const gridW = cols * iw + (cols - 1) * hg;
   const gridH = rows * ih + (rows - 1) * vg;
-  const gx = (sw - gridW) / 2;
-  const gy = (sh - gridH) / 2;
+  // Centred, then the image shift (+y is up, so down the screen is minus).
+  const gx = (sw - gridW) / 2 + spec.shiftX;
+  const gy = (sh - gridH) / 2 - spec.shiftY;
   const b = spec.bleed;
   const innerX = Math.min(b, hg / 2);
   const innerY = Math.min(b, vg / 2);
@@ -4913,8 +4922,9 @@ function drawImposePreview(p, spec) {
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const cell = r * cols + c;
+      const k = imposeSheet;
       const page =
-        spec.mode === "repeat" ? 1 : spec.mode === "cutstack" ? cell * p.sheets + 1 : cell + 1;
+        spec.mode === "repeat" ? k + 1 : spec.mode === "cutstack" ? cell * p.sheets + k + 1 : k * p.per_sheet + cell + 1;
       if (page > count) continue;
       const x = gx + c * (iw + hg);
       const y = gy + r * (ih + vg);
@@ -4965,7 +4975,9 @@ function drawImposePreview(p, spec) {
       }
     }
   }
-  label.textContent = `Sheet 1 of ${p.sheets}`;
+  label.textContent = `Sheet ${imposeSheet + 1} of ${p.sheets}`;
+  impEl("impPrev").disabled = imposeSheet <= 0;
+  impEl("impNext").disabled = imposeSheet >= p.sheets - 1;
 }
 
 // Sheet orientation buttons (portrait / landscape / auto) drive the hidden
@@ -4985,3 +4997,11 @@ for (const b of document.querySelectorAll(".orient-btn")) {
   });
 }
 showOrientButtons();
+
+for (const [id, step] of [["impPrev", -1], ["impNext", 1]]) {
+  impEl(id).addEventListener("click", () => {
+    if (!imposeLast) return;
+    imposeSheet = Math.max(0, Math.min(imposeLast[0].sheets - 1, imposeSheet + step));
+    drawImposePreview(...imposeLast);
+  });
+}

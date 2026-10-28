@@ -537,7 +537,20 @@
           <span></span>
           <label class="impose__check"><input type="checkbox" id="impMarks" checked /> Crop marks</label>
         </div>
-        <div class="impose__preview" title="Sheet 1, as it will be imposed"><svg id="impPreview" xmlns="http://www.w3.org/2000/svg"></svg><span id="impPreviewLabel" class="impose__preview-label"></span></div>
+        <div class="impose__preview">
+          <div class="shift-grid">
+            <label class="shift-field shift-top" title="Image shift: move the whole layout up (mm)">↑ <input type="number" id="impShiftTop" min="0" max="100" step="0.5" value="0" /> mm</label>
+            <label class="shift-field shift-left" title="Image shift: move the whole layout left (mm)">← <input type="number" id="impShiftLeft" min="0" max="100" step="0.5" value="0" /> mm</label>
+            <svg id="impPreview" xmlns="http://www.w3.org/2000/svg"></svg>
+            <label class="shift-field shift-right" title="Image shift: move the whole layout right (mm)">→ <input type="number" id="impShiftRight" min="0" max="100" step="0.5" value="0" /> mm</label>
+            <label class="shift-field shift-bottom" title="Image shift: move the whole layout down (mm)">↓ <input type="number" id="impShiftBottom" min="0" max="100" step="0.5" value="0" /> mm</label>
+          </div>
+          <div class="impose__nav">
+            <button type="button" id="impPrev" title="Previous sheet" aria-label="Previous sheet">‹</button>
+            <span id="impPreviewLabel" class="impose__preview-label"></span>
+            <button type="button" id="impNext" title="Next sheet" aria-label="Next sheet">›</button>
+          </div>
+        </div>
         </div>
         <p id="impSummary" class="impose__summary"></p>
         <div class="op-warning__actions">

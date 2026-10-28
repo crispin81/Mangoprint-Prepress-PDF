@@ -39,6 +39,12 @@ pub struct ImposeSpec {
     /// Turn items 90° when more fit that way.
     pub allow_rotate: bool,
     pub crop_marks: bool,
+    /// Image shift: moves the whole group (items and marks), mm; +x is
+    /// right, +y is up.
+    #[serde(default)]
+    pub shift_x: f64,
+    #[serde(default)]
+    pub shift_y: f64,
 }
 
 /// The layout a spec gives, for the dialog's summary line.
@@ -257,8 +263,8 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
     let (hg, vg) = gaps(spec, sw, sh);
     let grid_w = cols as f64 * iw + (cols - 1) as f64 * hg;
     let grid_h = rows as f64 * ih + (rows - 1) as f64 * vg;
-    let gx = (sw - grid_w) / 2.0;
-    let gy = (sh - grid_h) / 2.0;
+    let gx = (sw - grid_w) / 2.0 + spec.shift_x * MM;
+    let gy = (sh - grid_h) / 2.0 + spec.shift_y * MM;
     // Bleed shown between items: no more than half the gap, so neighbours
     // never overlap; full bleed on the outside edges.
     let inner_x = b.min(hg / 2.0);
@@ -407,7 +413,7 @@ mod tests {
     use super::*;
 
     fn spec(mode: &str) -> ImposeSpec {
-        ImposeSpec { mode: mode.into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "auto".into(), bleed: 3.0, allow_rotate: true, crop_marks: true }
+        ImposeSpec { mode: mode.into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "auto".into(), bleed: 3.0, allow_rotate: true, crop_marks: true, shift_x: 0.0, shift_y: 0.0 }
     }
 
     #[test]
