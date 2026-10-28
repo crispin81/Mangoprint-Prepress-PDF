@@ -1590,6 +1590,13 @@ intentApplyBtn.addEventListener("click", async () => {
     });
     setEdited(true);
     await loadProfiles();
+    // The preview follows the new output intent, so ticking Preview with
+    // shows the page on that press.
+    const intent = lastProfiles.find((p) => p.output_intent);
+    if (intent && [...proofSelect.options].some((o) => o.value === intent.id)) {
+      proofSelect.value = intent.id;
+      if (proofToggle.checked) renderCurrent();
+    }
   } catch (err) {
     alert(`Could not set the output intent:\n${err}`);
     intentApplyBtn.disabled = false;
