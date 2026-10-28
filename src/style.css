@@ -3110,7 +3110,7 @@ input::placeholder {
   gap: 5px;
 }
 
-/* Beta notice in the Impose window, inside a turning CMYK border. */
+/* Beta notice in the Impose window, inside a turning red frame. */
 .beta-warning {
   margin: 0 0 12px;
   padding: 8px 12px;
@@ -3118,12 +3118,12 @@ input::placeholder {
   border: 2px solid transparent;
   background:
     linear-gradient(var(--panel), var(--panel)) padding-box,
-    conic-gradient(from var(--rc-angle), #00aeef, #ec008c, #fff200, #ffcc33, #00aeef) border-box;
-  animation: rc-spin 3s linear infinite;
-  color: var(--accent-text);
+    conic-gradient(from var(--rc-angle), #ff5252, #7a1414, #ff8a8a, #7a1414, #ff5252) border-box;
+  animation: rc-spin 2.5s linear infinite;
+  color: var(--danger-text);
   font-size: 13px;
 }
 
 .beta-warning strong {
-  color: var(--accent);
+  color: var(--danger);
 }
