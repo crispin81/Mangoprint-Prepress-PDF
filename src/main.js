@@ -4767,12 +4767,13 @@ function imposeSpec() {
     gutterShort: Math.max(0, Number(impEl("impGutterShort").value) || 0),
     gutterLong: Math.max(0, Number(impEl("impGutterLong").value) || 0),
     bleed: Math.max(0, Number(impEl("impBleed").value) || 0),
+    orientation: impEl("impOrient").value,
     allowRotate: impEl("impRotate").checked,
     cropMarks: impEl("impMarks").checked,
   };
 }
 
-const IMPOSE_FIELDS = ["impMode", "impSheet", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks"];
+const IMPOSE_FIELDS = ["impMode", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks"];
 
 function saveImposeSettings() {
   const v = {};
@@ -4893,7 +4894,8 @@ function drawImposePreview(p, spec) {
   const { sheet_w: sw, sheet_h: sh, item_w: iw, item_h: ih, cols, rows } = p;
   svg.setAttribute("viewBox", `${-8} ${-8} ${sw + 16} ${sh + 16}`);
   svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-  const [hg, vg] = iw >= ih ? [spec.gutterShort, spec.gutterLong] : [spec.gutterLong, spec.gutterShort];
+  // The short-edge gap runs across the sheet's short side.
+  const [hg, vg] = sw <= sh ? [spec.gutterShort, spec.gutterLong] : [spec.gutterLong, spec.gutterShort];
   const gridW = cols * iw + (cols - 1) * hg;
   const gridH = rows * ih + (rows - 1) * vg;
   const gx = (sw - gridW) / 2;

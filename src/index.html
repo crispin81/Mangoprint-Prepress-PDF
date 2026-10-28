@@ -510,13 +510,19 @@
             <option value="330.2x482.6">13 × 19 in</option>
             <option value="custom">Custom…</option>
           </select>
+          <label for="impOrient">Sheet orientation</label>
+          <select id="impOrient">
+            <option value="auto" selected>Auto (whichever fits more)</option>
+            <option value="portrait">Portrait</option>
+            <option value="landscape">Landscape</option>
+          </select>
           <span id="impCustomLabel" class="hidden">Custom size</span>
           <span id="impCustom" class="impose__pair hidden"><input type="number" id="impW" min="50" max="2000" step="1" value="320" /> × <input type="number" id="impH" min="50" max="2000" step="1" value="450" /> mm</span>
           <label for="impBleed">Bleed</label>
           <span class="impose__pair"><input type="number" id="impBleed" min="0" max="20" step="0.5" value="3" /> mm</span>
-          <label for="impGutterShort" title="The gap beside the items' short edges">Short edge gap</label>
+          <label for="impGutterShort" title="The gap between items going across the sheet's short edge (the 320 mm side of SRA3)">Short edge gap</label>
           <span class="impose__pair"><input type="number" id="impGutterShort" min="0" max="50" step="0.5" value="6" /> mm</span>
-          <label for="impGutterLong" title="The gap beside the items' long edges">Long edge gap</label>
+          <label for="impGutterLong" title="The gap between items going along the sheet's long edge (the 450 mm side of SRA3)">Long edge gap</label>
           <span class="impose__pair"><input type="number" id="impGutterLong" min="0" max="50" step="0.5" value="6" /> mm</span>
           <label for="impMargin">Sheet margin</label>
           <span class="impose__pair"><input type="number" id="impMargin" min="0" max="50" step="0.5" value="5" /> mm</span>
