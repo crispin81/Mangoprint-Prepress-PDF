@@ -550,11 +550,13 @@ fn set_output_intent(
     path: String,
     profile_id: Option<String>,
     profile_file: Option<String>,
+    // Convert the colours from the old output intent to the new one.
+    convert: Option<bool>,
     cache: tauri::State<SepCache>,
     plates: tauri::State<PlateCache>,
     hist: tauri::State<history::History>,
     doc: tauri::State<DocLock>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let _w = write_lock(&doc)?;
     hist.snapshot(&path)?;
     let source = match (profile_id, profile_file) {
@@ -562,10 +564,10 @@ fn set_output_intent(
         (None, Some(f)) => iccprofiles::IntentSource::File(PathBuf::from(f)),
         (None, None) => iccprofiles::IntentSource::None,
     };
-    iccprofiles::set_output_intent(Path::new(&path), source)?;
+    let converted = iccprofiles::change_output_intent(Path::new(&path), source, convert.unwrap_or(false))?;
     invalidate_path(&cache, &path);
     clear_plates(&plates);
-    Ok(())
+    Ok(converted)
 }
 
 /// Header details of an .icc file the user chose, to check it can proof.

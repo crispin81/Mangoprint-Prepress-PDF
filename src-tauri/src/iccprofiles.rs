@@ -329,6 +329,64 @@ pub enum IntentSource {
     None,
 }
 
+/// The current output intent's profile stream, if the PDF has one.
+fn current_intent(doc: &Document) -> Option<ObjectId> {
+    doc.catalog()
+        .ok()
+        .and_then(|c| c.get(b"OutputIntents").ok())
+        .map(|o| deref(doc, o))
+        .and_then(|o| o.as_array().ok())
+        .and_then(|a| a.first())
+        .and_then(|o| deref(doc, o).as_dict().ok())
+        .and_then(|d| d.get(b"DestOutputProfile").ok())
+        .and_then(|o| o.as_reference().ok())
+}
+
+/// Changes the output intent to `source`. When the PDF already has an
+/// output intent and `convert` is set, the colours are first converted
+/// from the old press to the new one (CMYK recalculated, 100% black kept),
+/// as Acrobat's Convert Colors does; without an old output intent there's
+/// nothing to convert from, so only the label is set. Returns whether the
+/// colours were converted.
+pub fn change_output_intent(path: &Path, source: IntentSource, convert: bool) -> Result<bool, String> {
+    if !convert || matches!(source, IntentSource::None) {
+        set_output_intent(path, source)?;
+        return Ok(false);
+    }
+    let doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
+    let Some(old) = current_intent(&doc) else {
+        drop(doc);
+        set_output_intent(path, source)?;
+        return Ok(false);
+    };
+    let tmp = tempfile::TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
+    let from = tmp.path().join("from.icc");
+    std::fs::write(&from, profile_bytes(path, &format!("{} {}", old.0, old.1))?).map_err(|e| format!("Could not write the profile: {e}"))?;
+    let to = match &source {
+        IntentSource::Embedded(id) => {
+            if *id == format!("{} {}", old.0, old.1) {
+                return Ok(false); // already the output intent
+            }
+            let p = tmp.path().join("to.icc");
+            std::fs::write(&p, profile_bytes(path, id)?).map_err(|e| format!("Could not write the profile: {e}"))?;
+            p
+        }
+        IntentSource::File(f) => f.clone(),
+        IntentSource::None => unreachable!(),
+    };
+    let to_info = std::fs::read(&to).ok().and_then(|b| describe_bytes(&b)).ok_or("That isn't an ICC colour profile.")?;
+    if to_info.colour_space != "CMYK" {
+        return Err(format!("{} is a {} profile; an output intent for print needs a CMYK profile.", to_info.name, to_info.colour_space));
+    }
+    drop(doc);
+    let converted = tmp.path().join("converted.pdf");
+    crate::gs::convert_cmyk_profile(path, &converted, &from, &to)?;
+    std::fs::copy(&converted, path).map_err(|e| format!("Could not update the working copy: {e}"))?;
+    // The rewrite dropped the old profiles; embed the new one as the intent.
+    set_output_intent(path, IntentSource::File(to))?;
+    Ok(true)
+}
+
 /// Sets (or removes) the PDF's output intent. The CMYK values in the
 /// file are not touched; this only records which press and paper they
 /// were made for. Saved in place.
@@ -468,6 +526,27 @@ mod tests {
         assert!(l[0].output_intent && l[0].colour_space == "CMYK" && l[0].name != cmyk.name);
         set_output_intent(&out, IntentSource::None).unwrap();
         assert!(!list_profiles(&out).unwrap().iter().any(|x| x.output_intent));
+    }
+
+    /// Converting from one press (MP_ICC_FILE) to another (MP_ICC_FILE2)
+    /// changes the CMYK of MP_CM_PDF but keeps 100% K black.
+    #[test]
+    fn convert_intent_file() {
+        let (Ok(p), Ok(a), Ok(b)) = (std::env::var("MP_CM_PDF"), std::env::var("MP_ICC_FILE"), std::env::var("MP_ICC_FILE2")) else { return };
+        let dir = tempfile::TempDir::new().unwrap();
+        let out = dir.path().join("x.pdf");
+        std::fs::copy(&p, &out).unwrap();
+        assert!(!change_output_intent(&out, IntentSource::File(a.into()), true).unwrap(), "no old intent: label only");
+        assert!(change_output_intent(&out, IntentSource::File(b.clone().into()), true).unwrap());
+        let doc = Document::load(&out).unwrap();
+        let content = doc.get_page_content(*doc.get_pages().get(&1).unwrap());
+        let text = String::from_utf8_lossy(&content);
+        println!("{text}");
+        assert!(!text.contains("0 1 0 0 k"), "magenta was converted");
+        assert!(text.contains("0 g") || text.contains("0 0 0 1 k"), "black stays pure black");
+        let l = list_profiles(&out).unwrap();
+        println!("{:?}", l[0]);
+        assert!(l[0].output_intent);
     }
 
     #[test]

@@ -291,6 +291,7 @@ pub fn render_proof_png(
     // work on every platform and need no escaping.
     let profile_arg = format!("-sDefaultCMYKProfile={}", profile.to_string_lossy().replace('\\', "/"));
     let mut cmd = gs_command()?;
+    permit_read(&mut cmd, profile);
     cmd.args([
         "-q",
         "-dBATCH",
@@ -522,6 +523,83 @@ pub fn postscript_to_pdf(ps: &Path, output: &Path, font_dir: &Path) -> Result<()
         return Err(format!("Ghostscript could not set the mail merge text:\n{msg}"));
     }
     Ok(())
+}
+
+/// Lets Ghostscript (which runs with -dSAFER) read a profile file.
+fn permit_read(cmd: &mut Command, file: &Path) {
+    cmd.arg(format!("--permit-file-read={}", file.to_string_lossy().replace('\\', "/")));
+}
+
+/// One pdfwrite pass for a profile conversion: images are decoded and
+/// re-encoded losslessly (a JPEG passed through untouched would keep its
+/// old colours), nothing is downsampled, overprint is kept.
+fn convert_pass(input: &Path, output: &Path, profiles: &[&Path], extra: &[String]) -> Result<(), String> {
+    let mut cmd = gs_command()?;
+    for p in profiles {
+        permit_read(&mut cmd, p);
+    }
+    cmd.args([
+        "-q",
+        "-dBATCH",
+        "-dNOPAUSE",
+        "-dSAFER",
+        "-sDEVICE=pdfwrite",
+        "-dPreserveOverprintSettings=true",
+        "-dPassThroughJPEGImages=false",
+        "-dPassThroughJPXImages=false",
+        "-dDownsampleColorImages=false",
+        "-dDownsampleGrayImages=false",
+        "-dDownsampleMonoImages=false",
+        "-dAutoFilterColorImages=false",
+        "-dAutoFilterGrayImages=false",
+        "-dColorImageFilter=/FlateEncode",
+        "-dGrayImageFilter=/FlateEncode",
+    ])
+    .args(extra)
+    .arg(output_file_arg(output))
+    .arg(input);
+    let status = cmd.output().map_err(|e| format!("Failed to run Ghostscript: {e}"))?;
+    if !status.status.success() || !output.exists() {
+        let stderr = String::from_utf8_lossy(&status.stderr);
+        return Err(format!("Ghostscript could not convert the colours:\n{stderr}"));
+    }
+    Ok(())
+}
+
+/// Converts the PDF's colours from the press the CMYK was made for
+/// (`from`, its output intent) to another press (`to`): CMYK values are
+/// recalculated so the colours look the same on the new press, and RGB
+/// becomes CMYK for it. 100% black (text, rules) stays pure K. Spot
+/// colours are kept as spots.
+pub fn convert_cmyk_profile(input: &Path, output: &Path, from: &Path, to: &Path) -> Result<(), String> {
+    let tmp = tempfile::TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
+    let tagged = tmp.path().join("tagged.pdf");
+    let slash = |p: &Path| p.to_string_lossy().replace('\\', "/");
+    // 1. Mark every CMYK colour as being in the old press's profile.
+    convert_pass(
+        input,
+        &tagged,
+        &[from],
+        &[
+            "-sColorConversionStrategy=UseDeviceIndependentColor".into(),
+            "-dOverrideICC=true".into(),
+            format!("-sDefaultCMYKProfile={}", slash(from)),
+        ],
+    )?;
+    // 2. Convert to plain CMYK for the new press, keeping black as black.
+    convert_pass(
+        &tagged,
+        output,
+        &[to],
+        &[
+            "-sColorConversionStrategy=CMYK".into(),
+            "-dProcessColorModel=/DeviceCMYK".into(),
+            "-dKPreserve=1".into(),
+            "-dRenderIntent=1".into(),
+            "-dBlackPtComp=1".into(),
+            format!("-sOutputICCProfile={}", slash(to)),
+        ],
+    )
 }
 
 /// Rewrites `input` to `output` unchanged (colours and fonts as they are):

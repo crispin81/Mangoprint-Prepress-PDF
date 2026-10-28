@@ -1581,15 +1581,47 @@ intentSelect.addEventListener("change", () => {
 intentApplyBtn.addEventListener("click", async () => {
   if (!state.path) return;
   const v = intentSelect.value;
+  const result = document.getElementById("intentResult");
+  const label = (value) => [...intentSelect.options].find((o) => o.value === value)?.textContent.replace(/ \((current|your profile)\)$/, "") || value;
+  // Changing from one press to another converts the colours, so ask first.
+  const convert = intentCurrent !== "none" && v !== "none";
+  if (convert) {
+    const ok = await ask(
+      `Changing the output intent from ${label(intentCurrent)} to ${label(v)} converts the colours.\n\n` +
+        "CMYK values are recalculated so the colours look the same on the new press, and RGB becomes CMYK for it. 100% black text stays pure black. Spot colours are kept.\n\n" +
+        "Ctrl+Z undoes it.",
+      { title: "Convert colours?", kind: "warning", okLabel: "Convert", cancelLabel: "Cancel" },
+    );
+    if (!ok) {
+      intentSelect.value = intentCurrent;
+      intentApplyBtn.disabled = true;
+      return;
+    }
+  }
   intentApplyBtn.disabled = true;
+  if (convert) setProgress(40, "Converting colours…");
   try {
-    await invoke("set_output_intent", {
+    const converted = await invoke("set_output_intent", {
       path: state.path,
       profileId: v !== "none" && !v.startsWith("file:") ? v : null,
       profileFile: v.startsWith("file:") ? v.slice(5) : null,
+      convert,
     });
     setEdited(true);
-    await loadProfiles();
+    result.className = "rc-result ok";
+    result.textContent =
+      v === "none"
+        ? "✓ Output intent removed (colours unchanged)."
+        : converted
+          ? `✓ Colours converted to ${label(v)}, now the output intent.`
+          : `✓ Output intent set to ${label(v)}. The file had none before, so the colours are unchanged.`;
+    if (converted) {
+      // The page content changed: reload it like any other edit.
+      const count = await invoke("open_pdf", { path: state.path });
+      await afterPagesChanged(count, state.page);
+    } else {
+      await loadProfiles();
+    }
     // The preview follows the new output intent, so ticking Preview with
     // shows the page on that press.
     const intent = lastProfiles.find((p) => p.output_intent);
@@ -1600,6 +1632,8 @@ intentApplyBtn.addEventListener("click", async () => {
   } catch (err) {
     alert(`Could not set the output intent:\n${err}`);
     intentApplyBtn.disabled = false;
+  } finally {
+    if (convert) hideProgress();
   }
 });
 
