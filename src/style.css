@@ -3109,3 +3109,21 @@ input::placeholder {
   align-items: center;
   gap: 5px;
 }
+
+/* Beta notice in the Impose window, inside a turning CMYK border. */
+.beta-warning {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--panel), var(--panel)) padding-box,
+    conic-gradient(from var(--rc-angle), #00aeef, #ec008c, #fff200, #ffcc33, #00aeef) border-box;
+  animation: rc-spin 3s linear infinite;
+  color: var(--accent-text);
+  font-size: 13px;
+}
+
+.beta-warning strong {
+  color: var(--accent);
+}
