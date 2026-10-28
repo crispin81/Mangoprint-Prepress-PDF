@@ -3060,3 +3060,23 @@ input::placeholder {
   flex: 1;
   min-width: 0;
 }
+
+/* The Impose button: always labelled, with a CMYK border that turns on
+   hover. */
+#imposeBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--field), var(--field)) padding-box,
+    conic-gradient(from var(--rc-angle), #00aeef, #ec008c, #fff200, #ffcc33, #00aeef) border-box;
+}
+
+#imposeBtn:hover:not(:disabled) {
+  animation: rc-spin 1.6s linear infinite;
+}
+
+#imposeBtn:disabled {
+  opacity: 0.5;
+}
