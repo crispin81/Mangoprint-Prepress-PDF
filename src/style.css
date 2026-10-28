@@ -2309,6 +2309,18 @@ a:hover > .about__logo {
   display: none;
 }
 
+/* A panel heading with a tick box in front of it (Colour Profiles). */
+.panel-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.panel-toggle h2 {
+  margin: 0;
+}
+
 .proof-row {
   display: flex;
   flex-wrap: wrap;

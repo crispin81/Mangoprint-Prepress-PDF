@@ -1497,10 +1497,11 @@ els.overprintToggle.addEventListener("change", () => {
   renderCurrent();
 });
 
-// --- proof colours ---
-// Shows the page through a CMYK press profile: the PDF's output intent,
-// another CMYK profile embedded in it, or an .icc file the user chooses
-// (remembered). Only profiles from the user's own files are used.
+// --- colour profile preview (soft proof) ---
+// The tick by the Colour Profiles heading shows the page through a CMYK
+// press profile: the PDF's output intent, another CMYK profile embedded
+// in it, or an .icc file the user adds (remembered). Only profiles from
+// the user's own files are used.
 
 const proofToggle = document.getElementById("proofToggle");
 const proofSelect = document.getElementById("proofProfile");
@@ -1512,7 +1513,7 @@ try {
 } catch {}
 
 function proofOn() {
-  return proofToggle.checked && !!proofSelect.value && proofSelect.value !== "choose";
+  return proofToggle.checked && !!proofSelect.value;
 }
 
 // { id } (embedded) or { file } (chosen file), plus the paper setting.
@@ -1521,15 +1522,16 @@ function proofChoice() {
   return v.startsWith("file:") ? { file: v.slice(5), paper: proofPaper.checked } : { id: v, paper: proofPaper.checked };
 }
 
-// Fills the profile menu from the open PDF's CMYK profiles.
+// Fills the "Preview with" menu: the open PDF's CMYK profiles (output
+// intent first), then the user's own profile if they added one.
 function fillProofProfiles(profiles) {
   const before = proofSelect.value;
   const opts = [];
   for (const p of profiles.filter((x) => x.colour_space === "CMYK")) {
     opts.push([p.id, p.output_intent ? `Output intent: ${p.condition || p.name}` : p.name]);
   }
-  if (proofFile) opts.push([`file:${proofFile.path}`, proofFile.name]);
-  opts.push(["choose", "Choose a profile file…"]);
+  if (proofFile) opts.push([`file:${proofFile.path}`, `${proofFile.name} (your profile)`]);
+  if (!opts.length) opts.push(["", "No CMYK profile: add your own"]);
   proofSelect.replaceChildren(
     ...opts.map(([value, label]) => {
       const o = document.createElement("option");
@@ -1542,6 +1544,7 @@ function fillProofProfiles(profiles) {
   if (proofToggle.checked) renderCurrent();
 }
 
+// Asks for an .icc file; true when a CMYK profile was chosen.
 async function chooseProofFile() {
   const selected = await open({ multiple: false, filters: [{ name: "ICC profile", extensions: ["icc", "icm", "ICC", "ICM"] }] });
   if (!selected) return false;
@@ -1554,7 +1557,7 @@ async function chooseProofFile() {
     return false;
   }
   if (info.colour_space !== "CMYK") {
-    alert(`${info.name} is a ${info.colour_space} profile. Proofing needs a CMYK press profile.`);
+    alert(`${info.name} is a ${info.colour_space} profile. Previewing print colours needs a CMYK press profile.`);
     return false;
   }
   proofFile = { path, name: info.name };
@@ -1564,22 +1567,23 @@ async function chooseProofFile() {
   return true;
 }
 
-proofSelect.addEventListener("change", async () => {
-  if (proofSelect.value === "choose") {
-    const ok = await chooseProofFile();
-    const keep = ok ? `file:${proofFile.path}` : proofSelect.options[0].value;
-    fillProofProfiles(lastProfiles);
-    proofSelect.value = keep;
-    if (ok) proofToggle.checked = true;
-  }
+document.getElementById("proofAddBtn").addEventListener("click", async () => {
+  if (!(await chooseProofFile())) return;
+  proofToggle.checked = true;
+  fillProofProfiles(lastProfiles);
+  proofSelect.value = `file:${proofFile.path}`;
   renderCurrent();
 });
+proofSelect.addEventListener("change", () => {
+  if (proofToggle.checked) renderCurrent();
+});
 proofToggle.addEventListener("change", async () => {
-  if (proofToggle.checked && proofSelect.value === "choose" && !(await chooseProofFile())) {
-    proofToggle.checked = false;
-    return;
-  }
-  if (proofToggle.checked && proofSelect.value === "choose") {
+  // Nothing to preview with yet: ask for a profile.
+  if (proofToggle.checked && !proofSelect.value) {
+    if (!(await chooseProofFile())) {
+      proofToggle.checked = false;
+      return;
+    }
     fillProofProfiles(lastProfiles);
     proofSelect.value = `file:${proofFile.path}`;
   }
