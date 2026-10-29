@@ -241,10 +241,9 @@ fn page_form(doc: &mut Document, p: &PageInfo) -> Result<ObjectId, String> {
     if let Ok(r) = page.get(b"Resources") {
         d.set("Resources", r.clone());
     }
-    // Keep the page's transparency group (blend colour space etc.).
-    if let Ok(g) = page.get(b"Group") {
-        d.set("Group", g.clone());
-    }
+    // No transparency group on the form: viewers draw every grouped form
+    // into its own offscreen image, which made sheets of 20+ copies slow.
+    // The page's group (blending colour space) goes on the sheet instead.
     let mut s = Stream::new(d, content);
     let _ = s.compress();
     Ok(doc.add_object(s))
@@ -266,6 +265,8 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
     let pages = ids.iter().map(|id| page_info(&doc, *id)).collect::<Result<Vec<_>, _>>()?;
     let plan = plan_for(spec, &pages)?;
     let forms = pages.iter().map(|p| page_form(&mut doc, p)).collect::<Result<Vec<_>, _>>()?;
+    // The first page's transparency group, for every sheet.
+    let sheet_group = doc.get_dictionary(pages[0].id).ok().and_then(|d| d.get(b"Group").ok()).cloned();
 
     let (sw, sh) = (plan.sheet_w * MM, plan.sheet_h * MM);
     let b = spec.bleed * MM;
@@ -407,6 +408,9 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
             Object::Array(vec![Object::Real(gx as f32), Object::Real(gy as f32), Object::Real((gx + grid_w) as f32), Object::Real((gy + grid_h) as f32)]),
         );
         page.set("Resources", Object::Dictionary(res));
+        if let Some(g) = &sheet_group {
+            page.set("Group", g.clone());
+        }
         page.set("Contents", Object::Reference(content_id));
         new_pages.push(doc.add_object(page));
     }
