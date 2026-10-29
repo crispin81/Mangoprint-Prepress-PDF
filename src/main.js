@@ -676,11 +676,17 @@ function buildThumbs() {
   const list = document.getElementById("thumbList");
   const scroll = box.scrollTop;
   if (view.thumbObserver) view.thumbObserver.disconnect();
-  list.replaceChildren();
   box.classList.toggle("hidden", !view.doc);
   document.getElementById("thumbsResizer").classList.toggle("hidden", !view.doc);
-  if (!view.doc) return;
+  if (!view.doc) {
+    list.replaceChildren();
+    return;
+  }
   const doc = view.doc;
+  // Built off-screen and swapped in at once, so the panel never empties
+  // and refills item by item (it shook after a big mail merge).
+  const frag = document.createDocumentFragment();
+  const items = [];
   const observer = new IntersectionObserver(
     (entries) => {
       for (const e of entries) {
@@ -709,9 +715,11 @@ function buildThumbs() {
       if (rot) rotatePageBy(n, Number(rot.dataset.dir) * 90);
       else pickPage(n, ev);
     });
-    list.appendChild(item);
-    observer.observe(item);
+    frag.appendChild(item);
+    items.push(item);
   }
+  list.replaceChildren(frag);
+  for (const item of items) observer.observe(item);
   box.scrollTop = scroll;
   markCurrentThumb();
 }

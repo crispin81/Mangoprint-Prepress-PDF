@@ -3127,3 +3127,15 @@ input::placeholder {
 .beta-warning strong {
   color: var(--accent);
 }
+
+/* Long page lists (e.g. 500 merged pages): the scrollbar's room is kept so
+   the thumbnails don't shift sideways, and off-screen thumbnails skip
+   layout until scrolled to. */
+.thumbs {
+  scrollbar-gutter: stable;
+}
+
+.thumb {
+  content-visibility: auto;
+  contain-intrinsic-size: auto calc(var(--thumb-size) + 40px);
+}
