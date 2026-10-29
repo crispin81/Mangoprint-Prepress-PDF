@@ -427,6 +427,16 @@
             <div class="fix-row">
               <button id="outlineBtn" disabled>Convert text to outlines</button>
             </div>
+            <div class="fix-row" title="Shrinks the file: images above the chosen resolution are scaled down and saved as maximum-quality JPEG. Text, vectors and colours are untouched. Always the whole document.">
+              <button id="compressBtn" disabled>Compress images</button>
+              <select id="compressPpi" title="Images above this resolution are scaled down to it">
+                <option value="450">to 450 ppi</option>
+                <option value="300" selected>to 300 ppi (print)</option>
+                <option value="200">to 200 ppi</option>
+                <option value="150">to 150 ppi (screen)</option>
+              </select>
+            </div>
+            <p id="compressResult" class="rc-result"></p>
             <p id="textStatus" class="text-status"></p>
             <p class="hint">
               These rewrite the working copy (use Save PDF as to save it). Images

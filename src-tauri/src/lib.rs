@@ -629,6 +629,40 @@ fn check_rgb(path: String, doc: tauri::State<DocLock>) -> Result<Vec<colorcheck:
     colorcheck::check_rgb(Path::new(&path))
 }
 
+#[derive(serde::Serialize)]
+struct Compressed {
+    before: u64,
+    after: u64,
+}
+
+/// Compress images: downsamples images above `ppi` and re-encodes them as
+/// maximum-quality JPEG (see gs::compress_images). Keeps the result only if
+/// it's smaller. Undoable.
+#[tauri::command(async)]
+fn compress_pdf(
+    path: String,
+    ppi: u32,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
+    doc: tauri::State<DocLock>,
+) -> Result<Compressed, String> {
+    let _w = write_lock(&doc)?;
+    let before = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let tmp = TempDir::new().map_err(|e| format!("Could not create a temp directory: {e}"))?;
+    let out = tmp.path().join("compressed.pdf");
+    gs::compress_images(Path::new(&path), &out, ppi)?;
+    let after = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(u64::MAX);
+    if after >= before {
+        return Ok(Compressed { before, after: before });
+    }
+    hist.snapshot(&path)?;
+    std::fs::copy(&out, &path).map_err(|e| format!("Could not update the working copy: {e}"))?;
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
+    Ok(Compressed { before, after })
+}
+
 /// Applies a whole-document fix ("outlines", "rgb", "spots") to the working
 /// copy in place, via a temp file so a failed conversion leaves it intact.
 #[tauri::command(async)]
@@ -1122,6 +1156,7 @@ pub fn run() {
             spot_swatches,
             check_overprint,
             convert_pdf,
+            compress_pdf,
             sample_inks,
             get_page_boxes,
             set_page_box,

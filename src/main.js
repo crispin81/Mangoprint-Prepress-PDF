@@ -1777,7 +1777,7 @@ els.selectNoneSep.addEventListener("click", () => {
 
 // --- colour & fonts fixes ---
 
-const fixBtns = ["checkRgbBtn", "convertRgbBtn", "convertSpotsBtn", "outlineBtn"].map((id) => document.getElementById(id));
+const fixBtns = ["checkRgbBtn", "convertRgbBtn", "convertSpotsBtn", "outlineBtn", "compressBtn"].map((id) => document.getElementById(id));
 const rgbResult = document.getElementById("rgbResult");
 
 function enableFixes() {
@@ -5135,3 +5135,33 @@ impEl("impPresetDelete").addEventListener("click", async () => {
   fillImposePresets();
 });
 fillImposePresets();
+
+// Compress images: scales down images above the chosen resolution and saves
+// them as maximum-quality JPEG (whole document; undo with Ctrl+Z). The
+// result is kept only when the file gets smaller.
+document.getElementById("compressBtn").addEventListener("click", async () => {
+  if (!state.path) return;
+  const out = document.getElementById("compressResult");
+  const ppi = Number(document.getElementById("compressPpi").value) || 300;
+  const mb = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  out.className = "rc-result";
+  out.textContent = "";
+  setProgress(30, "Compressing images…");
+  try {
+    const r = await invoke("compress_pdf", { path: state.path, ppi });
+    if (r.after < r.before) {
+      const count = await invoke("open_pdf", { path: state.path });
+      await afterPagesChanged(count, state.page);
+      out.className = "rc-result ok";
+      out.textContent = `✓ ${mb(r.before)} → ${mb(r.after)} (${Math.round((1 - r.after / r.before) * 100)}% smaller)`;
+    } else {
+      out.className = "rc-result";
+      out.textContent = `Already compact: no images above ${ppi} ppi to shrink, so nothing was changed.`;
+    }
+  } catch (err) {
+    out.className = "rc-result err";
+    out.textContent = String(err);
+  } finally {
+    hideProgress();
+  }
+});

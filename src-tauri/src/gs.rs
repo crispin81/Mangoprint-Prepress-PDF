@@ -602,6 +602,55 @@ pub fn convert_cmyk_profile(input: &Path, output: &Path, from: &Path, to: &Path)
     )
 }
 
+/// Shrinks the PDF's images: any colour or grey image above `ppi` (at its
+/// size on the page) is scaled down to `ppi` with bicubic resampling and
+/// saved as maximum-quality JPEG. Images already at or below that are left
+/// as they are (JPEGs aren't re-compressed). Text, vectors, colour values,
+/// spot colours and overprint are untouched; 1-bit images are kept sharp.
+pub fn compress_images(input: &Path, output: &Path, ppi: u32) -> Result<(), String> {
+    let r = ppi.clamp(72, 2400);
+    let status = gs_command()?
+        .args([
+            "-q",
+            "-dBATCH",
+            "-dNOPAUSE",
+            "-dSAFER",
+            "-sDEVICE=pdfwrite",
+            PRESERVE_CMYK,
+            "-sColorConversionStrategy=LeaveColorUnchanged",
+            "-dPreserveOverprintSettings=true",
+            "-dPassThroughJPEGImages=true",
+            "-dPassThroughJPXImages=true",
+            "-dDownsampleColorImages=true",
+            "-dDownsampleGrayImages=true",
+            "-dDownsampleMonoImages=false",
+            "-dColorImageDownsampleType=/Bicubic",
+            "-dGrayImageDownsampleType=/Bicubic",
+            // Only images more than 10% over the target are touched.
+            "-dColorImageDownsampleThreshold=1.1",
+            "-dGrayImageDownsampleThreshold=1.1",
+            &format!("-dColorImageResolution={r}"),
+            &format!("-dGrayImageResolution={r}"),
+            "-dAutoFilterColorImages=false",
+            "-dAutoFilterGrayImages=false",
+            "-dColorImageFilter=/DCTEncode",
+            "-dGrayImageFilter=/DCTEncode",
+            &output_file_arg(output),
+            // Maximum JPEG quality, no chroma subsampling.
+            "-c",
+            "<< /ColorImageDict << /QFactor 0.15 /Blend 1 /HSamples [1 1 1 1] /VSamples [1 1 1 1] >> /GrayImageDict << /QFactor 0.15 /Blend 1 /HSamples [1 1 1 1] /VSamples [1 1 1 1] >> >> setdistillerparams",
+            "-f",
+        ])
+        .arg(input)
+        .output()
+        .map_err(|e| format!("Failed to run Ghostscript: {e}"))?;
+    if !status.status.success() || !output.exists() {
+        let stderr = String::from_utf8_lossy(&status.stderr);
+        return Err(format!("Ghostscript could not compress the PDF:\n{stderr}"));
+    }
+    Ok(())
+}
+
 /// Rewrites `input` to `output` unchanged (colours and fonts as they are):
 /// a clean copy of a PDF whose structure couldn't be read directly.
 pub fn rewrite_pdf(input: &Path, output: &Path) -> Result<(), String> {
@@ -671,3 +720,18 @@ mod tests {
         assert_eq!(fonts.len(), 3);
         assert!(fonts[0] > 0 && fonts[1] == 0 && fonts[2] > 0);
     }}
+
+#[cfg(test)]
+mod compress_tests {
+    /// `MP_COMPRESS_PDF=in.pdf cargo test compress_file -- --nocapture`
+    #[test]
+    fn compress_file() {
+        let Ok(p) = std::env::var("MP_COMPRESS_PDF") else { return };
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("c.pdf");
+        super::compress_images(std::path::Path::new(&p), &out, 300).unwrap();
+        let (a, b) = (std::fs::metadata(&p).unwrap().len(), std::fs::metadata(&out).unwrap().len());
+        println!("{a} -> {b} bytes");
+        assert!(b < a);
+    }
+}
