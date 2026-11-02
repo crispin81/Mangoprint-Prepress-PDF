@@ -196,7 +196,12 @@ fn export_pdf(
 ) -> Result<(), String> {
     let _r = read_lock(&doc)?;
     if Path::new(&from) != Path::new(&dest) {
-        std::fs::copy(&from, &dest).map_err(|e| format!("Could not save the PDF to {dest}: {e}"))?;
+        // Not fs::copy: it also copies the file's permissions, which network
+        // drives mounted through GVFS (SMB) refuse, so the save failed there.
+        let err = |e: std::io::Error| format!("Could not save the PDF to {dest}: {e}");
+        let mut src = std::fs::File::open(&from).map_err(err)?;
+        let mut out = std::fs::File::create(&dest).map_err(err)?;
+        std::io::copy(&mut src, &mut out).map_err(err)?;
     }
     pages::write_merge_setup(Path::new(&dest), merge_setup.as_deref())
 }
