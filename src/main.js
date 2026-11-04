@@ -1021,6 +1021,7 @@ function stepZoom(dir, anchor) {
       ? ZOOM_STEPS.find((z) => z > cur * 1.01) || ZOOM_STEPS[ZOOM_STEPS.length - 1]
       : [...ZOOM_STEPS].reverse().find((z) => z < cur * 0.99) || ZOOM_STEPS[0];
   setZoom(next, anchor);
+  queueHandAfterZoom();
 }
 
 async function goToPageNumber(n) {
@@ -4655,6 +4656,7 @@ function zoomToBox(x0, y0, x1, y1) {
   els.viewport.scrollLeft += after.left + ((fx0 + fx1) / 2) * after.width - (port.left + port.width / 2);
   els.viewport.scrollTop += after.top + ((fy0 + fy1) / 2) * after.height - (port.top + port.height / 2);
   scheduleRender(isVectorMode() ? 60 : 250);
+  queueHandAfterZoom();
 }
 
 els.viewport.addEventListener("mousedown", (ev) => {
@@ -4681,18 +4683,19 @@ window.addEventListener("mouseup", (ev) => {
   const moved = Math.abs(ev.clientX - zoomDrag.x0) > 6 || Math.abs(ev.clientY - zoomDrag.y0) > 6;
   if (moved && !zoomingOut(ev)) zoomToBox(zoomDrag.x0, zoomDrag.y0, ev.clientX, ev.clientY);
   else stepZoom(zoomingOut(ev) ? -1 : 1, [ev.clientX, ev.clientY]);
-  queueHandAfterZoom();
 });
 
-// 2 s after the last zoom tool click, switch to the hand so the page can
-// be dragged around, if it's now bigger than the window. Z (or the right-
-// click menu) brings the zoom tool back.
+// 2 s after the last zoom (zoom tool, pinch, Ctrl+scroll, Ctrl +/−, the
+// toolbar buttons), switch to the hand so the page can be dragged around,
+// if it's now bigger than the window. Not while the select, recolour or
+// merge tool is on. Z (or the right-click menu) brings the zoom tool back.
 
 function queueHandAfterZoom() {
   clearTimeout(handAfterZoomTimer);
   handAfterZoomTimer = setTimeout(() => {
     handAfterZoomTimer = null;
-    if (!state.zoomTool || zoomDrag.active) return;
+    if (zoomDrag.active || pan.active || state.handTool) return;
+    if (state.selectTool || state.recolourTool || state.mergeTool) return;
     const vp = els.viewport;
     const pannable = vp.scrollWidth > vp.clientWidth + 1 || vp.scrollHeight > vp.clientHeight + 1;
     if (pannable) setHandTool(true);
@@ -4829,6 +4832,7 @@ function setHandTool(on) {
   if (on) toolsOff("hand");
   state.handTool = on;
   els.viewport.classList.toggle("hand-tool", on || pan.space);
+  updateToolCursor();
   if (on) {
     setTextMode(false);
     clearInks();
