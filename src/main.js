@@ -4733,6 +4733,72 @@ window.addEventListener("blur", hideViewMenu);
 window.addEventListener("resize", hideViewMenu);
 els.viewport.addEventListener("scroll", hideViewMenu);
 
+// --- tool cursors drawn on the page ---
+// The zoom and recolour cursors are an image that follows the pointer
+// rather than a CSS image cursor, which WebKitGTK draws two to three times
+// too big on scaled screens. Sizes are in CSS px, like the system pointer.
+
+const toolCursorEl = document.getElementById("toolCursor");
+const TOOL_CURSORS = {
+  "zoom-in": { src: "assets/cursor-zoom-in@2x.svg", size: 24, hot: [9.5, 9.5] },
+  "zoom-out": { src: "assets/cursor-zoom-out@2x.svg", size: 24, hot: [9.5, 9.5] },
+  direct: { src: "assets/cursor-direct-select@2x.svg", size: 22, hot: [2, 2] },
+};
+const lastPointer = { x: 0, y: 0, target: null, alt: false };
+let toolCursorKind = null;
+
+function toolCursorFor(target, alt) {
+  if (!target || !target.closest || !els.viewport.contains(target)) return null;
+  if (els.viewport.classList.contains("hand-tool") || target.closest("#viewMenu, .marquee")) return null;
+  if (state.zoomTool) return !!state.zoomOutMode !== !!alt ? "zoom-out" : "zoom-in";
+  if (state.recolourTool && target.closest("#imgWrap")) return "direct";
+  return null;
+}
+
+function updateToolCursor() {
+  const kind = toolCursorFor(lastPointer.target, lastPointer.alt);
+  if (kind !== toolCursorKind) {
+    toolCursorKind = kind;
+    document.body.classList.toggle("tool-cursor-on", !!kind);
+    toolCursorEl.classList.toggle("hidden", !kind);
+    if (kind) {
+      const c = TOOL_CURSORS[kind];
+      toolCursorEl.style.width = toolCursorEl.style.height = `${c.size}px`;
+      toolCursorEl.style.backgroundImage = `url("${c.src}")`;
+    }
+  }
+  if (kind) {
+    const [hx, hy] = TOOL_CURSORS[kind].hot;
+    toolCursorEl.style.transform = `translate(${lastPointer.x - hx}px, ${lastPointer.y - hy}px)`;
+  }
+}
+
+window.addEventListener(
+  "mousemove",
+  (ev) => {
+    Object.assign(lastPointer, { x: ev.clientX, y: ev.clientY, target: ev.target, alt: ev.altKey });
+    updateToolCursor();
+  },
+  { passive: true },
+);
+for (const type of ["keydown", "keyup"]) {
+  window.addEventListener(type, (ev) => {
+    lastPointer.alt = ev.altKey;
+    requestAnimationFrame(updateToolCursor); // after any tool change this key makes
+  });
+}
+for (const type of ["mousedown", "mouseup", "click", "contextmenu"]) {
+  window.addEventListener(type, () => requestAnimationFrame(updateToolCursor));
+}
+document.documentElement.addEventListener("mouseleave", () => {
+  lastPointer.target = null;
+  updateToolCursor();
+});
+window.addEventListener("blur", () => {
+  lastPointer.target = null;
+  updateToolCursor();
+});
+
 // --- hand tool: drag to pan around the page ---
 // On from the right-click menu or H; holding Space gives it for a moment
 // whatever tool is on.

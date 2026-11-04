@@ -981,14 +981,15 @@ a:hover > .about__logo {
 
 #viewport.zoom-tool #imgWrap,
 #viewport.zoom-tool {
-  /* One vector cursor at its own size. A 1x/2x image-set made the 2x file
-     show at double size on Linux after the window changed size. */
-  cursor: url("assets/cursor-zoom-in@1x.svg") 11 11, zoom-in;
+  /* The magnifier is drawn by main.js (#toolCursor) at a fixed size: an
+     image cursor came out two to three times too big on scaled Linux
+     screens. The system zoom cursor is the fallback. */
+  cursor: zoom-in;
 }
 
 #viewport.zoom-tool.zoom-out,
 #viewport.zoom-tool.zoom-out #imgWrap {
-  cursor: url("assets/cursor-zoom-out@1x.svg") 11 11, zoom-out;
+  cursor: zoom-out;
 }
 
 .marquee {
@@ -1419,7 +1420,7 @@ a:hover > .about__logo {
 
 /* White arrow like Illustrator's Direct Selection tool; tip at 2,2. */
 #viewport.recolour-tool #imgWrap {
-  cursor: url("assets/cursor-direct-select@1x.svg") 2 2, default;
+  cursor: default; /* arrow drawn by main.js (#toolCursor) */
 }
 
 .rc-picked {
@@ -3195,8 +3196,8 @@ input::placeholder {
 .view-menu.hidden { display: none; }
 .view-menu button {
   display: flex;
-  justify-content: space-between;
-  gap: 16px;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
   border: none;
@@ -3206,8 +3207,11 @@ input::placeholder {
   border-radius: 4px;
 }
 .view-menu button:hover { background: var(--border); }
-.view-menu button.active span::before { content: "✓ "; }
-.view-menu kbd { font: inherit; opacity: 0.55; }
+.view-menu button span { flex: 1; }
+.view-menu button svg { flex-shrink: 0; width: 16px; height: 16px; }
+.view-menu button .no-icon { width: 16px; flex: 0 0 16px; }
+.view-menu button.active { color: var(--accent); }
+.view-menu kbd { font: inherit; opacity: 0.55; margin-left: 12px; }
 .view-menu hr { border: none; border-top: 1px solid var(--border); margin: 4px 2px; }
 
 /* Hand tool (or Space held): drag to pan. Above the other tools' cursors. */
@@ -3220,4 +3224,22 @@ input::placeholder {
 #viewport.hand-tool.panning #imgWrap,
 #viewport.hand-tool.panning #imgWrap * {
   cursor: grabbing !important;
+}
+
+/* Tool cursors drawn as an image that follows the pointer, so they are
+   the same size on every screen (image cursors aren't on scaled Linux).
+   While one shows, the real pointer is hidden over the page. */
+.tool-cursor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 100;
+  pointer-events: none;
+  background: no-repeat center / contain;
+  will-change: transform;
+}
+.tool-cursor.hidden { display: none; }
+body.tool-cursor-on #viewport,
+body.tool-cursor-on #viewport * {
+  cursor: none !important;
 }

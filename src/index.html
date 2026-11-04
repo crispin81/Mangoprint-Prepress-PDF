@@ -470,13 +470,14 @@
     </div>
 
     <div id="marquee" class="marquee hidden" aria-hidden="true"></div>
+    <div id="toolCursor" class="tool-cursor hidden" aria-hidden="true"></div>
     <div id="viewMenu" class="view-menu hidden" role="menu">
-      <button data-act="in" role="menuitem"><span>Zoom in tool (+)</span><kbd>Z</kbd></button>
-      <button data-act="out" role="menuitem"><span>Zoom out tool (−)</span><kbd>Alt</kbd></button>
-      <button data-act="hand" role="menuitem"><span>Hand tool (pan)</span><kbd>H / Space</kbd></button>
+      <button data-act="in" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /><path d="M11 8v6" /><path d="M8 11h6" /></svg><span>Zoom in tool</span><kbd>Z</kbd></button>
+      <button data-act="out" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /><path d="M8 11h6" /></svg><span>Zoom out tool</span><kbd>Alt</kbd></button>
+      <button data-act="hand" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0v5" /><path d="M14 10V4a2 2 0 0 0-4 0v6" /><path d="M10 10.5V6a2 2 0 0 0-4 0v8" /><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" /></svg><span>Hand tool (pan)</span><kbd>H / Space</kbd></button>
       <hr />
-      <button data-act="fit" role="menuitem"><span>Fit page</span><kbd>Ctrl 0</kbd></button>
-      <button data-act="actual" role="menuitem"><span>Actual size</span><kbd>Ctrl 1</kbd></button>
+      <button data-act="fit" role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" /><path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" /></svg><span>Fit page</span><kbd>Ctrl 0</kbd></button>
+      <button data-act="actual" role="menuitem"><i class="no-icon"></i><span>Actual size</span><kbd>Ctrl 1</kbd></button>
     </div>
 
     <div id="overprintDialog" class="modal-backdrop hidden" role="alertdialog" aria-modal="true" aria-labelledby="overprintTitle">
