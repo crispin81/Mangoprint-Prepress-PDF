@@ -1012,6 +1012,7 @@ function setZoom(zoom, anchor) {
   els.viewport.scrollLeft += after.left + fx * after.width - ax;
   els.viewport.scrollTop += after.top + fy * after.height - ay;
   scheduleRender(isVectorMode() ? 60 : 250);
+  queueHandAfterZoom(); // every way of zooming ends up here (or zoomToBox)
 }
 
 function stepZoom(dir, anchor) {
@@ -1021,7 +1022,6 @@ function stepZoom(dir, anchor) {
       ? ZOOM_STEPS.find((z) => z > cur * 1.01) || ZOOM_STEPS[ZOOM_STEPS.length - 1]
       : [...ZOOM_STEPS].reverse().find((z) => z < cur * 0.99) || ZOOM_STEPS[0];
   setZoom(next, anchor);
-  queueHandAfterZoom();
 }
 
 async function goToPageNumber(n) {
