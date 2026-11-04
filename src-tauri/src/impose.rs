@@ -9,7 +9,7 @@
 //! - "nup": pages in order across the sheets.
 //! - "cutstack": pages run down the stack, so each pile is in order once
 //!   the sheets are cut (numbered or mail-merged items).
-//! - "booklet": saddle-stitched booklet: pages in reader spreads (last and
+//! - "booklet": saddle-stitched booklet: pages in printer spreads (last and
 //!   first on the outside sheet…), padded with blank pages to a multiple
 //!   of 4, each spread repeated as many times as fits.
 //!
@@ -283,7 +283,7 @@ fn best_grid(spec: &ImposeSpec, item: (f64, f64)) -> (u32, u32, bool, f64, f64) 
 fn plan_for(spec: &ImposeSpec, pages: &[PageInfo]) -> Result<ImposePlan, String> {
     let first = pages.first().ok_or("The PDF has no pages.")?;
     let (pw, ph) = display_size(first);
-    // A booklet places reader spreads: two pages side by side.
+    // A booklet places printer spreads: two pages side by side.
     let item = if spec.booklet() { (2.0 * pw, ph) } else { (pw, ph) };
     let (cols, rows, rotated, w, h) = best_grid(spec, item);
     let per_sheet = cols * rows;
