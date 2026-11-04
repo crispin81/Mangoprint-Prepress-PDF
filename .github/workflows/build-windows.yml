@@ -22,6 +22,7 @@ jobs:
               src-tauri/target/release/mangoprint-prepress-pdf.exe
 
     runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -67,11 +68,16 @@ jobs:
         run: |
           $ver = 'gs10080'
           Invoke-WebRequest "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/$ver/${ver}w64.exe" -OutFile gs.exe
-          Start-Process .\gs.exe -ArgumentList '/S' -Wait
-          $gs = (Get-ChildItem 'C:\Program Files\gs\*\bin\gswin64c.exe' | Select-Object -First 1).Directory.Parent.FullName
+          # Unpack the installer with 7-Zip instead of running it: the silent
+          # install can hang on GitHub's machines (4 Nov 2026 run sat here for an hour).
+          7z x gs.exe -ogsx -y | Out-Null
+          $exe = Get-ChildItem gsx -Recurse -Filter gswin64c.exe | Select-Object -First 1
+          $dll = Get-ChildItem gsx -Recurse -Filter gsdll64.dll | Select-Object -First 1
+          $lic = Get-ChildItem gsx -Recurse -Filter COPYING | Select-Object -First 1
+          if (-not $exe -or -not $dll -or -not $lic) { throw "Ghostscript files not found in the installer" }
           New-Item -ItemType Directory -Force src-tauri\ghostscript\bin | Out-Null
-          Copy-Item "$gs\bin\gswin64c.exe","$gs\bin\gsdll64.dll" src-tauri\ghostscript\bin
-          Copy-Item "$gs\doc\COPYING" src-tauri\ghostscript\COPYING.txt
+          Copy-Item $exe.FullName,$dll.FullName src-tauri\ghostscript\bin
+          Copy-Item $lic.FullName src-tauri\ghostscript\COPYING.txt
           Copy-Item .github\ghostscript-README.txt src-tauri\ghostscript\README.txt
 
       - name: unit tests
