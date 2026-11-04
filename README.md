@@ -16,6 +16,7 @@ install on Windows.
 
 **[⬇ Download the latest version](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest)**
 
+- **2026-11-04 (v1.3.0):** Free imposition: Impose lays the PDF out on press sheets with crop marks (step and repeat, unique, cut and stack, and saddle-stitched booklets in printer spreads with creep and fold marks), single or double sided or work and turn, set columns × rows, image shift, presets and a live preview. Also Compress images, rotate buttons in the toolbar, a right-click menu with zoom in/out tools and a hand tool (H or hold Space) to pan, drag a tab out to its own window, Cmd zoom keys on Mac, native window buttons on macOS, saving to network drives on Linux, and a zoom cursor that stays the right size
 - **2026-10-28 (v1.2.3):** A Colour Profiles panel listing the ICC profiles in the PDF (output intent and image profiles, each can be saved as .icc), Preview with to soft-proof the page through a CMYK press profile (with paper colour), and Output intent: set one, or change it and the colours are converted to the new press with 100% black kept
 - **2026-10-16 (v1.2.2):** Insert pages above or below the selected page, every page of an inserted PDF comes in, a Pages panel you can drag wider for bigger thumbnails, yellow scrollbars that are easy to see, and a mail merge preview that matches the merged text exactly (hyphens and apostrophes print as typed)
 - **2026-10-16 (v1.2.1):** Contact card QR codes in mail merge (name, job title, phone, address, email and website in one code that saves the contact), choose which sheet of a spreadsheet to merge, mail merge boxes saved inside the PDF so a template can be reopened and merged again, and clearer mail merge prompts
@@ -115,7 +116,9 @@ Windows 10 and 11 already include the WebView2 runtime the app needs.
 4. **Pages panel** — <kbd>+</kbd> (above or below the selected page) or drag
    PDFs in to insert pages, drag its right edge to resize the thumbnails, drag
    thumbnails to reorder, Ctrl/Shift-click to select several and the red ×
-   (or <kbd>Delete</kbd>) to delete them, ↺ ↻ to rotate.
+   (or <kbd>Delete</kbd>) to delete them, ↺ ↻ to rotate. The rotate buttons
+   after Print in the toolbar turn the selected pages, or all pages / this
+   page as *Apply edits to* says.
 5. **Fix the whole document.** Everything in the gold *Apply edits to* box
    works on all pages by default, or switch to *This page*:
    - **Global Colour Change** — replace every object that shares the
@@ -132,7 +135,29 @@ Windows 10 and 11 already include the WebView2 runtime the app needs.
    Title, Phone, Address, Email and Web columns. Pick the sheet of a
    spreadsheet with *Sheet*. Save PDF as before *Create pages* keeps the boxes
    in the PDF, so reopening it brings them back.
-7. **Save PDF as** (<kbd>Ctrl</kbd>+<kbd>S</kbd>) saves a copy with your
+7. **Impose** — lay the PDF out on press sheets with crop marks; the result
+   opens in a new tab and your PDF isn't changed.
+   - **Layouts** — *Step and repeat* (each page fills its own sheet),
+     *Unique* (every page once, in order), *Unique, cut and stack* (piles stay
+     in order once cut, for numbered or merged jobs) and *Booklet*
+     (saddle-stitched, printer spreads: 8|1, 2|7, 6|3, 4|5; blank pages added
+     to make a multiple of 4).
+   - **Sides** — *Double sided* (pages are front/back pairs, backs line up
+     once turned) or *Single sided*. Booklets: *Duplicate* or *Work and turn*
+     (front and back spreads on one landscape sheet, the same plate both
+     sides, turned side to side on the long gripper edge, heads to the
+     middle).
+   - **Sheet** — SRA2, SRA3, SRA4, A3, A4, 12 × 18 in, 13 × 19 in or custom,
+     portrait, landscape or auto; bleed, short and long edge gaps, margin,
+     *Columns × rows* (empty = as many as fit), *Creep* for booklets (the
+     innermost sheet's pages move in towards the spine), image shift
+     (mirrored on backs), crop and fold marks, and presets.
+   - The preview shows each sheet portrait, front and back, with the page
+     artwork and its bleed; step through the sheets with ‹ ›.
+8. **Compress images** (Colour & Fonts) — scale images above a chosen ppi
+   down to maximum-quality JPEG; text, vectors and colours are untouched and
+   it's only kept if the file gets smaller.
+9. **Save PDF as** (<kbd>Ctrl</kbd>+<kbd>S</kbd>) saves a copy with your
    changes; the printer button prints it. <kbd>Ctrl</kbd>+<kbd>Z</kbd> /
    <kbd>Ctrl</kbd>+<kbd>Y</kbd> undo and redo any edit.
 
@@ -140,7 +165,10 @@ Windows 10 and 11 already include the WebView2 runtime the app needs.
 
 - <kbd>Z</kbd> — zoom area tool: drag a box to zoom into it, click to zoom
   in, <kbd>Alt</kbd>+click to zoom out
-- <kbd>Ctrl</kbd>+mouse wheel, <kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>−</kbd> — zoom;
+- Right-click the page — zoom in tool, zoom out tool, hand tool, fit page, actual size
+- <kbd>H</kbd>, or hold <kbd>Space</kbd> — hand tool: drag to pan around the page (it also comes on 2 seconds after zooming in)
+- Drag a tab off the tab bar — open that PDF in its own window
+- <kbd>Ctrl</kbd>+mouse wheel, <kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>−</kbd> (<kbd>Cmd</kbd> on a Mac) — zoom;
   <kbd>Ctrl</kbd>+<kbd>0</kbd> — fit page; <kbd>Ctrl</kbd>+<kbd>1</kbd> — actual size
 - Mouse wheel, <kbd>Page Up</kbd>/<kbd>Page Down</kbd>, <kbd>Home</kbd>/<kbd>End</kbd> — move between pages
 - <kbd>V</kbd> — Select tool; <kbd>M</kbd> — mail merge
