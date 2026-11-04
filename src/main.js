@@ -5216,15 +5216,20 @@ try {
 
 // The summary line: "21 up · 2 sheets", worked out for this PDF.
 async function updateImposeSummary() {
-  // Booklets are always double sided; single sided has no backs to line up.
+  // Booklets are always printed both sides (sheetwise or work and turn);
+  // single sided has no backs to line up.
   const booklet = impEl("impMode").value === "booklet";
-  impEl("impSides").classList.toggle("hidden", booklet);
-  impEl("impSidesLabel").classList.toggle("hidden", booklet);
+  const singleOpt = impEl("impSides").querySelector('option[value="single"]');
+  singleOpt.hidden = singleOpt.disabled = booklet;
+  if (booklet && impEl("impSides").value === "single") impEl("impSides").value = "double";
   impEl("impCreepLabel").classList.toggle("hidden", !booklet);
   impEl("impCreepRow").classList.toggle("hidden", !booklet);
-  const double = booklet || impEl("impSides").value === "double";
-  impEl("impMirrorBox").classList.toggle("hidden", !double);
-  impEl("impBackFigure").classList.toggle("hidden", !double);
+  const sides = impEl("impSides").value;
+  impEl("impMirrorBox").classList.toggle("hidden", sides === "single");
+  // Work and turn: one plate for both sides, so no back sheet to show and
+  // no shift to mirror (rotating backs still applies).
+  for (const el of document.querySelectorAll("#impMirrorBox .sheetwise-only")) el.classList.toggle("hidden", sides === "workturn");
+  impEl("impBackFigure").classList.toggle("hidden", sides !== "double");
   const custom = impEl("impSheet").value === "custom";
   impEl("impCustom").classList.toggle("hidden", !custom);
   impEl("impCustomLabel").classList.toggle("hidden", !custom);
@@ -5241,9 +5246,10 @@ async function updateImposeSummary() {
     // Sheets of paper: a double-sided sheet is two imposed pages.
     const paper = p.double ? Math.ceil(p.sheets / 2) : p.sheets;
     const booklet = spec.mode === "booklet";
+    const both = p.work_turn ? ", work and turn" : p.double ? ", printed both sides" : "";
     out.textContent =
       `${p.per_sheet} up (${p.cols} × ${p.rows}${p.rotated ? ", turned" : ""}) · ` +
-      `${paper} sheet${paper === 1 ? "" : "s"}${p.double ? ", printed both sides" : ""} of ${mm(p.sheet_w)} × ${mm(p.sheet_h)} mm · ` +
+      `${paper} sheet${paper === 1 ? "" : "s"}${both} of ${mm(p.sheet_w)} × ${mm(p.sheet_h)} mm · ` +
       `${booklet ? "spreads" : "items"} ${mm(p.item_w)} × ${mm(p.item_h)} mm` +
       (p.blanks ? ` · ${p.blanks} blank page${p.blanks === 1 ? "" : "s"} added at the end` : "");
     impEl("impGo").disabled = false;
@@ -5272,6 +5278,11 @@ impEl("imposeBtn").addEventListener("click", () => {
 impEl("impCancel").addEventListener("click", () => showImpose(false));
 for (const id of IMPOSE_FIELDS) {
   impEl(id).addEventListener("change", () => {
+    // Booklets on SRA2 default to work and turn (front and back spreads
+    // side by side); still changeable afterwards.
+    if ((id === "impMode" || id === "impSheet") && impEl("impMode").value === "booklet" && impEl("impSheet").value === "450x640") {
+      impEl("impSides").value = "workturn";
+    }
     saveImposeSettings();
     updateImposeSummary();
   });
@@ -5398,7 +5409,7 @@ function drawImposeSheet(svg, p, spec, k) {
       const g = document.createElementNS(NS, "g");
       g.setAttribute(
         "transform",
-        (back && spec.rotateBacks && p.rotated ? `rotate(180 ${x + iw / 2} ${y + ih / 2}) ` : "") +
+        (p.flips[k] && p.flips[k][cell] && spec.rotateBacks && p.rotated ? `rotate(180 ${x + iw / 2} ${y + ih / 2}) ` : "") +
           (p.rotated ? `translate(${x} ${y + ih}) rotate(-90)` : `translate(${x} ${y})`),
       );
       svg.appendChild(g);

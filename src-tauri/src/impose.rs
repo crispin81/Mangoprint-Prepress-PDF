@@ -101,9 +101,15 @@ pub struct ImposePlan {
     /// For each imposed page, each cell's pages (1-based; two for a
     /// booklet spread, left then right; 0 is a blank page). Empty: no item.
     pub cells: Vec<Vec<Vec<u32>>>,
-    /// Whether each imposed page is a back.
+    /// Whether each imposed page is a back (sheetwise).
     pub backs: Vec<bool>,
+    /// Whether each cell of each imposed page holds back artwork (turned
+    /// 180° when items are turned and "rotate backs" is on).
+    pub flips: Vec<Vec<bool>>,
+    /// Sheetwise double-sided: imposed pages alternate front and back.
     pub double: bool,
+    /// Work and turn: fronts and backs on one imposed page.
+    pub work_turn: bool,
     /// Blank pages added to make a booklet up to a multiple of 4.
     pub blanks: u32,
 }
@@ -112,21 +118,33 @@ impl ImposeSpec {
     fn booklet(&self) -> bool {
         self.mode == "booklet"
     }
+    /// Work and turn: each item's front and back on the same side of the
+    /// sheet (fronts on the left half, backs mirrored on the right), the
+    /// same plate printed on both sides, turned over left to right.
+    fn work_turn(&self) -> bool {
+        self.sides == "workturn"
+    }
+    /// Sheetwise double-sided: fronts and backs on alternate imposed pages.
     fn double(&self) -> bool {
-        self.booklet() || self.sides != "single"
+        !self.work_turn() && (self.booklet() || self.sides != "single")
     }
 }
 
+/// What `assign` lays out: per imposed page, each cell's pages; whether
+/// each page is a back; whether each cell holds back artwork; blanks added.
+type Assigned = (Vec<Vec<Vec<u32>>>, Vec<bool>, Vec<Vec<bool>>, u32);
+
 /// Which pages go in each cell of each imposed page (see `ImposePlan`).
-fn assign(spec: &ImposeSpec, n: usize, cols: usize, rows: usize) -> (Vec<Vec<Vec<u32>>>, Vec<bool>, u32) {
+fn assign(spec: &ImposeSpec, n: usize, cols: usize, rows: usize) -> Assigned {
     let per = cols * rows;
     let pg = |i: usize| -> Vec<u32> { if i < n { vec![i as u32 + 1] } else { Vec::new() } };
-    // Where an item in front cell `c` sits on the back. A sheet turns over
-    // one way: left/right (work and turn) when that's ticked, else top to
-    // bottom (tumble). Flipping both would be neither.
+    let wt = spec.work_turn();
+    // Where an item in front cell `c` sits on its back. A sheet turns over
+    // one way: left/right (work and turn, and always for a work and turn
+    // layout) when that's ticked, else top to bottom (tumble).
     let mirror = |c: usize| -> usize {
         let (r, col) = (c / cols, c % cols);
-        if spec.mirror_x {
+        if wt || spec.mirror_x {
             r * cols + (cols - 1 - col)
         } else if spec.mirror_y {
             (rows - 1 - r) * cols + col
@@ -134,50 +152,79 @@ fn assign(spec: &ImposeSpec, n: usize, cols: usize, rows: usize) -> (Vec<Vec<Vec
             c
         }
     };
-    let mut cells = Vec::new();
-    let mut backs = Vec::new();
+    // The cells that take fronts: the left half for work and turn.
+    let front_cells: Vec<usize> = (0..per).filter(|c| !wt || c % cols < cols / 2).collect();
+
+    // Units: an item's front and (when double-sided) its back.
     let mut blanks = 0;
-    if spec.booklet() {
+    let units: Vec<(Vec<u32>, Option<Vec<u32>>)> = if spec.booklet() {
         let total = n.div_ceil(4).max(1) * 4;
         blanks = (total - n) as u32;
         let num = |i: usize| if i < n { i as u32 + 1 } else { 0 };
-        for k in 0..total / 2 {
-            let i = k / 2;
-            let spread = if k % 2 == 0 { [num(total - 1 - 2 * i), num(2 * i)] } else { [num(2 * i + 1), num(total - 2 - 2 * i)] };
-            cells.push(vec![spread.to_vec(); per]);
-            backs.push(k % 2 == 1);
-        }
-    } else if spec.mode == "repeat" {
-        for k in 0..n {
-            cells.push(vec![pg(k); per]);
-            backs.push(spec.double() && k % 2 == 1);
-        }
-    } else if !spec.double() {
-        let sheets = n.div_ceil(per);
-        for k in 0..sheets {
-            cells.push((0..per).map(|c| pg(if spec.mode == "cutstack" { c * sheets + k } else { k * per + c })).collect());
-            backs.push(false);
-        }
+        (0..total / 4).map(|i| (vec![num(total - 1 - 2 * i), num(2 * i)], Some(vec![num(2 * i + 1), num(total - 2 - 2 * i)]))).collect()
+    } else if spec.double() || wt {
+        (0..n.div_ceil(2)).map(|i| (pg(2 * i), Some(pg(2 * i + 1)))).collect()
     } else {
-        // Items are front/back pairs of pages.
-        let items = n.div_ceil(2);
-        let fronts = items.div_ceil(per);
-        for f in 0..fronts {
-            let item = |c: usize| if spec.mode == "cutstack" { c * fronts + f } else { f * per + c };
-            let front: Vec<Vec<u32>> = (0..per).map(|c| if item(c) < items { pg(2 * item(c)) } else { Vec::new() }).collect();
-            let mut back = vec![Vec::new(); per];
-            for c in 0..per {
-                if item(c) < items {
-                    back[mirror(c)] = pg(2 * item(c) + 1);
+        (0..n).map(|i| (pg(i), None)).collect()
+    };
+
+    let mut cells = Vec::new();
+    let mut backs = Vec::new();
+    let mut flips = Vec::new();
+    let mut push = |page: Vec<Vec<u32>>, back: bool, flip: Vec<bool>| {
+        cells.push(page);
+        backs.push(back);
+        flips.push(flip);
+    };
+    // Every unit placed in `slots` (front cell → unit index), as one or two
+    // imposed pages.
+    let mut emit = |slot_unit: &dyn Fn(usize) -> Option<usize>| {
+        let mut front = vec![Vec::new(); per];
+        let mut back = vec![Vec::new(); per];
+        let mut flip = vec![false; per];
+        let mut any_back = false;
+        for (s, &c) in front_cells.iter().enumerate() {
+            let Some(u) = slot_unit(s) else { continue };
+            let (f, b) = &units[u];
+            front[c] = f.clone();
+            if let Some(b) = b {
+                if !b.is_empty() {
+                    any_back = true;
+                    if wt {
+                        front[mirror(c)] = b.clone();
+                        flip[mirror(c)] = true;
+                    } else {
+                        back[mirror(c)] = b.clone();
+                    }
                 }
             }
-            cells.push(front);
-            backs.push(false);
-            cells.push(back);
-            backs.push(true);
+        }
+        if wt {
+            push(front, false, flip);
+        } else {
+            push(front, false, vec![false; per]);
+            if any_back || spec.booklet() {
+                push(back, true, vec![true; per]);
+            }
+        }
+    };
+    let fill = spec.mode == "repeat" || spec.booklet();
+    if fill {
+        // One unit fills the sheet.
+        for u in 0..units.len() {
+            emit(&|_| Some(u));
+        }
+    } else {
+        let per_f = front_cells.len().max(1);
+        let sheets = units.len().div_ceil(per_f);
+        for f in 0..sheets {
+            emit(&|s| {
+                let u = if spec.mode == "cutstack" { s * sheets + f } else { f * per_f + s };
+                (u < units.len()).then_some(u)
+            });
         }
     }
-    (cells, backs, blanks)
+    (cells, backs, flips, blanks)
 }
 
 fn num(o: &Object) -> Option<f64> {
@@ -294,7 +341,8 @@ fn best_grid(spec: &ImposeSpec, item: (f64, f64)) -> (u32, u32, bool, f64, f64) 
             if cols > max_c || rows > max_r {
                 continue;
             }
-            let n = cols * rows;
+            // Work and turn uses columns in pairs (front | back).
+            let n = if spec.work_turn() { cols / 2 * 2 * rows } else { cols * rows };
             if n > best_n {
                 best_n = n;
                 best = (cols, rows, rot, w, h);
@@ -311,6 +359,9 @@ fn plan_for(spec: &ImposeSpec, pages: &[PageInfo]) -> Result<ImposePlan, String>
     let item = if spec.booklet() { (2.0 * pw, ph) } else { (pw, ph) };
     let (cols, rows, rotated, w, h) = best_grid(spec, item);
     let per_sheet = cols * rows;
+    if spec.work_turn() && cols < 2 && per_sheet > 0 {
+        return Err("Work and turn needs at least two items across the sheet (front and back side by side).".into());
+    }
     if per_sheet == 0 {
         if spec.cols > 0 || spec.rows > 0 {
             let want = |v: u32| if v > 0 { v.to_string() } else { "auto".into() };
@@ -323,7 +374,7 @@ fn plan_for(spec: &ImposeSpec, pages: &[PageInfo]) -> Result<ImposePlan, String>
         return Err("The page doesn't fit on that sheet with these margins and bleed.".into());
     }
     let n = pages.len() as u32;
-    let (cells, backs, blanks) = assign(spec, n as usize, cols as usize, rows as usize);
+    let (cells, backs, flips, blanks) = assign(spec, n as usize, cols as usize, rows as usize);
     let sheets = cells.len() as u32;
     let (iw, ih) = if rotated { (item.1, item.0) } else { item };
     Ok(ImposePlan {
@@ -339,7 +390,9 @@ fn plan_for(spec: &ImposeSpec, pages: &[PageInfo]) -> Result<ImposePlan, String>
         pages: n,
         cells,
         backs,
+        flips,
         double: spec.double(),
+        work_turn: spec.work_turn(),
         blanks,
     })
 }
@@ -428,12 +481,13 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
     // A booklet page's width within its spread (before any turn), pt.
     let page_w = if plan.rotated { ih / 2.0 } else { iw / 2.0 };
     // Booklet sheets of paper (2 imposed pages each), outside first.
-    let paper = (plan.sheets as usize).div_ceil(2).max(1);
+    let paper = if plan.work_turn { plan.sheets as usize } else { (plan.sheets as usize).div_ceil(2) }.max(1);
     let creep_at = |k: usize| -> f64 {
         if !booklet || paper < 2 || spec.creep <= 0.0 {
             return 0.0;
         }
-        spec.creep.min(20.0) * MM * (k / 2) as f64 / (paper - 1) as f64
+        let i = if plan.work_turn { k } else { k / 2 };
+        spec.creep.min(20.0) * MM * i as f64 / (paper - 1) as f64
     };
 
     let mut new_pages = Vec::new();
@@ -461,7 +515,7 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
                     // Display size before turning is (ih, iw); turn 90° anticlockwise.
                     m = mul(m, [0.0, 1.0, -1.0, 0.0, iw, 0.0]);
                 }
-                if back && spec.rotate_backs && plan.rotated {
+                if plan.flips[sheet][cell] && spec.rotate_backs && plan.rotated {
                     m = mul(m, [-1.0, 0.0, 0.0, -1.0, iw, ih]);
                 }
                 m = mul(m, [1.0, 0.0, 0.0, 1.0, x, y]);
@@ -600,7 +654,7 @@ mod tests {
         // 6 pages → 8 (2 blanks): outside sheet 8|1 and 2|7, inside 6|3 and 4|5.
         let mut sp = spec("booklet");
         sp.allow_rotate = false;
-        let (cells, backs, blanks) = assign(&sp, 6, 1, 1);
+        let (cells, backs, _, blanks) = assign(&sp, 6, 1, 1);
         assert_eq!(blanks, 2);
         let firsts: Vec<Vec<u32>> = cells.iter().map(|c| c[0].clone()).collect();
         assert_eq!(firsts, vec![vec![0, 1], vec![2, 0], vec![6, 3], vec![4, 5]]);
@@ -613,12 +667,12 @@ mod tests {
         let mut sp = spec("nup");
         sp.mirror_x = true;
         sp.mirror_y = false;
-        let (cells, backs, _) = assign(&sp, 6, 3, 1);
+        let (cells, backs, _, _) = assign(&sp, 6, 3, 1);
         assert_eq!(cells[0], vec![vec![1], vec![3], vec![5]]);
         assert_eq!(cells[1], vec![vec![6], vec![4], vec![2]]);
         assert_eq!(backs, vec![false, true]);
         sp.sides = "single".into();
-        let (cells, backs, _) = assign(&sp, 6, 3, 1);
+        let (cells, backs, _, _) = assign(&sp, 6, 3, 1);
         assert_eq!(cells.len(), 2);
         assert_eq!(cells[1], vec![vec![4], vec![5], vec![6]]);
         assert_eq!(backs, vec![false, false]);
@@ -630,11 +684,27 @@ mod tests {
         let mut sp = spec("nup");
         sp.mirror_x = true;
         sp.mirror_y = true;
-        let (cells, _, _) = assign(&sp, 8, 2, 2);
+        let (cells, _, _, _) = assign(&sp, 8, 2, 2);
         assert_eq!(cells[1], vec![vec![4], vec![2], vec![8], vec![6]]);
         sp.mirror_x = false;
-        let (cells, _, _) = assign(&sp, 8, 2, 2);
+        let (cells, _, _, _) = assign(&sp, 8, 2, 2);
         assert_eq!(cells[1], vec![vec![6], vec![8], vec![2], vec![4]]);
+    }
+
+    #[test]
+    fn work_and_turn_booklet() {
+        // 8 pages, 2 spreads across: each sheet has its front | back spread.
+        let mut sp = spec("booklet");
+        sp.sides = "workturn".into();
+        let (cells, backs, flips, _) = assign(&sp, 8, 2, 1);
+        assert_eq!(cells, vec![vec![vec![8, 1], vec![2, 7]], vec![vec![6, 3], vec![4, 5]]]);
+        assert_eq!(backs, vec![false, false]);
+        assert_eq!(flips[0], vec![false, true]);
+        // Cards: 4 pages = 2 items, 4 across: fronts 1 3 | backs 4 2.
+        let mut sp = spec("nup");
+        sp.sides = "workturn".into();
+        let (cells, _, _, _) = assign(&sp, 4, 4, 1);
+        assert_eq!(cells, vec![vec![vec![1], vec![3], vec![4], vec![2]]]);
     }
 
     #[test]
@@ -669,11 +739,15 @@ mod tests {
     #[test]
     fn impose_file() {
         let (Ok(i), Ok(o)) = (std::env::var("MP_IMPOSE_PDF"), std::env::var("MP_IMPOSE_OUT")) else { return };
-        for mode in ["repeat", "nup", "cutstack", "repeat-rotated-backs", "booklet", "booklet-creep"] {
+        for mode in ["repeat", "nup", "cutstack", "repeat-rotated-backs", "booklet", "booklet-creep", "booklet-workturn-backs"] {
             let out = format!("{o}.{mode}.pdf");
             let mut sp = spec(mode.split('-').next().unwrap());
             if mode == "booklet-creep" {
                 sp.creep = 10.0;
+            }
+            if mode.starts_with("booklet-workturn") {
+                sp.sides = "workturn".into();
+                (sp.sheet_w, sp.sheet_h) = (450.0, 640.0);
             }
             sp.rotate_backs = mode.ends_with("backs");
             let plan = impose(Path::new(&i), Path::new(&out), &sp).unwrap();
