@@ -781,6 +781,20 @@ mod tests {
     }
 
     #[test]
+    fn work_and_turn_a5_on_sra3() {
+        // A5 booklet on SRA3: turned, back 2|7 | front 8|1, heads to the middle.
+        let p = PageInfo { id: (1, 0), media: [0.0; 4], trim: [0.0, 0.0, 148.5 * MM, 210.0 * MM], rotate: 0 };
+        let mut sp = spec("booklet");
+        sp.sides = "workturn".into();
+        let pages: Vec<PageInfo> = (0..8).map(|_| PageInfo { ..p }).collect();
+        let plan = plan_for(&sp, &pages).unwrap();
+        assert!(plan.rotated && plan.sheet_w > plan.sheet_h, "{plan:?}");
+        assert_eq!((plan.cols, plan.rows), (2, 1));
+        assert_eq!(plan.cells[0], vec![vec![2, 7], vec![8, 1]]);
+        assert_eq!(plan.turn[0], vec![true, false]);
+    }
+
+    #[test]
     fn set_grid() {
         let p = || PageInfo { id: (1, 0), media: [0.0; 4], trim: [0.0, 0.0, 85.0 * MM, 55.0 * MM], rotate: 0 };
         let mut sp = spec("repeat");
