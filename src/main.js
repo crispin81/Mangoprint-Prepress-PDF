@@ -5190,10 +5190,11 @@ function imposeSpec() {
     mirrorX: impEl("impMirrorX").checked,
     mirrorY: impEl("impMirrorY").checked,
     rotateBacks: impEl("impRotateBacks").checked,
+    headsIn: impEl("impHeadsIn").checked,
   };
 }
 
-const IMPOSE_FIELDS = ["impMode", "impSides", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impCreep", "impCols", "impRows", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY", "impRotateBacks"];
+const IMPOSE_FIELDS = ["impMode", "impSides", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impCreep", "impCols", "impRows", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY", "impRotateBacks", "impHeadsIn"];
 
 function saveImposeSettings() {
   const v = {};
@@ -5412,7 +5413,7 @@ function drawImposeSheet(svg, p, spec, k) {
       const g = document.createElementNS(NS, "g");
       g.setAttribute(
         "transform",
-        (p.flips[k] && p.flips[k][cell] && spec.rotateBacks && p.rotated ? `rotate(180 ${x + iw / 2} ${y + ih / 2}) ` : "") +
+        (p.turn[k] && p.turn[k][cell] ? `rotate(180 ${x + iw / 2} ${y + ih / 2}) ` : "") +
           (p.rotated ? `translate(${x} ${y + ih}) rotate(-90)` : `translate(${x} ${y})`),
       );
       svg.appendChild(g);
