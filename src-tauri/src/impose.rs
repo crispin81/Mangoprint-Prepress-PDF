@@ -319,7 +319,11 @@ fn best_grid(spec: &ImposeSpec, item: (f64, f64)) -> (u32, u32, bool, f64, f64) 
     let (m, b) = (spec.margin * MM, spec.bleed * MM);
     // The outer bleed has to fit inside the printable area too.
     let (short, long) = (sw.min(sh), sw.max(sh));
-    let sheets: Vec<(f64, f64)> = match spec.orientation.as_str() {
+    // Work and turn: the sheet turns over end to end along its long
+    // (gripper) edge, so fronts and backs sit either side of the middle of
+    // the long edge: a landscape sheet, front | back.
+    let orientation = if spec.work_turn() { "landscape" } else { spec.orientation.as_str() };
+    let sheets: Vec<(f64, f64)> = match orientation {
         "portrait" => vec![(short, long)],
         "landscape" => vec![(long, short)],
         _ => vec![(short, long), (long, short)],
@@ -705,6 +709,19 @@ mod tests {
         sp.sides = "workturn".into();
         let (cells, _, _, _) = assign(&sp, 4, 4, 1);
         assert_eq!(cells, vec![vec![vec![1], vec![3], vec![4], vec![2]]]);
+    }
+
+    #[test]
+    fn work_and_turn_splits_the_long_edge() {
+        // A5 booklet (spread 297 × 210) on SRA2: landscape 640 × 450, front | back.
+        let p = PageInfo { id: (1, 0), media: [0.0; 4], trim: [0.0, 0.0, 148.5 * MM, 210.0 * MM], rotate: 0 };
+        let mut sp = spec("booklet");
+        sp.sides = "workturn".into();
+        sp.orientation = "portrait".into(); // overridden
+        (sp.sheet_w, sp.sheet_h) = (450.0, 640.0);
+        let plan = plan_for(&sp, &[p]).unwrap();
+        assert!(plan.sheet_w > plan.sheet_h, "{plan:?}");
+        assert_eq!(plan.cols % 2, 0);
     }
 
     #[test]
