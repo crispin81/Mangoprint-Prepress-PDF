@@ -5178,6 +5178,7 @@ function imposeSpec() {
     bleed: Math.max(0, Number(impEl("impBleed").value) || 0),
     orientation: impEl("impOrient").value,
     allowRotate: impEl("impRotate").checked,
+    creep: Math.max(0, Number(impEl("impCreep").value) || 0),
     // Empty = as many as fit.
     cols: Math.max(0, Math.floor(Number(impEl("impCols").value) || 0)),
     rows: Math.max(0, Math.floor(Number(impEl("impRows").value) || 0)),
@@ -5192,7 +5193,7 @@ function imposeSpec() {
   };
 }
 
-const IMPOSE_FIELDS = ["impMode", "impSides", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impCols", "impRows", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY", "impRotateBacks"];
+const IMPOSE_FIELDS = ["impMode", "impSides", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impCreep", "impCols", "impRows", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY", "impRotateBacks"];
 
 function saveImposeSettings() {
   const v = {};
@@ -5219,6 +5220,8 @@ async function updateImposeSummary() {
   const booklet = impEl("impMode").value === "booklet";
   impEl("impSides").classList.toggle("hidden", booklet);
   impEl("impSidesLabel").classList.toggle("hidden", booklet);
+  impEl("impCreepLabel").classList.toggle("hidden", !booklet);
+  impEl("impCreepRow").classList.toggle("hidden", !booklet);
   const double = booklet || impEl("impSides").value === "double";
   impEl("impMirrorBox").classList.toggle("hidden", !double);
   impEl("impBackFigure").classList.toggle("hidden", !double);

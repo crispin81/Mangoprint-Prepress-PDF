@@ -52,6 +52,12 @@ pub struct ImposeSpec {
     pub allow_rotate: bool,
     /// A set grid instead of as many as fit: columns and/or rows (0 or
     /// missing = as many as fit that way).
+    /// Booklet creep, mm: how far the innermost sheet's pages move in
+    /// towards the spine (the outside sheet none, the ones between in
+    /// proportion), so the fore-edge margins match once the folded
+    /// booklet is trimmed.
+    #[serde(default)]
+    pub creep: f64,
     #[serde(default)]
     pub cols: u32,
     #[serde(default)]
@@ -421,6 +427,14 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
     let booklet = spec.booklet();
     // A booklet page's width within its spread (before any turn), pt.
     let page_w = if plan.rotated { ih / 2.0 } else { iw / 2.0 };
+    // Booklet sheets of paper (2 imposed pages each), outside first.
+    let paper = (plan.sheets as usize).div_ceil(2).max(1);
+    let creep_at = |k: usize| -> f64 {
+        if !booklet || paper < 2 || spec.creep <= 0.0 {
+            return 0.0;
+        }
+        spec.creep.min(20.0) * MM * (k / 2) as f64 / (paper - 1) as f64
+    };
 
     let mut new_pages = Vec::new();
     for sheet in 0..plan.sheets as usize {
@@ -471,7 +485,10 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
                         // Left or right half of the spread; no bleed across the spine.
                         let (x0, x1) = if j == 0 { (-1.0e4, page_w) } else { (page_w, 1.0e4) };
                         ops.push_str(&format!("q {} -10000 {} 20000 re W n ", n(x0), n(x1 - x0)));
-                        pm = mul(pm, [1.0, 0.0, 0.0, 1.0, j as f64 * page_w, 0.0]);
+                        // Creep: both pages move in towards the spine.
+                        let c = creep_at(sheet);
+                        let dx = if j == 0 { c } else { -c };
+                        pm = mul(pm, [1.0, 0.0, 0.0, 1.0, j as f64 * page_w + dx, 0.0]);
                     } else {
                         ops.push_str("q ");
                     }
@@ -566,7 +583,7 @@ mod tests {
     use super::*;
 
     fn spec(mode: &str) -> ImposeSpec {
-        ImposeSpec { mode: mode.into(), sides: "double".into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "auto".into(), bleed: 3.0, allow_rotate: true, cols: 0, rows: 0, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: false, rotate_backs: false }
+        ImposeSpec { mode: mode.into(), sides: "double".into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "auto".into(), bleed: 3.0, allow_rotate: true, creep: 0.0, cols: 0, rows: 0, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: false, rotate_backs: false }
     }
 
     #[test]
@@ -652,9 +669,12 @@ mod tests {
     #[test]
     fn impose_file() {
         let (Ok(i), Ok(o)) = (std::env::var("MP_IMPOSE_PDF"), std::env::var("MP_IMPOSE_OUT")) else { return };
-        for mode in ["repeat", "nup", "cutstack", "repeat-rotated-backs", "booklet"] {
+        for mode in ["repeat", "nup", "cutstack", "repeat-rotated-backs", "booklet", "booklet-creep"] {
             let out = format!("{o}.{mode}.pdf");
             let mut sp = spec(mode.split('-').next().unwrap());
+            if mode == "booklet-creep" {
+                sp.creep = 10.0;
+            }
             sp.rotate_backs = mode.ends_with("backs");
             let plan = impose(Path::new(&i), Path::new(&out), &sp).unwrap();
             println!("{mode}: {plan:?}");
@@ -672,7 +692,7 @@ mod trim_tests {
         let Ok(i) = std::env::var("MP_IMPOSE_PDF") else { return };
         let dir = tempfile::TempDir::new().unwrap();
         let out = dir.path().join("x.pdf");
-        let spec = ImposeSpec { mode: "repeat".into(), sides: "double".into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "portrait".into(), bleed: 3.0, allow_rotate: false, cols: 0, rows: 0, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: true, rotate_backs: true };
+        let spec = ImposeSpec { mode: "repeat".into(), sides: "double".into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "portrait".into(), bleed: 3.0, allow_rotate: false, creep: 0.0, cols: 0, rows: 0, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: true, rotate_backs: true };
         let plan = impose(Path::new(&i), &out, &spec).unwrap();
         let doc = Document::load(&out).unwrap();
         let page = doc.get_dictionary(*doc.get_pages().get(&1).unwrap()).unwrap();
