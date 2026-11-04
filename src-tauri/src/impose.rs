@@ -128,9 +128,11 @@ impl ImposeSpec {
         self.mode == "booklet"
     }
     /// Work and turn: each item's front and back on the same side of a
-    /// landscape sheet, the same plate printed on both sides, turned over
-    /// on its long edge: fronts upright on the bottom half, backs upside
-    /// down on the top half above them (heads meeting in the middle).
+    /// landscape sheet, the same plate printed on both sides, the sheet
+    /// turned over side to side so the long (gripper) edge stays: fronts on
+    /// the right half, backs mirrored on the left. When items are turned
+    /// 90° their heads face the middle (backs turned 180° to match), so the
+    /// portrait preview shows the cover upright at the bottom.
     fn work_turn(&self) -> bool {
         self.sides == "workturn"
     }
@@ -149,15 +151,12 @@ fn assign(spec: &ImposeSpec, n: usize, cols: usize, rows: usize) -> Assigned {
     let per = cols * rows;
     let pg = |i: usize| -> Vec<u32> { if i < n { vec![i as u32 + 1] } else { Vec::new() } };
     let wt = spec.work_turn();
-    // Where an item in front cell `c` sits on its back. Work and turn: the
-    // row above, mirrored about the middle. Sheetwise, a sheet turns over
-    // one way: left/right (work and turn) when that's ticked, else top to
-    // bottom (tumble).
+    // Where an item in front cell `c` sits on its back: mirrored left to
+    // right for work and turn; sheetwise, the sheet turns over one way:
+    // left/right when that's ticked, else top to bottom (tumble).
     let mirror = |c: usize| -> usize {
         let (r, col) = (c / cols, c % cols);
-        if wt {
-            (rows - 1 - r) * cols + col
-        } else if spec.mirror_x {
+        if wt || spec.mirror_x {
             r * cols + (cols - 1 - col)
         } else if spec.mirror_y {
             (rows - 1 - r) * cols + col
@@ -165,9 +164,9 @@ fn assign(spec: &ImposeSpec, n: usize, cols: usize, rows: usize) -> Assigned {
             c
         }
     };
-    // The cells that take fronts: the bottom half's rows for work and turn
-    // (a middle row of an odd count stays empty).
-    let front_cells: Vec<usize> = (0..per).filter(|c| !wt || c / cols >= rows - rows / 2).collect();
+    // The cells that take fronts: the right half's columns for work and
+    // turn (a middle column of an odd count stays empty).
+    let front_cells: Vec<usize> = (0..per).filter(|c| !wt || c % cols >= cols - cols / 2).collect();
 
     // Units: an item's front and (when double-sided) its back.
     let mut blanks = 0;
@@ -359,8 +358,8 @@ fn best_grid(spec: &ImposeSpec, item: (f64, f64)) -> (u32, u32, bool, f64, f64) 
             if cols > max_c || rows > max_r {
                 continue;
             }
-            // Work and turn uses rows in pairs (backs above fronts).
-            let n = if spec.work_turn() { rows / 2 * 2 * cols } else { cols * rows };
+            // Work and turn uses columns in pairs (back | front).
+            let n = if spec.work_turn() { cols / 2 * 2 * rows } else { cols * rows };
             if n > best_n {
                 best_n = n;
                 best = (cols, rows, rot, w, h);
@@ -377,8 +376,8 @@ fn plan_for(spec: &ImposeSpec, pages: &[PageInfo]) -> Result<ImposePlan, String>
     let item = if spec.booklet() { (2.0 * pw, ph) } else { (pw, ph) };
     let (cols, rows, rotated, w, h) = best_grid(spec, item);
     let per_sheet = cols * rows;
-    if spec.work_turn() && rows < 2 && per_sheet > 0 {
-        return Err("Work and turn needs room for two rows (backs above fronts) on the sheet.".into());
+    if spec.work_turn() && cols < 2 && per_sheet > 0 {
+        return Err("Work and turn needs room for two items across the sheet (back and front side by side).".into());
     }
     if per_sheet == 0 {
         if spec.cols > 0 || spec.rows > 0 {
@@ -403,10 +402,11 @@ fn plan_for(spec: &ImposeSpec, pages: &[PageInfo]) -> Result<ImposePlan, String>
                 .enumerate()
                 .map(|(cell, &flip)| {
                     if spec.work_turn() {
-                        // Backs upside down above their fronts, so they
-                        // back up once turned on the long edge (items
-                        // turned 90° need no extra turn).
-                        flip && !rotated
+                        // Turned items' heads point left (to the middle on
+                        // the right half): backs on the left turn 180° to
+                        // face it too, which is also how they back up once
+                        // the sheet is turned side to side.
+                        flip && rotated
                     } else if spec.heads_in {
                         // Upright items' heads point up: turn the top half's
                         // rows. Turned items' heads point left: turn the left
@@ -738,31 +738,32 @@ mod tests {
     fn work_and_turn_booklet() {
         let mut sp = spec("booklet");
         sp.sides = "workturn".into();
-        // 8 pages, 1 across × 2 down: 2|7 above 8|1, then 4|5 above 6|3.
-        let (cells, backs, flips, _) = assign(&sp, 8, 1, 2);
+        // 8 pages, 2 across: back 2|7 on the left, front 8|1 on the right.
+        let (cells, backs, flips, _) = assign(&sp, 8, 2, 1);
         assert_eq!(cells, vec![vec![vec![2, 7], vec![8, 1]], vec![vec![4, 5], vec![6, 3]]]);
         assert_eq!(backs, vec![false, false]);
         assert_eq!(flips[0], vec![true, false]);
-        // Cards: 4 pages = 2 items, 2 × 2: fronts 1 3 on the bottom, backs 2 4 above.
+        // Cards: 4 pages = 2 items, 4 across: backs 4 2 | fronts 1 3.
         let mut sp = spec("nup");
         sp.sides = "workturn".into();
-        let (cells, _, _, _) = assign(&sp, 4, 2, 2);
-        assert_eq!(cells, vec![vec![vec![2], vec![4], vec![1], vec![3]]]);
+        let (cells, _, _, _) = assign(&sp, 4, 4, 1);
+        assert_eq!(cells, vec![vec![vec![4], vec![2], vec![1], vec![3]]]);
     }
 
     #[test]
     fn work_and_turn_splits_the_long_edge() {
-        // A5 booklet (spread 297 × 210) on SRA2: landscape 640 × 450, front | back.
-        let p = PageInfo { id: (1, 0), media: [0.0; 4], trim: [0.0, 0.0, 148.5 * MM, 210.0 * MM], rotate: 0 };
+        // A4 booklet (spread 420 × 297) on SRA2: landscape 640 × 450, turned, back | front.
+        let p = PageInfo { id: (1, 0), media: [0.0; 4], trim: [0.0, 0.0, 210.0 * MM, 297.0 * MM], rotate: 0 };
         let mut sp = spec("booklet");
         sp.sides = "workturn".into();
         sp.orientation = "portrait".into(); // overridden
         (sp.sheet_w, sp.sheet_h) = (450.0, 640.0);
         let plan = plan_for(&sp, &[p]).unwrap();
         assert!(plan.sheet_w > plan.sheet_h, "{plan:?}");
-        assert_eq!(plan.rows % 2, 0);
-        // The top row (backs) is upside down, the bottom row (fronts) upright.
-        assert_eq!(plan.turn[0], vec![true, true, false, false]);
+        assert!(plan.rotated);
+        assert_eq!((plan.cols, plan.rows), (2, 1));
+        // The back (left) turns so both heads face the middle.
+        assert_eq!(plan.turn[0], vec![true, false]);
     }
 
     #[test]
@@ -770,8 +771,9 @@ mod tests {
         // Upright A5 spreads, 2 × 2 on landscape SRA2: the top row turns.
         let p = PageInfo { id: (1, 0), media: [0.0; 4], trim: [0.0, 0.0, 148.5 * MM, 210.0 * MM], rotate: 0 };
         let mut sp = spec("booklet");
-        sp.sides = "workturn".into();
+        sp.sides = "single".into();
         sp.heads_in = true;
+        sp.allow_rotate = false;
         (sp.sheet_w, sp.sheet_h) = (450.0, 640.0);
         let plan = plan_for(&sp, &[p]).unwrap();
         assert!(!plan.rotated);
