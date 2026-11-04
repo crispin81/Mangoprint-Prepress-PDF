@@ -277,6 +277,8 @@ function setEdited(edited) {
   state.edited = edited;
   els.exportBtn.disabled = !state.path;
   document.getElementById("printBtn").disabled = !state.path;
+  document.getElementById("rotateLeftBtn").disabled = !state.path;
+  document.getElementById("rotateRightBtn").disabled = !state.path;
   document.getElementById("imposeBtn").disabled = !state.path;
   if (activeTab) {
     activeTab.edited = edited;
@@ -1095,6 +1097,27 @@ async function rotatePageBy(n, delta) {
     alert(`Could not rotate page ${n}:\n${err}`);
   }
 }
+
+// Toolbar rotate buttons: the current page, or every page picked in the
+// Pages panel, turned 90° (each page from its own rotation).
+async function rotatePicked(delta) {
+  if (!state.path || !view.doc) return;
+  const list = pages.picked.size ? [...pages.picked].sort((a, b) => a - b) : [state.page];
+  try {
+    for (const n of list) {
+      const page = await view.doc.getPage(n);
+      const degrees = (((page.rotate + delta) % 360) + 360) % 360;
+      const boxes = await invoke("set_page_rotation", { path: state.path, page: n, degrees });
+      if (n === state.page) state.pageBoxes = boxes;
+    }
+  } catch (err) {
+    alert(`Could not rotate:\n${err}`);
+  }
+  await afterBoxEdit();
+}
+
+document.getElementById("rotateLeftBtn").addEventListener("click", () => rotatePicked(-90));
+document.getElementById("rotateRightBtn").addEventListener("click", () => rotatePicked(90));
 
 // Every edit (colour & font conversions, rotation, page boxes) goes to all
 // pages unless "Apply edits to" is switched to This page. Thumbnail arrows
