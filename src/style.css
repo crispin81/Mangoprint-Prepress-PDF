@@ -981,15 +981,14 @@ a:hover > .about__logo {
 
 #viewport.zoom-tool #imgWrap,
 #viewport.zoom-tool {
-  /* Vector cursor (crisp on high-res screens); the 2x file is used there. */
+  /* One vector cursor at its own size. A 1x/2x image-set made the 2x file
+     show at double size on Linux after the window changed size. */
   cursor: url("assets/cursor-zoom-in@1x.svg") 11 11, zoom-in;
-  cursor: -webkit-image-set(url("assets/cursor-zoom-in@1x.svg") 1x, url("assets/cursor-zoom-in@2x.svg") 2x) 11 11, zoom-in;
 }
 
 #viewport.zoom-tool.zoom-out,
 #viewport.zoom-tool.zoom-out #imgWrap {
   cursor: url("assets/cursor-zoom-out@1x.svg") 11 11, zoom-out;
-  cursor: -webkit-image-set(url("assets/cursor-zoom-out@1x.svg") 1x, url("assets/cursor-zoom-out@2x.svg") 2x) 11 11, zoom-out;
 }
 
 .marquee {
@@ -1421,7 +1420,6 @@ a:hover > .about__logo {
 /* White arrow like Illustrator's Direct Selection tool; tip at 2,2. */
 #viewport.recolour-tool #imgWrap {
   cursor: url("assets/cursor-direct-select@1x.svg") 2 2, default;
-  cursor: -webkit-image-set(url("assets/cursor-direct-select@1x.svg") 1x, url("assets/cursor-direct-select@2x.svg") 2x) 2 2, default;
 }
 
 .rc-picked {
@@ -3139,3 +3137,35 @@ input::placeholder {
   content-visibility: auto;
   contain-intrinsic-size: auto calc(var(--thumb-size) + 40px);
 }
+
+/* --- right-click view menu (zoom in / out etc.) --- */
+
+.view-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 190px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+}
+.view-menu.hidden { display: none; }
+.view-menu button {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+.view-menu button:hover { background: var(--border); }
+.view-menu button.active span::before { content: "✓ "; }
+.view-menu kbd { font: inherit; opacity: 0.55; }
+.view-menu hr { border: none; border-top: 1px solid var(--border); margin: 4px 2px; }

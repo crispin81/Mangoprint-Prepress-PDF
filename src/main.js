@@ -4533,6 +4533,48 @@ window.addEventListener("keydown", (ev) => {
   setZoomTool(!state.zoomTool);
 });
 
+// Right-click on the page area: a small menu with zoom in / out (around
+// the point clicked), fit, actual size and the zoom area tool.
+
+const viewMenu = document.getElementById("viewMenu");
+let viewMenuAt = null;
+
+function hideViewMenu() {
+  viewMenu.classList.add("hidden");
+}
+
+els.viewport.addEventListener("contextmenu", (ev) => {
+  if (!view.page) return;
+  ev.preventDefault();
+  viewMenuAt = [ev.clientX, ev.clientY];
+  viewMenu.querySelector('[data-act="tool"]').classList.toggle("active", !!state.zoomTool);
+  viewMenu.classList.remove("hidden");
+  const r = viewMenu.getBoundingClientRect();
+  viewMenu.style.left = `${Math.min(ev.clientX, window.innerWidth - r.width - 4)}px`;
+  viewMenu.style.top = `${Math.min(ev.clientY, window.innerHeight - r.height - 4)}px`;
+});
+
+viewMenu.addEventListener("mousedown", (ev) => ev.stopPropagation());
+viewMenu.addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-act]");
+  if (!b) return;
+  hideViewMenu();
+  const act = b.dataset.act;
+  if (act === "in") stepZoom(1, viewMenuAt);
+  else if (act === "out") stepZoom(-1, viewMenuAt);
+  else if (act === "fit") setZoom("fit");
+  else if (act === "actual") setZoom(1);
+  else if (act === "tool") setZoomTool(!state.zoomTool);
+});
+
+window.addEventListener("mousedown", (ev) => {
+  if (!viewMenu.contains(ev.target)) hideViewMenu();
+}, true);
+window.addEventListener("keydown", (ev) => { if (ev.key === "Escape") hideViewMenu(); });
+window.addEventListener("blur", hideViewMenu);
+window.addEventListener("resize", hideViewMenu);
+els.viewport.addEventListener("scroll", hideViewMenu);
+
 // --- zoom & scrolling ---
 
 els.zoomIn.addEventListener("click", () => stepZoom(1));
