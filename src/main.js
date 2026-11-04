@@ -5438,13 +5438,25 @@ function drawImposeSheet(svg, p, spec, k) {
       // in the item's own upright space, then turned into the cell.
       const [dw, dh] = p.rotated ? [ih, iw] : [iw, ih];
       const pw = dw / slot.length;
+      // Clipped to the item and its bleed (as the PDF is), so artwork shows
+      // out to the bleed edge and stops short of the new crop marks.
+      const clipId = `${svg.id}-clip-${cell}`;
+      const clip = document.createElementNS(NS, "clipPath");
+      clip.setAttribute("id", clipId);
+      const clipRect = document.createElementNS(NS, "rect");
+      for (const [a, v] of Object.entries({ x: x - left, y: y - top, width: iw + left + right, height: ih + top + bottom })) clipRect.setAttribute(a, String(v));
+      clip.appendChild(clipRect);
+      root.appendChild(clip);
+      const outer = document.createElementNS(NS, "g");
+      outer.setAttribute("clip-path", `url(#${clipId})`);
+      root.appendChild(outer);
       const g = document.createElementNS(NS, "g");
       g.setAttribute(
         "transform",
         (p.turn[k] && p.turn[k][cell] ? `rotate(180 ${x + iw / 2} ${y + ih / 2}) ` : "") +
           (p.rotated ? `translate(${x} ${y + ih}) rotate(-90)` : `translate(${x} ${y})`),
       );
-      root.appendChild(g);
+      outer.appendChild(g);
       const sub = (name, attrs) => {
         const e = document.createElementNS(NS, name);
         for (const [a, v] of Object.entries(attrs)) e.setAttribute(a, String(v));
@@ -5466,8 +5478,21 @@ function drawImposeSheet(svg, p, spec, k) {
         } catch {}
         const tr = p.trims && p.trims[page - 1];
         if (src && tr && tr[2] > 0 && tr[3] > 0) {
-          // Only the trim area of the thumbnail fills the item.
-          const box = sub("svg", { x: px, y: 0, width: pw, height: dh, viewBox: `${tr[0] * thumb.width} ${tr[1] * thumb.height} ${tr[2] * thumb.width} ${tr[3] * thumb.height}`, preserveAspectRatio: "none" });
+          // The trim area of the thumbnail fills the item, with the page's
+          // own bleed around it (none across a booklet's spine); the PDF's
+          // own marks beyond that are cut off by the clip.
+          const ppm = (tr[2] * thumb.width) / pw; // thumbnail px per mm, across
+          const ppmY = (tr[3] * thumb.height) / dh; // and down
+          const bl = slot.length === 2 && j === 1 ? 0 : b;
+          const br = slot.length === 2 && j === 0 ? 0 : b;
+          const box = sub("svg", {
+            x: px - bl,
+            y: -b,
+            width: pw + bl + br,
+            height: dh + 2 * b,
+            viewBox: `${tr[0] * thumb.width - bl * ppm} ${tr[1] * thumb.height - b * ppmY} ${tr[2] * thumb.width + (bl + br) * ppm} ${tr[3] * thumb.height + 2 * b * ppmY}`,
+            preserveAspectRatio: "none",
+          });
           const im = document.createElementNS(NS, "image");
           for (const [a, v] of Object.entries({ href: src, width: thumb.width, height: thumb.height })) im.setAttribute(a, String(v));
           box.appendChild(im);
