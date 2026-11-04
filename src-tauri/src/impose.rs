@@ -50,6 +50,12 @@ pub struct ImposeSpec {
     pub bleed: f64,
     /// Turn items 90° when more fit that way.
     pub allow_rotate: bool,
+    /// A set grid instead of as many as fit: columns and/or rows (0 or
+    /// missing = as many as fit that way).
+    #[serde(default)]
+    pub cols: u32,
+    #[serde(default)]
+    pub rows: u32,
     pub crop_marks: bool,
     /// Image shift: moves the whole group (items and marks), mm; +x is
     /// right, +y is up.
@@ -274,8 +280,14 @@ fn best_grid(spec: &ImposeSpec, item: (f64, f64)) -> (u32, u32, bool, f64, f64) 
             }
             let (iw, ih) = if rot { (item.1, item.0) } else { item };
             let (hg, vg) = gaps(spec, w, h);
-            let cols = fit(w - 2.0 * m - 2.0 * b, iw, hg);
-            let rows = fit(h - 2.0 * m - 2.0 * b, ih, vg);
+            let max_c = fit(w - 2.0 * m - 2.0 * b, iw, hg);
+            let max_r = fit(h - 2.0 * m - 2.0 * b, ih, vg);
+            // A set column/row count has to fit; unset ones fill the sheet.
+            let cols = if spec.cols > 0 { spec.cols } else { max_c };
+            let rows = if spec.rows > 0 { spec.rows } else { max_r };
+            if cols > max_c || rows > max_r {
+                continue;
+            }
             let n = cols * rows;
             if n > best_n {
                 best_n = n;
@@ -294,6 +306,14 @@ fn plan_for(spec: &ImposeSpec, pages: &[PageInfo]) -> Result<ImposePlan, String>
     let (cols, rows, rotated, w, h) = best_grid(spec, item);
     let per_sheet = cols * rows;
     if per_sheet == 0 {
+        if spec.cols > 0 || spec.rows > 0 {
+            let want = |v: u32| if v > 0 { v.to_string() } else { "auto".into() };
+            return Err(format!(
+                "{} columns × {} rows doesn't fit on that sheet with these gaps, margins and bleed.",
+                want(spec.cols),
+                want(spec.rows)
+            ));
+        }
         return Err("The page doesn't fit on that sheet with these margins and bleed.".into());
     }
     let n = pages.len() as u32;
@@ -546,7 +566,7 @@ mod tests {
     use super::*;
 
     fn spec(mode: &str) -> ImposeSpec {
-        ImposeSpec { mode: mode.into(), sides: "double".into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "auto".into(), bleed: 3.0, allow_rotate: true, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: false, rotate_backs: false }
+        ImposeSpec { mode: mode.into(), sides: "double".into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "auto".into(), bleed: 3.0, allow_rotate: true, cols: 0, rows: 0, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: false, rotate_backs: false }
     }
 
     #[test]
@@ -601,6 +621,22 @@ mod tests {
     }
 
     #[test]
+    fn set_grid() {
+        let p = || PageInfo { id: (1, 0), media: [0.0; 4], trim: [0.0, 0.0, 85.0 * MM, 55.0 * MM], rotate: 0 };
+        let mut sp = spec("repeat");
+        sp.cols = 2;
+        sp.rows = 3;
+        let plan = plan_for(&sp, &[p()]).unwrap();
+        assert_eq!((plan.cols, plan.rows), (2, 3));
+        sp.rows = 0; // as many rows as fit
+        let plan = plan_for(&sp, &[p()]).unwrap();
+        assert_eq!(plan.cols, 2);
+        assert!(plan.rows > 3);
+        sp.cols = 40;
+        assert!(plan_for(&sp, &[p()]).is_err());
+    }
+
+    #[test]
     fn matrices() {
         // A point at the trim's top-left of a 90°-rotated page lands at the
         // display's top-left.
@@ -636,7 +672,7 @@ mod trim_tests {
         let Ok(i) = std::env::var("MP_IMPOSE_PDF") else { return };
         let dir = tempfile::TempDir::new().unwrap();
         let out = dir.path().join("x.pdf");
-        let spec = ImposeSpec { mode: "repeat".into(), sides: "double".into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "portrait".into(), bleed: 3.0, allow_rotate: false, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: true, rotate_backs: true };
+        let spec = ImposeSpec { mode: "repeat".into(), sides: "double".into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "portrait".into(), bleed: 3.0, allow_rotate: false, cols: 0, rows: 0, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: true, rotate_backs: true };
         let plan = impose(Path::new(&i), &out, &spec).unwrap();
         let doc = Document::load(&out).unwrap();
         let page = doc.get_dictionary(*doc.get_pages().get(&1).unwrap()).unwrap();

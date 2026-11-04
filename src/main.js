@@ -5178,6 +5178,9 @@ function imposeSpec() {
     bleed: Math.max(0, Number(impEl("impBleed").value) || 0),
     orientation: impEl("impOrient").value,
     allowRotate: impEl("impRotate").checked,
+    // Empty = as many as fit.
+    cols: Math.max(0, Math.floor(Number(impEl("impCols").value) || 0)),
+    rows: Math.max(0, Math.floor(Number(impEl("impRows").value) || 0)),
     cropMarks: impEl("impMarks").checked,
     // Image shift: right minus left, up minus down.
     shiftX: (Number(impEl("impShiftRight").value) || 0) - (Number(impEl("impShiftLeft").value) || 0),
@@ -5189,7 +5192,7 @@ function imposeSpec() {
   };
 }
 
-const IMPOSE_FIELDS = ["impMode", "impSides", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY", "impRotateBacks"];
+const IMPOSE_FIELDS = ["impMode", "impSides", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impCols", "impRows", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY", "impRotateBacks"];
 
 function saveImposeSettings() {
   const v = {};
