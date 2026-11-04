@@ -9,6 +9,15 @@
 //! - "nup": pages in order across the sheets.
 //! - "cutstack": pages run down the stack, so each pile is in order once
 //!   the sheets are cut (numbered or mail-merged items).
+//! - "booklet": saddle-stitched booklet: pages in reader spreads (last and
+//!   first on the outside sheet…), padded with blank pages to a multiple
+//!   of 4, each spread repeated as many times as fits.
+//!
+//! Sides: single-sided, every imposed page is a front. Double-sided, the
+//! PDF's pages are front/back pairs (1 and 2, 3 and 4…) and the imposed
+//! pages alternate front and back; on a back the items sit where their
+//! fronts will be once the sheet is turned (positions mirrored as the
+//! shift is). Booklets are always double-sided.
 
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use serde::{Deserialize, Serialize};
@@ -19,8 +28,11 @@ const MM: f64 = 72.0 / 25.4;
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ImposeSpec {
-    /// "repeat", "nup" or "cutstack".
+    /// "repeat", "nup", "cutstack" or "booklet".
     pub mode: String,
+    /// "single" or "double" (the default) sided.
+    #[serde(default)]
+    pub sides: String,
     /// Press sheet, mm (either orientation; the better one is used).
     pub sheet_w: f64,
     pub sheet_h: f64,
@@ -74,6 +86,80 @@ pub struct ImposePlan {
     pub item_w: f64,
     pub item_h: f64,
     pub pages: u32,
+    /// For each imposed page, each cell's pages (1-based; two for a
+    /// booklet spread, left then right; 0 is a blank page). Empty: no item.
+    pub cells: Vec<Vec<Vec<u32>>>,
+    /// Whether each imposed page is a back.
+    pub backs: Vec<bool>,
+    pub double: bool,
+    /// Blank pages added to make a booklet up to a multiple of 4.
+    pub blanks: u32,
+}
+
+impl ImposeSpec {
+    fn booklet(&self) -> bool {
+        self.mode == "booklet"
+    }
+    fn double(&self) -> bool {
+        self.booklet() || self.sides != "single"
+    }
+}
+
+/// Which pages go in each cell of each imposed page (see `ImposePlan`).
+fn assign(spec: &ImposeSpec, n: usize, cols: usize, rows: usize) -> (Vec<Vec<Vec<u32>>>, Vec<bool>, u32) {
+    let per = cols * rows;
+    let pg = |i: usize| -> Vec<u32> { if i < n { vec![i as u32 + 1] } else { Vec::new() } };
+    // Where an item in front cell `c` sits on the back.
+    let mirror = |c: usize| -> usize {
+        let (r, col) = (c / cols, c % cols);
+        let col = if spec.mirror_x { cols - 1 - col } else { col };
+        let r = if spec.mirror_y { rows - 1 - r } else { r };
+        r * cols + col
+    };
+    let mut cells = Vec::new();
+    let mut backs = Vec::new();
+    let mut blanks = 0;
+    if spec.booklet() {
+        let total = n.div_ceil(4).max(1) * 4;
+        blanks = (total - n) as u32;
+        let num = |i: usize| if i < n { i as u32 + 1 } else { 0 };
+        for k in 0..total / 2 {
+            let i = k / 2;
+            let spread = if k % 2 == 0 { [num(total - 1 - 2 * i), num(2 * i)] } else { [num(2 * i + 1), num(total - 2 - 2 * i)] };
+            cells.push(vec![spread.to_vec(); per]);
+            backs.push(k % 2 == 1);
+        }
+    } else if spec.mode == "repeat" {
+        for k in 0..n {
+            cells.push(vec![pg(k); per]);
+            backs.push(spec.double() && k % 2 == 1);
+        }
+    } else if !spec.double() {
+        let sheets = n.div_ceil(per);
+        for k in 0..sheets {
+            cells.push((0..per).map(|c| pg(if spec.mode == "cutstack" { c * sheets + k } else { k * per + c })).collect());
+            backs.push(false);
+        }
+    } else {
+        // Items are front/back pairs of pages.
+        let items = n.div_ceil(2);
+        let fronts = items.div_ceil(per);
+        for f in 0..fronts {
+            let item = |c: usize| if spec.mode == "cutstack" { c * fronts + f } else { f * per + c };
+            let front: Vec<Vec<u32>> = (0..per).map(|c| if item(c) < items { pg(2 * item(c)) } else { Vec::new() }).collect();
+            let mut back = vec![Vec::new(); per];
+            for c in 0..per {
+                if item(c) < items {
+                    back[mirror(c)] = pg(2 * item(c) + 1);
+                }
+            }
+            cells.push(front);
+            backs.push(false);
+            cells.push(back);
+            backs.push(true);
+        }
+    }
+    (cells, backs, blanks)
 }
 
 fn num(o: &Object) -> Option<f64> {
@@ -196,17 +282,17 @@ fn best_grid(spec: &ImposeSpec, item: (f64, f64)) -> (u32, u32, bool, f64, f64) 
 
 fn plan_for(spec: &ImposeSpec, pages: &[PageInfo]) -> Result<ImposePlan, String> {
     let first = pages.first().ok_or("The PDF has no pages.")?;
-    let item = display_size(first);
+    let (pw, ph) = display_size(first);
+    // A booklet places reader spreads: two pages side by side.
+    let item = if spec.booklet() { (2.0 * pw, ph) } else { (pw, ph) };
     let (cols, rows, rotated, w, h) = best_grid(spec, item);
     let per_sheet = cols * rows;
     if per_sheet == 0 {
         return Err("The page doesn't fit on that sheet with these margins and bleed.".into());
     }
     let n = pages.len() as u32;
-    let sheets = match spec.mode.as_str() {
-        "repeat" => n,
-        _ => n.div_ceil(per_sheet),
-    };
+    let (cells, backs, blanks) = assign(spec, n as usize, cols as usize, rows as usize);
+    let sheets = cells.len() as u32;
     let (iw, ih) = if rotated { (item.1, item.0) } else { item };
     Ok(ImposePlan {
         cols,
@@ -219,6 +305,10 @@ fn plan_for(spec: &ImposeSpec, pages: &[PageInfo]) -> Result<ImposePlan, String>
         item_w: iw / MM,
         item_h: ih / MM,
         pages: n,
+        cells,
+        backs,
+        double: spec.double(),
+        blanks,
     })
 }
 
@@ -247,6 +337,11 @@ fn page_form(doc: &mut Document, p: &PageInfo) -> Result<ObjectId, String> {
     let mut s = Stream::new(d, content);
     let _ = s.compress();
     Ok(doc.add_object(s))
+}
+
+/// A matrix as `cm` operands.
+fn cm(m: M) -> String {
+    m.iter().map(|v| n(*v)).collect::<Vec<_>>().join(" ")
 }
 
 fn n(v: f64) -> String {
@@ -297,26 +392,13 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
         Object::Reference(func_id),
     ]));
 
-    // Which page goes in each cell of each sheet.
-    let per = plan.per_sheet as usize;
-    let count = pages.len();
-    let cell_page = |sheet: usize, cell: usize| -> Option<usize> {
-        match spec.mode.as_str() {
-            "repeat" => Some(sheet),
-            "cutstack" => {
-                let i = cell * plan.sheets as usize + sheet;
-                (i < count).then_some(i)
-            }
-            _ => {
-                let i = sheet * per + cell;
-                (i < count).then_some(i)
-            }
-        }
-    };
+    let booklet = spec.booklet();
+    // A booklet page's width within its spread (before any turn), pt.
+    let page_w = if plan.rotated { ih / 2.0 } else { iw / 2.0 };
 
     let mut new_pages = Vec::new();
     for sheet in 0..plan.sheets as usize {
-        let back = sheet % 2 == 1;
+        let back = plan.backs[sheet];
         let sx = if back && spec.mirror_x { -spec.shift_x } else { spec.shift_x };
         let sy = if back && spec.mirror_y { -spec.shift_y } else { spec.shift_y };
         let gx = (sw - grid_w) / 2.0 + sx * MM;
@@ -327,12 +409,14 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
             for col in 0..cols as usize {
                 // Cells run left to right, top to bottom.
                 let cell = row * cols as usize + col;
-                let Some(pi) = cell_page(sheet, cell) else { continue };
-                let p = &pages[pi];
+                let slot = &plan.cells[sheet][cell];
+                if slot.is_empty() || slot.iter().all(|&p| p == 0) {
+                    continue;
+                }
                 let x = gx + col as f64 * (iw + hg);
                 let y = gy + (rows as usize - 1 - row) as f64 * (ih + vg);
-                // Page → display → (turned) → cell.
-                let mut m = display_matrix(p);
+                // Item (page, or booklet spread) → (turned) → cell.
+                let mut m: M = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
                 if plan.rotated {
                     // Display size before turning is (ih, iw); turn 90° anticlockwise.
                     m = mul(m, [0.0, 1.0, -1.0, 0.0, iw, 0.0]);
@@ -341,25 +425,33 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
                     m = mul(m, [-1.0, 0.0, 0.0, -1.0, iw, ih]);
                 }
                 m = mul(m, [1.0, 0.0, 0.0, 1.0, x, y]);
+                let place = m;
                 let left = if col == 0 { b } else { inner_x };
                 let right = if col + 1 == cols as usize { b } else { inner_x };
                 let bottom = if row + 1 == rows as usize { b } else { inner_y };
                 let top = if row == 0 { b } else { inner_y };
-                let name = format!("P{pi}");
-                xobjects.set(name.as_bytes().to_vec(), Object::Reference(forms[pi]));
-                ops.push_str(&format!(
-                    "q {} {} {} {} re W n {} {} {} {} {} {} cm /{name} Do Q\n",
-                    n(x - left),
-                    n(y - bottom),
-                    n(iw + left + right),
-                    n(ih + top + bottom),
-                    n(m[0]),
-                    n(m[1]),
-                    n(m[2]),
-                    n(m[3]),
-                    n(m[4]),
-                    n(m[5]),
-                ));
+                // The cell with its bleed, in sheet space.
+                ops.push_str(&format!("q {} {} {} {} re W n {} cm\n", n(x - left), n(y - bottom), n(iw + left + right), n(ih + top + bottom), cm(place)));
+                for (j, &pnum) in slot.iter().enumerate() {
+                    if pnum == 0 {
+                        continue; // blank booklet page
+                    }
+                    let pi = pnum as usize - 1;
+                    let p = &pages[pi];
+                    let name = format!("P{pi}");
+                    xobjects.set(name.as_bytes().to_vec(), Object::Reference(forms[pi]));
+                    let mut pm = display_matrix(p);
+                    if booklet {
+                        // Left or right half of the spread; no bleed across the spine.
+                        let (x0, x1) = if j == 0 { (-1.0e4, page_w) } else { (page_w, 1.0e4) };
+                        ops.push_str(&format!("q {} -10000 {} 20000 re W n ", n(x0), n(x1 - x0)));
+                        pm = mul(pm, [1.0, 0.0, 0.0, 1.0, j as f64 * page_w, 0.0]);
+                    } else {
+                        ops.push_str("q ");
+                    }
+                    ops.push_str(&format!("{} cm /{name} Do Q\n", cm(pm)));
+                }
+                ops.push_str("Q\n");
             }
         }
         if spec.crop_marks {
@@ -373,12 +465,18 @@ pub fn impose(path: &Path, out: &Path, spec: &ImposeSpec) -> Result<ImposePlan, 
                 let x = gx + c as f64 * (iw + hg);
                 xs.push(x);
                 xs.push(x + iw);
+                if booklet && !plan.rotated {
+                    xs.push(x + iw / 2.0); // fold
+                }
             }
             let mut ys = Vec::new();
             for r in 0..rows as usize {
                 let y = gy + r as f64 * (ih + vg);
                 ys.push(y);
                 ys.push(y + ih);
+                if booklet && plan.rotated {
+                    ys.push(y + ih / 2.0); // fold
+                }
             }
             for x in &xs {
                 ops.push_str(&format!("{} {} m {} {} l S\n", n(*x), n(gy - off), n(*x), n(gy - off - len)));
@@ -442,7 +540,7 @@ mod tests {
     use super::*;
 
     fn spec(mode: &str) -> ImposeSpec {
-        ImposeSpec { mode: mode.into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "auto".into(), bleed: 3.0, allow_rotate: true, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: false, rotate_backs: false }
+        ImposeSpec { mode: mode.into(), sides: "double".into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "auto".into(), bleed: 3.0, allow_rotate: true, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: false, rotate_backs: false }
     }
 
     #[test]
@@ -452,6 +550,35 @@ mod tests {
         let plan = plan_for(&spec("repeat"), &[p]).unwrap();
         println!("{plan:?}");
         assert!(plan.per_sheet >= 20, "{plan:?}");
+    }
+
+    #[test]
+    fn booklet_order() {
+        // 6 pages → 8 (2 blanks): outside sheet 8|1 and 2|7, inside 6|3 and 4|5.
+        let mut sp = spec("booklet");
+        sp.allow_rotate = false;
+        let (cells, backs, blanks) = assign(&sp, 6, 1, 1);
+        assert_eq!(blanks, 2);
+        let firsts: Vec<Vec<u32>> = cells.iter().map(|c| c[0].clone()).collect();
+        assert_eq!(firsts, vec![vec![0, 1], vec![2, 0], vec![6, 3], vec![4, 5]]);
+        assert_eq!(backs, vec![false, true, false, true]);
+    }
+
+    #[test]
+    fn double_sided_unique_backs_mirror() {
+        // 3 cols × 1 row, 6 pages = 3 items: fronts 1 3 5, backs mirrored left/right: 6 4 2.
+        let mut sp = spec("nup");
+        sp.mirror_x = true;
+        sp.mirror_y = false;
+        let (cells, backs, _) = assign(&sp, 6, 3, 1);
+        assert_eq!(cells[0], vec![vec![1], vec![3], vec![5]]);
+        assert_eq!(cells[1], vec![vec![6], vec![4], vec![2]]);
+        assert_eq!(backs, vec![false, true]);
+        sp.sides = "single".into();
+        let (cells, backs, _) = assign(&sp, 6, 3, 1);
+        assert_eq!(cells.len(), 2);
+        assert_eq!(cells[1], vec![vec![4], vec![5], vec![6]]);
+        assert_eq!(backs, vec![false, false]);
     }
 
     #[test]
@@ -470,7 +597,7 @@ mod tests {
     #[test]
     fn impose_file() {
         let (Ok(i), Ok(o)) = (std::env::var("MP_IMPOSE_PDF"), std::env::var("MP_IMPOSE_OUT")) else { return };
-        for mode in ["repeat", "nup", "cutstack", "repeat-rotated-backs"] {
+        for mode in ["repeat", "nup", "cutstack", "repeat-rotated-backs", "booklet"] {
             let out = format!("{o}.{mode}.pdf");
             let mut sp = spec(mode.split('-').next().unwrap());
             sp.rotate_backs = mode.ends_with("backs");
@@ -490,7 +617,7 @@ mod trim_tests {
         let Ok(i) = std::env::var("MP_IMPOSE_PDF") else { return };
         let dir = tempfile::TempDir::new().unwrap();
         let out = dir.path().join("x.pdf");
-        let spec = ImposeSpec { mode: "repeat".into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "portrait".into(), bleed: 3.0, allow_rotate: false, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: true, rotate_backs: true };
+        let spec = ImposeSpec { mode: "repeat".into(), sides: "double".into(), sheet_w: 320.0, sheet_h: 450.0, margin: 5.0, gutter_short: 6.0, gutter_long: 6.0, orientation: "portrait".into(), bleed: 3.0, allow_rotate: false, crop_marks: true, shift_x: 0.0, shift_y: 0.0, mirror_x: true, mirror_y: true, rotate_backs: true };
         let plan = impose(Path::new(&i), &out, &spec).unwrap();
         let doc = Document::load(&out).unwrap();
         let page = doc.get_dictionary(*doc.get_pages().get(&1).unwrap()).unwrap();

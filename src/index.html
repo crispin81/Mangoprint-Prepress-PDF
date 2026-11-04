@@ -535,6 +535,12 @@
             <option value="repeat">Step and repeat: each page fills its own sheet (front and back line up)</option>
             <option value="nup">Unique: every page once, in order across the sheet</option>
             <option value="cutstack">Unique, cut and stack: variable data stays in order once cut</option>
+            <option value="booklet">Booklet: saddle-stitched, pages in reader spreads (blank pages added to make a multiple of 4)</option>
+          </select>
+          <label id="impSidesLabel" for="impSides">Sides</label>
+          <select id="impSides" title="Double sided: the PDF's pages are fronts and backs (1 and 2, 3 and 4…), and each back lines up with its front once the sheet is turned. Single sided: every page is a front">
+            <option value="double" selected>Double sided: pages are front and back pairs</option>
+            <option value="single">Single sided: fronts only</option>
           </select>
           <label for="impSheet">Sheet</label>
           <span class="impose__sheet">
@@ -578,11 +584,11 @@
           <div class="shift-grid">
             <label class="shift-field shift-top" title="Image shift: move the whole layout up (mm)">↑ <input type="number" id="impShiftTop" min="0" max="100" step="0.5" value="0" /> mm</label>
             <label class="shift-field shift-left" title="Image shift: move the whole layout left (mm)">← <input type="number" id="impShiftLeft" min="0" max="100" step="0.5" value="0" /> mm</label>
-            <div class="sheet-pair"><figure><svg id="impPreview" xmlns="http://www.w3.org/2000/svg"></svg><figcaption>Front</figcaption></figure><figure><svg id="impPreviewBack" xmlns="http://www.w3.org/2000/svg"></svg><figcaption>Back</figcaption></figure></div>
+            <div class="sheet-pair"><figure><svg id="impPreview" xmlns="http://www.w3.org/2000/svg"></svg><figcaption>Front</figcaption></figure><figure id="impBackFigure"><svg id="impPreviewBack" xmlns="http://www.w3.org/2000/svg"></svg><figcaption>Back</figcaption></figure></div>
             <label class="shift-field shift-right" title="Image shift: move the whole layout right (mm)">→ <input type="number" id="impShiftRight" min="0" max="100" step="0.5" value="0" /> mm</label>
             <label class="shift-field shift-bottom" title="Image shift: move the whole layout down (mm)">↓ <input type="number" id="impShiftBottom" min="0" max="100" step="0.5" value="0" /> mm</label>
           </div>
-          <div class="impose__mirror" title="Sheets go in front and back pairs (1 and 2, 3 and 4…). The image shift on a front is mirrored on its back so they line up once the sheet is turned.">
+          <div id="impMirrorBox" class="impose__mirror" title="Sheets go in front and back pairs (1 and 2, 3 and 4…). The image shift on a front is mirrored on its back so they line up once the sheet is turned.">
             <label><input type="checkbox" id="impMirrorX" checked /> Mirror left/right on backs</label>
             <label><input type="checkbox" id="impMirrorY" checked /> Mirror up/down on backs</label>
             <label title="When items are turned to fit (e.g. on a landscape sheet), turn the back artwork 180° so it reads the right way up. Upright items are left alone."><input type="checkbox" id="impRotateBacks" checked /> Rotate back artwork 180° when items are turned</label>

@@ -5138,6 +5138,7 @@ function imposeSpec() {
   const [w, h] = sheet === "custom" ? [Number(impEl("impW").value), Number(impEl("impH").value)] : sheet.split("x").map(Number);
   return {
     mode: impEl("impMode").value,
+    sides: impEl("impSides").value,
     sheetW: w || 320,
     sheetH: h || 450,
     margin: Math.max(0, Number(impEl("impMargin").value) || 0),
@@ -5157,7 +5158,7 @@ function imposeSpec() {
   };
 }
 
-const IMPOSE_FIELDS = ["impMode", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY", "impRotateBacks"];
+const IMPOSE_FIELDS = ["impMode", "impSides", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY", "impRotateBacks"];
 
 function saveImposeSettings() {
   const v = {};
@@ -5180,6 +5181,13 @@ try {
 
 // The summary line: "21 up · 2 sheets", worked out for this PDF.
 async function updateImposeSummary() {
+  // Booklets are always double sided; single sided has no backs to line up.
+  const booklet = impEl("impMode").value === "booklet";
+  impEl("impSides").classList.toggle("hidden", booklet);
+  impEl("impSidesLabel").classList.toggle("hidden", booklet);
+  const double = booklet || impEl("impSides").value === "double";
+  impEl("impMirrorBox").classList.toggle("hidden", !double);
+  impEl("impBackFigure").classList.toggle("hidden", !double);
   const custom = impEl("impSheet").value === "custom";
   impEl("impCustom").classList.toggle("hidden", !custom);
   impEl("impCustomLabel").classList.toggle("hidden", !custom);
@@ -5193,10 +5201,14 @@ async function updateImposeSummary() {
     drawImposePreview(p, spec);
     const mm = (v) => (Math.round(v * 10) / 10).toString();
     out.className = "impose__summary";
+    // Sheets of paper: a double-sided sheet is two imposed pages.
+    const paper = p.double ? Math.ceil(p.sheets / 2) : p.sheets;
+    const booklet = spec.mode === "booklet";
     out.textContent =
       `${p.per_sheet} up (${p.cols} × ${p.rows}${p.rotated ? ", turned" : ""}) · ` +
-      `${p.sheets} sheet${p.sheets === 1 ? "" : "s"} of ${mm(p.sheet_w)} × ${mm(p.sheet_h)} mm · ` +
-      `items ${mm(p.item_w)} × ${mm(p.item_h)} mm`;
+      `${paper} sheet${paper === 1 ? "" : "s"}${p.double ? ", printed both sides" : ""} of ${mm(p.sheet_w)} × ${mm(p.sheet_h)} mm · ` +
+      `${booklet ? "spreads" : "items"} ${mm(p.item_w)} × ${mm(p.item_h)} mm` +
+      (p.blanks ? ` · ${p.blanks} blank page${p.blanks === 1 ? "" : "s"} added at the end` : "");
     impEl("impGo").disabled = false;
   } catch (err) {
     if (token !== imposePlanToken) return;
@@ -5276,10 +5288,12 @@ function drawImposePreview(p, spec) {
     label.textContent = "";
     return;
   }
-  const pairs = Math.ceil(p.sheets / 2);
-  imposePair = Math.min(imposePair, pairs - 1);
-  drawImposeSheet(front, p, spec, imposePair * 2);
-  drawImposeSheet(backSvg, p, spec, imposePair * 2 + 1);
+  const step = p.double ? 2 : 1;
+  const pairs = Math.ceil(p.sheets / step);
+  imposePair = Math.max(0, Math.min(imposePair, pairs - 1));
+  drawImposeSheet(front, p, spec, imposePair * step);
+  if (p.double) drawImposeSheet(backSvg, p, spec, imposePair * 2 + 1);
+  else backSvg.replaceChildren();
   label.textContent = `Sheet ${imposePair + 1} of ${pairs}`;
   impEl("impPrev").disabled = imposePair <= 0;
   impEl("impNext").disabled = imposePair >= pairs - 1;
@@ -5303,7 +5317,7 @@ function drawImposeSheet(svg, p, spec, k) {
   const gridW = cols * iw + (cols - 1) * hg;
   const gridH = rows * ih + (rows - 1) * vg;
   // Centred, then the image shift (+y is up, so down the screen is minus).
-  const back = k % 2 === 1;
+  const back = !!p.backs[k];
   const sx = back && spec.mirrorX ? -spec.shiftX : spec.shiftX;
   const sy = back && spec.mirrorY ? -spec.shiftY : spec.shiftY;
   const gx = (sw - gridW) / 2 + sx;
@@ -5322,13 +5336,11 @@ function drawImposeSheet(svg, p, spec, k) {
   if (spec.margin > 0) {
     el("rect", { x: spec.margin, y: spec.margin, width: sw - 2 * spec.margin, height: sh - 2 * spec.margin, fill: "none", stroke: "#bbb", "stroke-width": hair, "stroke-dasharray": `${hair * 6} ${hair * 4}` });
   }
-  const count = p.pages;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const cell = r * cols + c;
-      const page =
-        spec.mode === "repeat" ? k + 1 : spec.mode === "cutstack" ? cell * p.sheets + k + 1 : k * p.per_sheet + cell + 1;
-      if (page > count) continue;
+      const slot = (p.cells[k] && p.cells[k][cell]) || [];
+      if (!slot.length) continue;
       const x = gx + c * (iw + hg);
       const y = gy + r * (ih + vg);
       const left = c === 0 ? b : innerX;
@@ -5337,30 +5349,45 @@ function drawImposeSheet(svg, p, spec, k) {
       const bottom = r === rows - 1 ? b : innerY;
       // Bleed, then the item (its thumbnail when there is one).
       el("rect", { x: x - left, y: y - top, width: iw + left + right, height: ih + top + bottom, fill: "#ffcc33", opacity: 0.35 });
-      const thumb = document.querySelector(`#thumbList .thumb[data-page="${page}"] canvas`);
-      let src = null;
-      try {
-        if (thumb) src = thumb.toDataURL("image/png");
-      } catch {}
-      if (src) {
-        const [dw, dh] = p.rotated ? [ih, iw] : [iw, ih];
-        el("image", {
-          href: src,
-          width: dw,
-          height: dh,
-          preserveAspectRatio: "xMidYMid slice",
-          transform:
-            (back && spec.rotateBacks && p.rotated ? `rotate(180 ${x + iw / 2} ${y + ih / 2}) ` : "") +
-            (p.rotated ? `translate(${x} ${y + ih}) rotate(-90)` : `translate(${x} ${y})`),
-        });
-      } else {
-        el("rect", { x, y, width: iw, height: ih, fill: "#e8e8ec" });
-      }
+      // Each page of the slot (two side by side for a booklet spread),
+      // in the item's own upright space, then turned into the cell.
+      const [dw, dh] = p.rotated ? [ih, iw] : [iw, ih];
+      const pw = dw / slot.length;
+      const g = document.createElementNS(NS, "g");
+      g.setAttribute(
+        "transform",
+        (back && spec.rotateBacks && p.rotated ? `rotate(180 ${x + iw / 2} ${y + ih / 2}) ` : "") +
+          (p.rotated ? `translate(${x} ${y + ih}) rotate(-90)` : `translate(${x} ${y})`),
+      );
+      svg.appendChild(g);
+      const sub = (name, attrs) => {
+        const e = document.createElementNS(NS, name);
+        for (const [a, v] of Object.entries(attrs)) e.setAttribute(a, String(v));
+        g.appendChild(e);
+        return e;
+      };
+      slot.forEach((page, j) => {
+        const px = j * pw;
+        if (!page) {
+          sub("rect", { x: px, y: 0, width: pw, height: dh, fill: "#fff" });
+          const t = sub("text", { x: px + pw / 2, y: dh / 2, "font-size": Math.min(pw, dh) / 8, "text-anchor": "middle", "dominant-baseline": "central", fill: "#999" });
+          t.textContent = "Blank";
+          return;
+        }
+        const thumb = document.querySelector(`#thumbList .thumb[data-page="${page}"] canvas`);
+        let src = null;
+        try {
+          if (thumb) src = thumb.toDataURL("image/png");
+        } catch {}
+        if (src) sub("image", { href: src, x: px, y: 0, width: pw, height: dh, preserveAspectRatio: "xMidYMid slice" });
+        else sub("rect", { x: px, y: 0, width: pw, height: dh, fill: "#e8e8ec" });
+        if (spec.mode !== "repeat") {
+          const t = sub("text", { x: px + pw / 2, y: dh / 2, "font-size": Math.min(pw, dh) / 3, "text-anchor": "middle", "dominant-baseline": "central", fill: "#14151a", opacity: 0.7 });
+          t.textContent = page;
+        }
+      });
+      if (slot.length === 2) sub("line", { x1: pw, y1: 0, x2: pw, y2: dh, stroke: "#555", "stroke-width": hair, "stroke-dasharray": `${hair * 4} ${hair * 3}` });
       el("rect", { x, y, width: iw, height: ih, fill: "none", stroke: "#555", "stroke-width": hair });
-      if (spec.mode !== "repeat") {
-        const t = el("text", { x: x + iw / 2, y: y + ih / 2, "font-size": Math.min(iw, ih) / 3, "text-anchor": "middle", "dominant-baseline": "central", fill: "#14151a", opacity: 0.7 });
-        t.textContent = page;
-      }
     }
   }
   if (spec.cropMarks) {
@@ -5368,13 +5395,15 @@ function drawImposeSheet(svg, p, spec, k) {
     const len = 5;
     const line = (x1, y1, x2, y2) => el("line", { x1, y1, x2, y2, stroke: "#000", "stroke-width": hair });
     for (let c = 0; c < cols; c++) {
-      for (const x of [gx + c * (iw + hg), gx + c * (iw + hg) + iw]) {
+      const fold = spec.mode === "booklet" && !p.rotated ? [gx + c * (iw + hg) + iw / 2] : [];
+      for (const x of [gx + c * (iw + hg), gx + c * (iw + hg) + iw, ...fold]) {
         line(x, gy - off, x, gy - off - len);
         line(x, gy + gridH + off, x, gy + gridH + off + len);
       }
     }
     for (let r = 0; r < rows; r++) {
-      for (const y of [gy + r * (ih + vg), gy + r * (ih + vg) + ih]) {
+      const fold = spec.mode === "booklet" && p.rotated ? [gy + r * (ih + vg) + ih / 2] : [];
+      for (const y of [gy + r * (ih + vg), gy + r * (ih + vg) + ih, ...fold]) {
         line(gx - off, y, gx - off - len, y);
         line(gx + gridW + off, y, gx + gridW + off + len, y);
       }
@@ -5403,7 +5432,7 @@ showOrientButtons();
 for (const [id, step] of [["impPrev", -1], ["impNext", 1]]) {
   impEl(id).addEventListener("click", () => {
     if (!imposeLast) return;
-    imposePair = Math.max(0, Math.min(Math.ceil(imposeLast[0].sheets / 2) - 1, imposePair + step));
+    imposePair = Math.max(0, Math.min(Math.ceil(imposeLast[0].sheets / (imposeLast[0].double ? 2 : 1)) - 1, imposePair + step));
     drawImposePreview(...imposeLast);
   });
 }
