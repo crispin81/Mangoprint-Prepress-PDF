@@ -4605,8 +4605,11 @@ window.addEventListener("keydown", (ev) => {
 const marquee = document.getElementById("marquee");
 const zoomDrag = { active: false, x0: 0, y0: 0 };
 
+let handAfterZoomTimer = null; // see queueHandAfterZoom
+
 // `out`: the zoom out tool (clicks zoom out; Alt swaps either way).
 function setZoomTool(on, out = false) {
+  clearTimeout(handAfterZoomTimer);
   state.zoomTool = on;
   state.zoomOutMode = on && out;
   els.viewport.classList.toggle("zoom-out", state.zoomOutMode);
@@ -4657,6 +4660,7 @@ function zoomToBox(x0, y0, x1, y1) {
 els.viewport.addEventListener("mousedown", (ev) => {
   if (!state.zoomTool || !view.page || ev.button !== 0) return;
   ev.preventDefault();
+  clearTimeout(handAfterZoomTimer);
   zoomDrag.active = true;
   zoomDrag.x0 = ev.clientX;
   zoomDrag.y0 = ev.clientY;
@@ -4677,7 +4681,23 @@ window.addEventListener("mouseup", (ev) => {
   const moved = Math.abs(ev.clientX - zoomDrag.x0) > 6 || Math.abs(ev.clientY - zoomDrag.y0) > 6;
   if (moved && !zoomingOut(ev)) zoomToBox(zoomDrag.x0, zoomDrag.y0, ev.clientX, ev.clientY);
   else stepZoom(zoomingOut(ev) ? -1 : 1, [ev.clientX, ev.clientY]);
+  queueHandAfterZoom();
 });
+
+// 2 s after the last zoom tool click, switch to the hand so the page can
+// be dragged around, if it's now bigger than the window. Z (or the right-
+// click menu) brings the zoom tool back.
+
+function queueHandAfterZoom() {
+  clearTimeout(handAfterZoomTimer);
+  handAfterZoomTimer = setTimeout(() => {
+    handAfterZoomTimer = null;
+    if (!state.zoomTool || zoomDrag.active) return;
+    const vp = els.viewport;
+    const pannable = vp.scrollWidth > vp.clientWidth + 1 || vp.scrollHeight > vp.clientHeight + 1;
+    if (pannable) setHandTool(true);
+  }, 2000);
+}
 
 document.getElementById("zoomToolBtn").addEventListener("click", () => setZoomTool(!state.zoomTool));
 
