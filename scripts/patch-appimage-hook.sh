@@ -8,6 +8,7 @@
 # file can't be confirmed.
 set -euo pipefail
 image="$(readlink -f "$1")"
+chmod +x "$image"
 tool="${LINUXDEPLOY_APPIMAGE_PLUGIN:-$HOME/.cache/tauri/linuxdeploy-plugin-appimage.AppImage}"
 [ -x "$tool" ] || { echo "Needs $tool (made by a local 'npm run tauri build')" >&2; exit 1; }
 wayland='export GDK_BACKEND=wayland,x11 # Prefer native Wayland (correct fractional scaling), fall back to X11 automatically if unavailable'
