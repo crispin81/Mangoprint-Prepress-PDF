@@ -208,6 +208,15 @@ code {
   color: white;
 }
 
+/* macOS: the system close / minimise / zoom buttons sit at the left of
+   the title bar instead of the app's own. */
+body.mac .titlebar__controls {
+  display: none;
+}
+body.mac .titlebar {
+  padding-left: 78px;
+}
+
 /* --- toolbar --- */
 
 /* Three columns: file actions left, page + zoom centred, tools right.

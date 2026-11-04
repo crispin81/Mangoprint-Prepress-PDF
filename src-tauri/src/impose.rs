@@ -109,12 +109,18 @@ impl ImposeSpec {
 fn assign(spec: &ImposeSpec, n: usize, cols: usize, rows: usize) -> (Vec<Vec<Vec<u32>>>, Vec<bool>, u32) {
     let per = cols * rows;
     let pg = |i: usize| -> Vec<u32> { if i < n { vec![i as u32 + 1] } else { Vec::new() } };
-    // Where an item in front cell `c` sits on the back.
+    // Where an item in front cell `c` sits on the back. A sheet turns over
+    // one way: left/right (work and turn) when that's ticked, else top to
+    // bottom (tumble). Flipping both would be neither.
     let mirror = |c: usize| -> usize {
         let (r, col) = (c / cols, c % cols);
-        let col = if spec.mirror_x { cols - 1 - col } else { col };
-        let r = if spec.mirror_y { rows - 1 - r } else { r };
-        r * cols + col
+        if spec.mirror_x {
+            r * cols + (cols - 1 - col)
+        } else if spec.mirror_y {
+            (rows - 1 - r) * cols + col
+        } else {
+            c
+        }
     };
     let mut cells = Vec::new();
     let mut backs = Vec::new();
@@ -579,6 +585,19 @@ mod tests {
         assert_eq!(cells.len(), 2);
         assert_eq!(cells[1], vec![vec![4], vec![5], vec![6]]);
         assert_eq!(backs, vec![false, false]);
+    }
+
+    #[test]
+    fn both_mirrors_turn_left_right() {
+        // 2 × 2, both boxes ticked: backs swap columns only.
+        let mut sp = spec("nup");
+        sp.mirror_x = true;
+        sp.mirror_y = true;
+        let (cells, _, _) = assign(&sp, 8, 2, 2);
+        assert_eq!(cells[1], vec![vec![4], vec![2], vec![8], vec![6]]);
+        sp.mirror_x = false;
+        let (cells, _, _) = assign(&sp, 8, 2, 2);
+        assert_eq!(cells[1], vec![vec![6], vec![8], vec![2], vec![4]]);
     }
 
     #[test]

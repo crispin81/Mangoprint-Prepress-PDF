@@ -1099,20 +1099,27 @@ async function rotatePageBy(n, delta) {
   }
 }
 
-// Toolbar rotate buttons: the current page, or every page picked in the
-// Pages panel, turned 90° (each page from its own rotation).
+// Toolbar rotate buttons: the pages picked in the Pages panel if more than
+// one is, otherwise every page or this one as "Apply edits to" says. Each
+// page turns 90° from its own rotation, all in one save and one undo.
 async function rotatePicked(delta) {
   if (!state.path || !view.doc) return;
-  const list = pages.picked.size ? [...pages.picked].sort((a, b) => a - b) : [state.page];
+  const list =
+    pages.picked.size > 1
+      ? [...pages.picked].filter((n) => n >= 1 && n <= state.pageCount).sort((a, b) => a - b)
+      : editAllPages()
+        ? Array.from({ length: state.pageCount }, (_, i) => i + 1)
+        : [state.page];
   try {
+    const rotations = [];
     for (const n of list) {
       const page = await view.doc.getPage(n);
-      const degrees = (((page.rotate + delta) % 360) + 360) % 360;
-      const boxes = await invoke("set_page_rotation", { path: state.path, page: n, degrees });
-      if (n === state.page) state.pageBoxes = boxes;
+      rotations.push([n, (((page.rotate + delta) % 360) + 360) % 360]);
     }
+    state.pageBoxes = await invoke("set_page_rotations", { path: state.path, page: state.page, rotations });
   } catch (err) {
     alert(`Could not rotate:\n${err}`);
+    return;
   }
   await afterBoxEdit();
 }
@@ -1407,6 +1414,10 @@ function drawBoxOverlay() {
 }
 
 // --- wiring ---
+
+// macOS: the window has the system's traffic-light buttons over the title
+// bar (tauri.macos.conf.json), so the app's own buttons are hidden.
+if (/Mac/.test(navigator.platform || navigator.userAgent)) document.body.classList.add("mac");
 
 els.winMin.addEventListener("click", () => appWindow.minimize());
 els.winMax.addEventListener("click", () => appWindow.toggleMaximize());
@@ -2495,7 +2506,16 @@ let activeTab = null;
 let tabSwitching = false;
 const tabBar = document.getElementById("tabBar");
 
+// Set while a tab is being dragged out (see startTabDrag).
+const tabDrag = { tab: null, el: null, x0: 0, y0: 0, out: false, ghost: null, justDetached: false, renderPending: false };
+
 function renderTabs() {
+  // Not mid-drag: that would throw away the tab being dragged (and its
+  // pointer capture); cancelTabDrag draws them afterwards.
+  if (tabDrag.tab) {
+    tabDrag.renderPending = true;
+    return;
+  }
   tabBar.replaceChildren();
   tabBar.classList.toggle("hidden", !tabs.length);
   for (const tab of tabs) {
@@ -2537,7 +2557,6 @@ function renderTabs() {
 // let go: it moves to a window of its own, keeping its working copy, so
 // edits, undo, page, zoom and guides all carry over.
 
-const tabDrag = { tab: null, el: null, x0: 0, y0: 0, out: false, ghost: null, justDetached: false };
 
 function startTabDrag(ev, tab, el, closeBtn) {
   if (ev.button !== 0 || ev.target === closeBtn || tabs.length < 2) return;
@@ -2591,7 +2610,9 @@ function cancelTabDrag() {
     el.classList.remove("dragging");
   }
   if (ghost) ghost.remove();
-  Object.assign(tabDrag, { tab: null, el: null, ghost: null, out: false });
+  const pending = tabDrag.renderPending;
+  Object.assign(tabDrag, { tab: null, el: null, ghost: null, out: false, renderPending: false });
+  if (pending) renderTabs();
 }
 
 function endTabDrag(ev) {
@@ -2619,6 +2640,7 @@ async function detachTab(tab, screenX, screenY) {
     zoom: tab.zoom || "fit",
     guides: tab.guides || [],
     mergeSetup: tab.mergeSetup || null,
+    isNew: !!tab.isNew,
   };
   try {
     await invoke("detach_tab", {
@@ -4402,8 +4424,12 @@ async function openPendingFiles() {
   for (const p of paths) await loadPdf(p);
 }
 
-window.__TAURI__.event.listen("open-files", () => openPendingFiles());
-openPendingFiles(); // a PDF double-clicked to launch the app
+// The payload names the window that should open them (main, unless it
+// was closed).
+window.__TAURI__.event.listen("open-files", (ev) => {
+  if (!ev.payload || ev.payload === appWindow.label) openPendingFiles();
+});
+if (appWindow.label === "main") openPendingFiles(); // a PDF double-clicked to launch the app
 adoptDetachedTab(); // this window was opened for a tab dragged out of another
 
 // Drag PDFs onto the window to open each in a tab, or onto the Pages
@@ -4716,7 +4742,6 @@ window.addEventListener("keydown", (ev) => {
 // out tool or the hand tool, or fit / actual size.
 
 const viewMenu = document.getElementById("viewMenu");
-let viewMenuAt = null;
 
 function hideViewMenu() {
   viewMenu.classList.add("hidden");
@@ -4725,7 +4750,6 @@ function hideViewMenu() {
 els.viewport.addEventListener("contextmenu", (ev) => {
   if (!view.page) return;
   ev.preventDefault();
-  viewMenuAt = [ev.clientX, ev.clientY];
   viewMenu.querySelector('[data-act="in"]').classList.toggle("active", !!state.zoomTool && !state.zoomOutMode);
   viewMenu.querySelector('[data-act="out"]').classList.toggle("active", !!state.zoomOutMode);
   viewMenu.querySelector('[data-act="hand"]').classList.toggle("active", !!state.handTool);
@@ -4896,11 +4920,18 @@ window.addEventListener("keydown", (ev) => {
   }
 });
 
-window.addEventListener("keyup", (ev) => {
-  if (ev.code !== "Space" || !pan.space) return;
+function endSpacePan() {
+  if (!pan.space) return;
   pan.space = false;
   els.viewport.classList.toggle("hand-tool", !!state.handTool);
+  updateToolCursor();
+}
+
+window.addEventListener("keyup", (ev) => {
+  if (ev.code === "Space") endSpacePan();
 });
+// Space let go in another window never sends a keyup here.
+window.addEventListener("blur", endSpacePan);
 
 // --- zoom & scrolling ---
 
@@ -4922,7 +4953,7 @@ els.viewport.addEventListener(
 );
 
 window.addEventListener("keydown", (ev) => {
-  if (!ev.ctrlKey || !view.page) return;
+  if (!(ev.ctrlKey || ev.metaKey) || !view.page) return; // Cmd on a Mac
   if (ev.key === "=" || ev.key === "+") stepZoom(1);
   else if (ev.key === "-") stepZoom(-1);
   else if (ev.key === "0") setZoom("fit");

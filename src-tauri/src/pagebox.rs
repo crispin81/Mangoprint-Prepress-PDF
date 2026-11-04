@@ -355,6 +355,22 @@ pub fn set_rotation(path: &Path, page: u32, degrees: i32) -> Result<PageBoxes, S
     get_page_boxes(path, page)
 }
 
+/// Sets several pages' /Rotate in one load and save: (page, degrees).
+pub fn set_rotations(path: &Path, rotations: &[(u32, i32)]) -> Result<(), String> {
+    let mut doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
+    for &(page, degrees) in rotations {
+        let normalized = ((degrees % 360) + 360) % 360;
+        if normalized % 90 != 0 {
+            return Err("Rotation must be a multiple of 90 degrees.".into());
+        }
+        let page_id = page_id_for(&doc, page)?;
+        doc.get_dictionary_mut(page_id)
+            .map_err(|e| format!("Could not access the page dictionary: {e}"))?
+            .set("Rotate", Object::Integer(normalized as i64));
+    }
+    doc.save(path).map(|_| ()).map_err(|e| format!("Could not save the PDF: {e}"))
+}
+
 /// Removes an explicit box entry from the page's own dictionary, letting
 /// it fall back to inheritance/default (CropBox → MediaBox; TrimBox /
 /// ArtBox / BleedBox → CropBox). MediaBox can't be reset this way since

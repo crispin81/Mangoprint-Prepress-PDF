@@ -829,6 +829,26 @@ fn set_page_rotation(
     Ok(result)
 }
 
+/// Turns several pages at once (the toolbar rotate buttons): one save and
+/// one undo step. Returns the boxes of `page` (the one on screen).
+#[tauri::command(async)]
+fn set_page_rotations(
+    path: String,
+    page: u32,
+    rotations: Vec<(u32, i32)>,
+    cache: tauri::State<SepCache>,
+    plates: tauri::State<PlateCache>,
+    hist: tauri::State<history::History>,
+    doc: tauri::State<DocLock>,
+) -> Result<pagebox::PageBoxes, String> {
+    let _w = write_lock(&doc)?;
+    hist.snapshot(&path)?;
+    pagebox::set_rotations(Path::new(&path), &rotations)?;
+    invalidate_path(&cache, &path);
+    clear_plates(&plates);
+    pagebox::get_page_boxes(Path::new(&path), page)
+}
+
 /// Recolour tool: the object under the cursor (x/y are fractions of the
 /// displayed page, `tol` the hit tolerance in points).
 #[tauri::command(async)]
@@ -1091,10 +1111,11 @@ fn hand_over(app: &tauri::AppHandle, paths: Vec<String>) {
     if let Ok(mut q) = app.state::<PendingOpen>().0.lock() {
         q.extend(paths);
     }
-    let _ = app.emit("open-files", ());
-    // The main window, or any other if that one was closed.
+    // The main window takes them, or another if that one was closed; the
+    // payload names it so only that window opens them.
     let win = app.get_webview_window("main").or_else(|| app.webview_windows().into_values().next());
     if let Some(win) = win {
+        let _ = app.emit("open-files", win.label().to_string());
         let _ = win.unminimize();
         let _ = win.set_focus();
     }
@@ -1109,8 +1130,9 @@ static NEXT_WINDOW: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32:
 
 /// Opens a new app window for a tab dragged out of the tab bar. `x`/`y`
 /// (logical screen pixels) place it under the pointer where the system
-/// allows it (Wayland places windows itself).
-#[tauri::command]
+/// allows it (Wayland places windows itself). Async: building a window
+/// from a synchronous command deadlocks on Windows.
+#[tauri::command(async)]
 fn detach_tab(
     app: tauri::AppHandle,
     tab: serde_json::Value,
@@ -1127,8 +1149,18 @@ fn detach_tab(
         .title("Mangoprint Prepress PDF")
         .inner_size(width.unwrap_or(1280.0).max(900.0), height.unwrap_or(860.0).max(600.0))
         .min_inner_size(900.0, 600.0)
-        .decorations(false)
         .background_color(tauri::window::Color(0x14, 0x15, 0x1a, 0xff));
+    // macOS: the system's own traffic-light buttons over the app's title
+    // bar (as tauri.macos.conf.json sets for the main window); elsewhere
+    // the app draws its own.
+    #[cfg(target_os = "macos")]
+    {
+        b = b.decorations(true).title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        b = b.decorations(false);
+    }
     if let (Some(x), Some(y)) = (x, y) {
         b = b.position(x, y);
     }
@@ -1220,6 +1252,7 @@ pub fn run() {
             set_rotation_all,
             reset_page_box_all,
             set_page_rotation,
+            set_page_rotations,
             recolour_pick,
             recolour_find,
             recolour_apply,
