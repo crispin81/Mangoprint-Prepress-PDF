@@ -2954,6 +2954,7 @@ function toolsOff(except) {
   if (except !== "recolour" && state.recolourTool) setRecolourTool(false);
   if (except !== "select" && state.selectTool) setSelectTool(false);
   if (except !== "merge" && state.mergeTool) setMergeTool(false);
+  if (except !== "hand" && state.handTool) setHandTool(false);
 }
 
 function setSelectTool(on) {
@@ -4604,8 +4605,11 @@ window.addEventListener("keydown", (ev) => {
 const marquee = document.getElementById("marquee");
 const zoomDrag = { active: false, x0: 0, y0: 0 };
 
-function setZoomTool(on) {
+// `out`: the zoom out tool (clicks zoom out; Alt swaps either way).
+function setZoomTool(on, out = false) {
   state.zoomTool = on;
+  state.zoomOutMode = on && out;
+  els.viewport.classList.toggle("zoom-out", state.zoomOutMode);
   document.getElementById("zoomToolBtn").classList.toggle("active", on);
   els.viewport.classList.toggle("zoom-tool", on);
   els.imgWrap.classList.toggle("zoom-tool", on);
@@ -4617,6 +4621,9 @@ function setZoomTool(on) {
     setTextMode(true); // back to the default: text can be selected
   }
 }
+
+// Zooming out with the zoom tool: the out tool, or Alt held with the in tool.
+const zoomingOut = (ev) => !!state.zoomOutMode !== !!ev.altKey;
 
 function drawMarquee(x1, y1) {
   marquee.style.left = `${Math.min(zoomDrag.x0, x1)}px`;
@@ -4657,7 +4664,7 @@ els.viewport.addEventListener("mousedown", (ev) => {
 });
 
 window.addEventListener("mousemove", (ev) => {
-  if (state.zoomTool) els.viewport.classList.toggle("zoom-out", ev.altKey);
+  if (state.zoomTool) els.viewport.classList.toggle("zoom-out", zoomingOut(ev));
   if (!zoomDrag.active) return;
   drawMarquee(ev.clientX, ev.clientY);
   marquee.classList.toggle("hidden", Math.abs(ev.clientX - zoomDrag.x0) + Math.abs(ev.clientY - zoomDrag.y0) < 6);
@@ -4668,8 +4675,8 @@ window.addEventListener("mouseup", (ev) => {
   zoomDrag.active = false;
   marquee.classList.add("hidden");
   const moved = Math.abs(ev.clientX - zoomDrag.x0) > 6 || Math.abs(ev.clientY - zoomDrag.y0) > 6;
-  if (moved) zoomToBox(zoomDrag.x0, zoomDrag.y0, ev.clientX, ev.clientY);
-  else stepZoom(ev.altKey ? -1 : 1, [ev.clientX, ev.clientY]);
+  if (moved && !zoomingOut(ev)) zoomToBox(zoomDrag.x0, zoomDrag.y0, ev.clientX, ev.clientY);
+  else stepZoom(zoomingOut(ev) ? -1 : 1, [ev.clientX, ev.clientY]);
 });
 
 document.getElementById("zoomToolBtn").addEventListener("click", () => setZoomTool(!state.zoomTool));
@@ -4682,8 +4689,8 @@ window.addEventListener("keydown", (ev) => {
   setZoomTool(!state.zoomTool);
 });
 
-// Right-click on the page area: a small menu with zoom in / out (around
-// the point clicked), fit, actual size and the zoom area tool.
+// Right-click on the page area: a small menu to pick the zoom in or zoom
+// out tool or the hand tool, or fit / actual size.
 
 const viewMenu = document.getElementById("viewMenu");
 let viewMenuAt = null;
@@ -4696,7 +4703,9 @@ els.viewport.addEventListener("contextmenu", (ev) => {
   if (!view.page) return;
   ev.preventDefault();
   viewMenuAt = [ev.clientX, ev.clientY];
-  viewMenu.querySelector('[data-act="tool"]').classList.toggle("active", !!state.zoomTool);
+  viewMenu.querySelector('[data-act="in"]').classList.toggle("active", !!state.zoomTool && !state.zoomOutMode);
+  viewMenu.querySelector('[data-act="out"]').classList.toggle("active", !!state.zoomOutMode);
+  viewMenu.querySelector('[data-act="hand"]').classList.toggle("active", !!state.handTool);
   viewMenu.classList.remove("hidden");
   const r = viewMenu.getBoundingClientRect();
   viewMenu.style.left = `${Math.min(ev.clientX, window.innerWidth - r.width - 4)}px`;
@@ -4709,11 +4718,11 @@ viewMenu.addEventListener("click", (ev) => {
   if (!b) return;
   hideViewMenu();
   const act = b.dataset.act;
-  if (act === "in") stepZoom(1, viewMenuAt);
-  else if (act === "out") stepZoom(-1, viewMenuAt);
+  if (act === "in") setZoomTool(true, false);
+  else if (act === "out") setZoomTool(true, true);
+  else if (act === "hand") setHandTool(!state.handTool);
   else if (act === "fit") setZoom("fit");
   else if (act === "actual") setZoom(1);
-  else if (act === "tool") setZoomTool(!state.zoomTool);
 });
 
 window.addEventListener("mousedown", (ev) => {
@@ -4723,6 +4732,85 @@ window.addEventListener("keydown", (ev) => { if (ev.key === "Escape") hideViewMe
 window.addEventListener("blur", hideViewMenu);
 window.addEventListener("resize", hideViewMenu);
 els.viewport.addEventListener("scroll", hideViewMenu);
+
+// --- hand tool: drag to pan around the page ---
+// On from the right-click menu or H; holding Space gives it for a moment
+// whatever tool is on.
+
+const pan = { active: false, x0: 0, y0: 0, left: 0, top: 0, space: false };
+
+function setHandTool(on) {
+  if (on) toolsOff("hand");
+  state.handTool = on;
+  els.viewport.classList.toggle("hand-tool", on || pan.space);
+  if (on) {
+    setTextMode(false);
+    clearInks();
+  } else if (!state.zoomTool && !state.recolourTool && !state.selectTool && !state.mergeTool) {
+    setTextMode(true);
+  }
+}
+
+const handActive = () => state.handTool || pan.space;
+
+els.viewport.addEventListener(
+  "mousedown",
+  (ev) => {
+    if (!handActive() || !view.page || ev.button !== 0) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation(); // not a click for the tool underneath
+    Object.assign(pan, { active: true, x0: ev.clientX, y0: ev.clientY, left: els.viewport.scrollLeft, top: els.viewport.scrollTop });
+    els.viewport.classList.add("panning");
+  },
+  true,
+);
+
+window.addEventListener("mousemove", (ev) => {
+  if (!pan.active) return;
+  els.viewport.scrollLeft = pan.left - (ev.clientX - pan.x0);
+  els.viewport.scrollTop = pan.top - (ev.clientY - pan.y0);
+});
+
+window.addEventListener(
+  "mouseup",
+  (ev) => {
+    if (!pan.active) return;
+    pan.active = false;
+    els.viewport.classList.remove("panning");
+    ev.stopImmediatePropagation();
+    pan.justPanned = true; // swallow the click that follows
+    setTimeout(() => (pan.justPanned = false), 0);
+  },
+  true,
+);
+
+els.viewport.addEventListener(
+  "click",
+  (ev) => {
+    if (pan.justPanned || handActive()) ev.stopImmediatePropagation();
+  },
+  true,
+);
+
+window.addEventListener("keydown", (ev) => {
+  if (!view.page || ev.ctrlKey || ev.altKey || ev.metaKey || typingIn(ev)) return;
+  if (ev.code === "Space") {
+    ev.preventDefault();
+    if (!pan.space) {
+      pan.space = true;
+      els.viewport.classList.add("hand-tool");
+    }
+  } else if (ev.key.toLowerCase() === "h" && !ev.repeat) {
+    ev.preventDefault();
+    setHandTool(!state.handTool);
+  }
+});
+
+window.addEventListener("keyup", (ev) => {
+  if (ev.code !== "Space" || !pan.space) return;
+  pan.space = false;
+  els.viewport.classList.toggle("hand-tool", !!state.handTool);
+});
 
 // --- zoom & scrolling ---
 

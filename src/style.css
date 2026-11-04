@@ -3209,3 +3209,15 @@ input::placeholder {
 .view-menu button.active span::before { content: "✓ "; }
 .view-menu kbd { font: inherit; opacity: 0.55; }
 .view-menu hr { border: none; border-top: 1px solid var(--border); margin: 4px 2px; }
+
+/* Hand tool (or Space held): drag to pan. Above the other tools' cursors. */
+#viewport.hand-tool,
+#viewport.hand-tool #imgWrap,
+#viewport.hand-tool #imgWrap * {
+  cursor: grab !important;
+}
+#viewport.hand-tool.panning,
+#viewport.hand-tool.panning #imgWrap,
+#viewport.hand-tool.panning #imgWrap * {
+  cursor: grabbing !important;
+}
