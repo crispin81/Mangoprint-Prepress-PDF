@@ -134,7 +134,7 @@ impl ImposeSpec {
     /// 90° their heads face the middle (backs turned 180° to match), so the
     /// portrait preview shows the cover upright at the bottom.
     fn work_turn(&self) -> bool {
-        self.sides == "workturn"
+        self.booklet() && self.sides == "workturn"
     }
     /// Sheetwise double-sided: fronts and backs on alternate imposed pages.
     fn double(&self) -> bool {
@@ -743,11 +743,10 @@ mod tests {
         assert_eq!(cells, vec![vec![vec![2, 7], vec![8, 1]], vec![vec![4, 5], vec![6, 3]]]);
         assert_eq!(backs, vec![false, false]);
         assert_eq!(flips[0], vec![true, false]);
-        // Cards: 4 pages = 2 items, 4 across: backs 4 2 | fronts 1 3.
+        // Booklets only: anything else treats it as sheetwise double sided.
         let mut sp = spec("nup");
         sp.sides = "workturn".into();
-        let (cells, _, _, _) = assign(&sp, 4, 4, 1);
-        assert_eq!(cells, vec![vec![vec![4], vec![2], vec![1], vec![3]]]);
+        assert!(!sp.work_turn() && sp.double());
     }
 
     #[test]

@@ -5219,14 +5219,30 @@ async function updateImposeSummary() {
   // Booklets are always printed both sides (sheetwise or work and turn);
   // single sided has no backs to line up.
   const booklet = impEl("impMode").value === "booklet";
-  const singleOpt = impEl("impSides").querySelector('option[value="single"]');
-  singleOpt.hidden = singleOpt.disabled = booklet;
-  if (booklet && impEl("impSides").value === "single") impEl("impSides").value = "double";
-  // For a booklet the choice reads Duplicate (front and back spreads
-  // repeated on separate sides) or Work and turn.
-  impEl("impSides").querySelector('option[value="double"]').textContent = booklet
-    ? "Duplicate: front spreads on one side, back spreads on the other (sheetwise)"
-    : "Double sided: pages are front and back pairs";
+  // Booklets: Duplicate (front and back spreads on separate sides) or
+  // Work and turn. Everything else: double or single sided.
+  const sidesSel = impEl("impSides");
+  const wanted = booklet
+    ? [
+        ["double", "Duplicate: front spreads on one side, back spreads on the other (sheetwise)"],
+        ["workturn", "Work and turn: front and back spreads side by side, same plate both sides, turned side to side"],
+      ]
+    : [
+        ["double", "Double sided: pages are front and back pairs"],
+        ["single", "Single sided: fronts only"],
+      ];
+  if ([...sidesSel.options].map((o) => o.value).join() !== wanted.map(([v]) => v).join()) {
+    const keep = sidesSel.value;
+    sidesSel.replaceChildren(
+      ...wanted.map(([v, t]) => {
+        const o = document.createElement("option");
+        o.value = v;
+        o.textContent = t;
+        return o;
+      }),
+    );
+    sidesSel.value = wanted.some(([v]) => v === keep) ? keep : "double";
+  }
   impEl("impCreepLabel").classList.toggle("hidden", !booklet);
   impEl("impCreepRow").classList.toggle("hidden", !booklet);
   const sides = impEl("impSides").value;
