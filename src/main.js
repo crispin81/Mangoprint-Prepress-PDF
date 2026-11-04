@@ -5222,6 +5222,11 @@ async function updateImposeSummary() {
   const singleOpt = impEl("impSides").querySelector('option[value="single"]');
   singleOpt.hidden = singleOpt.disabled = booklet;
   if (booklet && impEl("impSides").value === "single") impEl("impSides").value = "double";
+  // For a booklet the choice reads Duplicate (front and back spreads
+  // repeated on separate sides) or Work and turn.
+  impEl("impSides").querySelector('option[value="double"]').textContent = booklet
+    ? "Duplicate: front spreads on one side, back spreads on the other (sheetwise)"
+    : "Double sided: pages are front and back pairs";
   impEl("impCreepLabel").classList.toggle("hidden", !booklet);
   impEl("impCreepRow").classList.toggle("hidden", !booklet);
   const sides = impEl("impSides").value;
@@ -5278,11 +5283,6 @@ impEl("imposeBtn").addEventListener("click", () => {
 impEl("impCancel").addEventListener("click", () => showImpose(false));
 for (const id of IMPOSE_FIELDS) {
   impEl(id).addEventListener("change", () => {
-    // Booklets on SRA2 default to work and turn (front and back spreads
-    // side by side); still changeable afterwards.
-    if ((id === "impMode" || id === "impSheet") && impEl("impMode").value === "booklet" && impEl("impSheet").value === "450x640") {
-      impEl("impSides").value = "workturn";
-    }
     saveImposeSettings();
     updateImposeSummary();
   });
