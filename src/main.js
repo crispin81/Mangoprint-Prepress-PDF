@@ -5360,14 +5360,21 @@ function drawImposePreview(p, spec) {
 function drawImposeSheet(svg, p, spec, k) {
   svg.replaceChildren();
   const NS = "http://www.w3.org/2000/svg";
+  const { sheet_w: sw, sheet_h: sh, item_w: iw, item_h: ih, cols, rows } = p;
+  // Always shown portrait: a landscape sheet is drawn turned a quarter
+  // clockwise (the PDF itself stays landscape).
+  const turn = sw > sh;
+  const root = document.createElementNS(NS, "g");
+  if (turn) root.setAttribute("transform", `translate(${sh} 0) rotate(90)`);
+  svg.appendChild(root);
   const el = (name, attrs) => {
     const e = document.createElementNS(NS, name);
     for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
-    svg.appendChild(e);
+    root.appendChild(e);
     return e;
   };
-  const { sheet_w: sw, sheet_h: sh, item_w: iw, item_h: ih, cols, rows } = p;
-  svg.setAttribute("viewBox", `${-8} ${-8} ${sw + 16} ${sh + 16}`);
+  const [vw, vh] = turn ? [sh, sw] : [sw, sh];
+  svg.setAttribute("viewBox", `${-8} ${-8} ${vw + 16} ${vh + 16}`);
   svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
   // The short-edge gap runs across the sheet's short side.
   const [hg, vg] = sw <= sh ? [spec.gutterShort, spec.gutterLong] : [spec.gutterLong, spec.gutterShort];
@@ -5416,7 +5423,7 @@ function drawImposeSheet(svg, p, spec, k) {
         (p.turn[k] && p.turn[k][cell] ? `rotate(180 ${x + iw / 2} ${y + ih / 2}) ` : "") +
           (p.rotated ? `translate(${x} ${y + ih}) rotate(-90)` : `translate(${x} ${y})`),
       );
-      svg.appendChild(g);
+      root.appendChild(g);
       const sub = (name, attrs) => {
         const e = document.createElementNS(NS, name);
         for (const [a, v] of Object.entries(attrs)) e.setAttribute(a, String(v));
