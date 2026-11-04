@@ -821,6 +821,16 @@ mod tests {
         assert_eq!(apply(100.0, 50.0), (50.0, 0.0));
     }
 
+    /// `MP_IMPOSE_PDF=in.pdf MP_IMPOSE_OUT=out.pdf MP_IMPOSE_SPEC='{...}' cargo test impose_spec_json`
+    /// imposes with a spec as the app sends it (camelCase JSON).
+    #[test]
+    fn impose_spec_json() {
+        let (Ok(i), Ok(o), Ok(j)) = (std::env::var("MP_IMPOSE_PDF"), std::env::var("MP_IMPOSE_OUT"), std::env::var("MP_IMPOSE_SPEC")) else { return };
+        let sp: ImposeSpec = serde_json::from_str(&j).unwrap();
+        let plan = impose(Path::new(&i), Path::new(&o), &sp).unwrap();
+        println!("{} × {} on {} × {} mm, {} sheets", plan.cols, plan.rows, plan.sheet_w, plan.sheet_h, plan.sheets);
+    }
+
     /// `MP_IMPOSE_PDF=in.pdf MP_IMPOSE_OUT=out.pdf cargo test impose_file -- --nocapture`
     #[test]
     fn impose_file() {
