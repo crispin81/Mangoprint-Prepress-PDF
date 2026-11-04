@@ -5190,11 +5190,10 @@ function imposeSpec() {
     mirrorX: impEl("impMirrorX").checked,
     mirrorY: impEl("impMirrorY").checked,
     rotateBacks: impEl("impRotateBacks").checked,
-    headsIn: impEl("impHeadsIn").checked,
   };
 }
 
-const IMPOSE_FIELDS = ["impMode", "impSides", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impCreep", "impCols", "impRows", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY", "impRotateBacks", "impHeadsIn"];
+const IMPOSE_FIELDS = ["impMode", "impSides", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impCreep", "impCols", "impRows", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY", "impRotateBacks"];
 
 function saveImposeSettings() {
   const v = {};
@@ -5231,10 +5230,9 @@ async function updateImposeSummary() {
   impEl("impCreepLabel").classList.toggle("hidden", !booklet);
   impEl("impCreepRow").classList.toggle("hidden", !booklet);
   const sides = impEl("impSides").value;
-  impEl("impMirrorBox").classList.toggle("hidden", sides === "single");
-  // Work and turn: one plate for both sides, so no back sheet to show and
-  // no shift to mirror (rotating backs still applies).
-  for (const el of document.querySelectorAll("#impMirrorBox .sheetwise-only")) el.classList.toggle("hidden", sides === "workturn");
+  // Work and turn: one plate for both sides, so no back sheet to show, no
+  // shift to mirror, and heads always face the middle (backs included).
+  impEl("impMirrorBox").classList.toggle("hidden", sides !== "double");
   impEl("impBackFigure").classList.toggle("hidden", sides !== "double");
   const custom = impEl("impSheet").value === "custom";
   impEl("impCustom").classList.toggle("hidden", !custom);

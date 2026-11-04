@@ -85,7 +85,7 @@ pub struct ImposeSpec {
     /// middle of the sheet: the top rows turned 180° (or, when items are
     /// turned 90°, the left columns). Backs follow the same rule, which
     /// keeps them head to head with their fronts once turned over, so this
-    /// replaces `rotate_backs`.
+    /// replaces `rotate_backs`. Always on for work and turn.
     #[serde(default)]
     pub heads_in: bool,
 }
@@ -397,7 +397,7 @@ fn plan_for(spec: &ImposeSpec, pages: &[PageInfo]) -> Result<ImposePlan, String>
             page.iter()
                 .enumerate()
                 .map(|(cell, &flip)| {
-                    if spec.heads_in {
+                    if spec.heads_in || spec.work_turn() {
                         // Upright items' heads point up: turn the top half's
                         // rows. Turned items' heads point left: turn the left
                         // half's columns. A middle row/column stays.
