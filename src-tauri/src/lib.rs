@@ -1092,10 +1092,59 @@ fn hand_over(app: &tauri::AppHandle, paths: Vec<String>) {
         q.extend(paths);
     }
     let _ = app.emit("open-files", ());
-    if let Some(win) = app.get_webview_window("main") {
+    // The main window, or any other if that one was closed.
+    let win = app.get_webview_window("main").or_else(|| app.webview_windows().into_values().next());
+    if let Some(win) = win {
         let _ = win.unminimize();
         let _ = win.set_focus();
     }
+}
+
+/// Tabs dragged out of a window, waiting for their new window to pick
+/// them up, keyed by that window's label. The tab (its working copy,
+/// page, zoom, guides…) is passed as-is, so edits and undo carry over.
+struct DetachedTabs(Mutex<HashMap<String, serde_json::Value>>);
+
+static NEXT_WINDOW: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+/// Opens a new app window for a tab dragged out of the tab bar. `x`/`y`
+/// (logical screen pixels) place it under the pointer where the system
+/// allows it (Wayland places windows itself).
+#[tauri::command]
+fn detach_tab(
+    app: tauri::AppHandle,
+    tab: serde_json::Value,
+    x: Option<f64>,
+    y: Option<f64>,
+    width: Option<f64>,
+    height: Option<f64>,
+    detached: tauri::State<DetachedTabs>,
+) -> Result<(), String> {
+    let n = NEXT_WINDOW.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let label = format!("doc-{n}");
+    detached.0.lock().map_err(|_| "Detached tab lock was poisoned".to_string())?.insert(label.clone(), tab);
+    let mut b = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
+        .title("Mangoprint Prepress PDF")
+        .inner_size(width.unwrap_or(1280.0).max(900.0), height.unwrap_or(860.0).max(600.0))
+        .min_inner_size(900.0, 600.0)
+        .decorations(false)
+        .background_color(tauri::window::Color(0x14, 0x15, 0x1a, 0xff));
+    if let (Some(x), Some(y)) = (x, y) {
+        b = b.position(x, y);
+    }
+    if let Err(e) = b.build() {
+        if let Ok(mut m) = detached.0.lock() {
+            m.remove(&label);
+        }
+        return Err(format!("Could not open a new window: {e}"));
+    }
+    Ok(())
+}
+
+/// The tab handed to this window when it was dragged out (taken once).
+#[tauri::command]
+fn take_detached_tab(window: tauri::WebviewWindow, detached: tauri::State<DetachedTabs>) -> Option<serde_json::Value> {
+    detached.0.lock().ok()?.remove(window.label())
 }
 
 /// Files waiting to be opened (emptied by the call).
@@ -1129,6 +1178,7 @@ pub fn run() {
         .manage(PlateCache(Mutex::new(None)))
         .manage(DocLock(RwLock::new(())))
         .manage(history::History::new())
+        .manage(DetachedTabs(Mutex::new(HashMap::new())))
         .invoke_handler(tauri::generate_handler![
             check_ghostscript,
             open_pdf,
@@ -1182,6 +1232,8 @@ pub fn run() {
             read_icc_file,
             set_output_intent,
             take_pending_open,
+            detach_tab,
+            take_detached_tab,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -1756,6 +1756,45 @@ a:hover > .about__logo {
   box-shadow: inset 0 2px 0 var(--accent);
 }
 
+.tab.dragging {
+  opacity: 0.45;
+}
+
+/* Follows the pointer while a tab is dragged out to a new window. */
+.tab-ghost {
+  position: fixed;
+  z-index: 80;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 280px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  opacity: 0.85;
+}
+.tab-ghost small {
+  color: var(--muted);
+  visibility: hidden;
+}
+.tab-ghost.out {
+  border-color: var(--accent);
+  opacity: 1;
+}
+.tab-ghost.out small {
+  visibility: visible;
+}
+.tab-ghost__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tab__name {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -1414,9 +1414,15 @@ function askBeforeClose(name, discardLabel = "Close without saving") {
   });
 }
 
+// A window closing: its tabs' working copies go too (other windows may
+// still be open, so the app keeps running).
+function releaseWorkingCopies() {
+  for (const t of tabs) invoke("close_working_copy", { path: t.path }).catch(() => {});
+}
+
 appWindow.onCloseRequested(async (event) => {
   saveTabState();
-  if (closeConfirmed || !tabs.some((t) => t.edited)) return;
+  if (closeConfirmed || !tabs.some((t) => t.edited)) return releaseWorkingCopies();
   event.preventDefault();
   for (const tab of tabs.filter((t) => t.edited)) {
     await switchTab(tab);
@@ -2489,7 +2495,9 @@ function renderTabs() {
     close.textContent = "×";
     close.title = "Close (Ctrl+W)";
     el.appendChild(close);
+    el.addEventListener("pointerdown", (ev) => startTabDrag(ev, tab, el, close));
     el.addEventListener("click", (ev) => {
+      if (tabDrag.justDetached) return;
       if (ev.target === close) closeTab(tab);
       else switchTab(tab);
     });
@@ -2498,6 +2506,122 @@ function renderTabs() {
     });
     tabBar.appendChild(el);
   }
+}
+
+// --- drag a tab out of the tab bar into a new window ---
+// Pull a tab well above or below the tab bar (or out of the window) and
+// let go: it moves to a window of its own, keeping its working copy, so
+// edits, undo, page, zoom and guides all carry over.
+
+const tabDrag = { tab: null, el: null, x0: 0, y0: 0, out: false, ghost: null, justDetached: false };
+
+function startTabDrag(ev, tab, el, closeBtn) {
+  if (ev.button !== 0 || ev.target === closeBtn || tabs.length < 2) return;
+  Object.assign(tabDrag, { tab, el, x0: ev.clientX, y0: ev.clientY, out: false, pointer: ev.pointerId });
+  try {
+    el.setPointerCapture(ev.pointerId);
+  } catch {}
+  el.addEventListener("pointermove", moveTabDrag);
+  el.addEventListener("pointerup", endTabDrag);
+  el.addEventListener("pointercancel", cancelTabDrag);
+}
+
+// Out = far enough off the tab bar to mean "new window".
+function tabDragIsOut(ev) {
+  const r = tabBar.getBoundingClientRect();
+  const off = 40;
+  return (
+    ev.clientY < r.top - off ||
+    ev.clientY > r.bottom + off ||
+    ev.clientX < 0 ||
+    ev.clientX > window.innerWidth ||
+    ev.clientY < 0 ||
+    ev.clientY > window.innerHeight
+  );
+}
+
+function moveTabDrag(ev) {
+  if (!tabDrag.tab) return;
+  if (!tabDrag.ghost && Math.abs(ev.clientX - tabDrag.x0) + Math.abs(ev.clientY - tabDrag.y0) < 8) return;
+  if (!tabDrag.ghost) {
+    const g = document.createElement("div");
+    g.className = "tab-ghost";
+    g.innerHTML = '<span class="tab-ghost__name"></span><small>Let go to open in a new window</small>';
+    g.querySelector(".tab-ghost__name").textContent = baseName(tabDrag.tab.sourcePath);
+    document.body.appendChild(g);
+    tabDrag.ghost = g;
+    tabDrag.el.classList.add("dragging");
+  }
+  tabDrag.out = tabDragIsOut(ev);
+  tabDrag.ghost.classList.toggle("out", tabDrag.out);
+  tabDrag.ghost.style.left = `${ev.clientX + 12}px`;
+  tabDrag.ghost.style.top = `${ev.clientY + 12}px`;
+}
+
+function cancelTabDrag() {
+  const { el, ghost } = tabDrag;
+  if (el) {
+    el.removeEventListener("pointermove", moveTabDrag);
+    el.removeEventListener("pointerup", endTabDrag);
+    el.removeEventListener("pointercancel", cancelTabDrag);
+    el.classList.remove("dragging");
+  }
+  if (ghost) ghost.remove();
+  Object.assign(tabDrag, { tab: null, el: null, ghost: null, out: false });
+}
+
+function endTabDrag(ev) {
+  const { tab, ghost } = tabDrag;
+  const detach = !!ghost && tabDragIsOut(ev);
+  cancelTabDrag();
+  if (!tab || !detach) return;
+  // The click that follows this pointerup mustn't switch tabs.
+  tabDrag.justDetached = true;
+  setTimeout(() => (tabDrag.justDetached = false), 0);
+  detachTab(tab, ev.screenX, ev.screenY);
+}
+
+async function detachTab(tab, screenX, screenY) {
+  if (tabs.length < 2 || tabSwitching) return;
+  if (tab === activeTab) {
+    saveTabState();
+    tab.mergeSetup = currentMergeSetup();
+  }
+  const payload = {
+    path: tab.path,
+    sourcePath: tab.sourcePath,
+    edited: !!tab.edited,
+    page: tab.page || 1,
+    zoom: tab.zoom || "fit",
+    guides: tab.guides || [],
+    mergeSetup: tab.mergeSetup || null,
+  };
+  try {
+    await invoke("detach_tab", {
+      tab: payload,
+      x: Math.max(0, screenX - 120),
+      y: Math.max(0, screenY - 20),
+      width: window.innerWidth,
+      height: window.innerHeight,
+    });
+  } catch (err) {
+    alert(`Could not open a new window:\n${err}`);
+    return;
+  }
+  await dropTab(tab, { keepCopy: true }); // the new window has it now
+}
+
+// A window opened for a dragged-out tab: show that tab.
+async function adoptDetachedTab() {
+  let tab = null;
+  try {
+    tab = await invoke("take_detached_tab");
+  } catch (err) {
+    console.error(err);
+  }
+  if (!tab || tabs.some((t) => t.path === tab.path)) return;
+  tabs.push(tab);
+  await switchTab(tab);
 }
 
 // Remembers where the current tab was left.
@@ -2538,11 +2662,12 @@ async function closeTab(tab) {
 }
 
 // Removes a tab and its working copy, showing a neighbour (or nothing).
-async function dropTab(tab) {
+// `keepCopy`: the tab moved to another window, which still uses its copy.
+async function dropTab(tab, { keepCopy = false } = {}) {
   const i = tabs.indexOf(tab);
   if (i < 0) return;
   tabs.splice(i, 1);
-  invoke("close_working_copy", { path: tab.path }).catch((err) => console.error(err));
+  if (!keepCopy) invoke("close_working_copy", { path: tab.path }).catch((err) => console.error(err));
   if (tab === activeTab) {
     activeTab = null;
     const next = tabs[Math.min(i, tabs.length - 1)];
@@ -4254,6 +4379,7 @@ async function openPendingFiles() {
 
 window.__TAURI__.event.listen("open-files", () => openPendingFiles());
 openPendingFiles(); // a PDF double-clicked to launch the app
+adoptDetachedTab(); // this window was opened for a tab dragged out of another
 
 // Drag PDFs onto the window to open each in a tab, or onto the Pages
 // panel to insert their pages where the gold line shows.
