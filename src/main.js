@@ -5255,8 +5255,13 @@ function showImpose(on) {
   if (on) updateImposeSummary();
 }
 
+// Each fresh opening starts with no image shift; the other settings are
+// remembered (and a preset still brings back its own shift).
 impEl("imposeBtn").addEventListener("click", () => {
-  if (state.path) showImpose(true);
+  if (!state.path) return;
+  for (const id of ["impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight"]) impEl(id).value = 0;
+  saveImposeSettings();
+  showImpose(true);
 });
 impEl("impCancel").addEventListener("click", () => showImpose(false));
 for (const id of IMPOSE_FIELDS) {
