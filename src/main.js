@@ -5277,12 +5277,15 @@ function showImpose(on) {
 impEl("imposeBtn").addEventListener("click", () => {
   if (!state.path) return;
   for (const id of ["impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight"]) impEl(id).value = 0;
+  impEl("impCols").value = impEl("impRows").value = ""; // back to as many as fit
   saveImposeSettings();
   showImpose(true);
 });
 impEl("impCancel").addEventListener("click", () => showImpose(false));
 for (const id of IMPOSE_FIELDS) {
   impEl(id).addEventListener("change", () => {
+    // A new layout or sides choice starts from as many as fit.
+    if (id === "impMode" || id === "impSides") impEl("impCols").value = impEl("impRows").value = "";
     saveImposeSettings();
     updateImposeSummary();
   });
