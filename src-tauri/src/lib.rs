@@ -829,6 +829,13 @@ fn set_page_rotation(
     Ok(result)
 }
 
+/// Each page's trim within its displayed CropBox (Impose preview).
+#[tauri::command(async)]
+fn trims_in_crop(path: String, doc: tauri::State<DocLock>) -> Result<Vec<[f64; 4]>, String> {
+    let _r = read_lock(&doc)?;
+    pagebox::trims_in_crop(Path::new(&path))
+}
+
 /// Turns several pages at once (the toolbar rotate buttons): one save and
 /// one undo step. Returns the boxes of `page` (the one on screen).
 #[tauri::command(async)]
@@ -1253,6 +1260,7 @@ pub fn run() {
             reset_page_box_all,
             set_page_rotation,
             set_page_rotations,
+            trims_in_crop,
             recolour_pick,
             recolour_find,
             recolour_apply,

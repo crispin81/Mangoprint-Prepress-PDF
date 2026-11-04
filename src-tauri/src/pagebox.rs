@@ -226,6 +226,24 @@ pub fn get_page_boxes(path: &Path, page: u32) -> Result<PageBoxes, String> {
     })
 }
 
+/// Every page's TrimBox as [left, top, width, height] fractions of its
+/// displayed CropBox (what a viewer shows, so a page thumbnail), in page
+/// order. The Impose preview crops thumbnails to this.
+pub fn trims_in_crop(path: &Path) -> Result<Vec<[f64; 4]>, String> {
+    let doc = Document::load(path).map_err(|e| format!("Could not open PDF: {e}"))?;
+    Ok(doc
+        .get_pages()
+        .into_values()
+        .map(|id| {
+            let rotate = rotate_of(&doc, id);
+            let (media, _) = resolve_box(&doc, id, "MediaBox", [0.0, 0.0, 612.0, 792.0]);
+            let (crop, _) = resolve_box(&doc, id, "CropBox", media);
+            let (trim, _) = resolve_box_own(&doc, id, "TrimBox", crop);
+            normalize_rect(trim, crop, rotate)
+        })
+        .collect())
+}
+
 fn validate_box_name(name: &str) -> Result<(), String> {
     if BOX_NAMES.contains(&name) {
         Ok(())

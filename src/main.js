@@ -5259,6 +5259,13 @@ async function updateImposeSummary() {
   try {
     const spec = imposeSpec();
     const p = await invoke("impose_plan", { path: state.path, spec });
+    // Where each page's trim sits in its thumbnail, so the preview shows
+    // the finished item without the PDF's own marks or slug.
+    try {
+      p.trims = await invoke("trims_in_crop", { path: state.path });
+    } catch {
+      p.trims = null;
+    }
     if (token !== imposePlanToken) return;
     drawImposePreview(p, spec);
     const mm = (v) => (Math.round(v * 10) / 10).toString();
@@ -5457,7 +5464,14 @@ function drawImposeSheet(svg, p, spec, k) {
         try {
           if (thumb) src = thumb.toDataURL("image/png");
         } catch {}
-        if (src) sub("image", { href: src, x: px, y: 0, width: pw, height: dh, preserveAspectRatio: "xMidYMid slice" });
+        const tr = p.trims && p.trims[page - 1];
+        if (src && tr && tr[2] > 0 && tr[3] > 0) {
+          // Only the trim area of the thumbnail fills the item.
+          const box = sub("svg", { x: px, y: 0, width: pw, height: dh, viewBox: `${tr[0] * thumb.width} ${tr[1] * thumb.height} ${tr[2] * thumb.width} ${tr[3] * thumb.height}`, preserveAspectRatio: "none" });
+          const im = document.createElementNS(NS, "image");
+          for (const [a, v] of Object.entries({ href: src, width: thumb.width, height: thumb.height })) im.setAttribute(a, String(v));
+          box.appendChild(im);
+        } else if (src) sub("image", { href: src, x: px, y: 0, width: pw, height: dh, preserveAspectRatio: "xMidYMid slice" });
         else sub("rect", { x: px, y: 0, width: pw, height: dh, fill: "#e8e8ec" });
         if (spec.mode !== "repeat") {
           const t = sub("text", { x: px + pw / 2, y: dh / 2, "font-size": Math.min(pw, dh) / 3, "text-anchor": "middle", "dominant-baseline": "central", fill: "#14151a", opacity: 0.7 });
