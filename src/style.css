@@ -1937,12 +1937,35 @@ a:hover > .about__logo {
   background: var(--accent-bg);
 }
 
-.thumb.drop-before {
-  box-shadow: 0 -6px 0 -2px var(--accent);
+/* Where dropped or moved pages will land: a bold gold bar in the gap
+   above or below the page, with a dot at each end. */
+.thumb.drop-before,
+.thumb.drop-after {
+  position: relative;
+  /* content-visibility clips to the thumb, which hid most of the line. */
+  content-visibility: visible;
 }
 
-.thumb.drop-after {
-  box-shadow: 0 6px 0 -2px var(--accent);
+.thumb.drop-before::before,
+.thumb.drop-after::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 8px var(--accent);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.thumb.drop-before::before {
+  top: -6px;
+}
+
+.thumb.drop-after::after {
+  bottom: -6px;
 }
 
 /* --- select tool and mail merge box --- */

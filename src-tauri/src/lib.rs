@@ -1025,6 +1025,54 @@ fn delete_page(
     Ok(n)
 }
 
+/// Pages dragged out of the app: written (with the edits so far) to a new
+/// PDF called `name` in a fresh temp folder; returns its path.
+#[tauri::command(async)]
+fn export_pages(path: String, pages: Vec<u32>, name: String, doc: tauri::State<DocLock>) -> Result<String, String> {
+    let _r = read_lock(&doc)?;
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let dir = std::env::temp_dir().join("mangoprint-drag-out").join(stamp.to_string());
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Could not make a temp folder: {e}"))?;
+    let name = Path::new(&name).file_name().map(|n| n.to_owned()).unwrap_or_else(|| "pages.pdf".into());
+    let out = dir.join(name);
+    pages::extract_pages(Path::new(&path), &pages, &out)?;
+    Ok(out.to_string_lossy().into_owned())
+}
+
+/// Starts a system drag of `path` (a file from `export_pages`) out of the
+/// window, with `image` (a PNG data URL) under the pointer. "drag-out-done"
+/// is emitted to the window when it ends. (The drag plugin kept a Channel
+/// in its window signal handlers, and dropping that while the window closed
+/// crashed the app; nothing here sends anything when it's dropped.)
+#[tauri::command]
+async fn drag_out(app: tauri::AppHandle, window: tauri::WebviewWindow, path: String, image: String) -> Result<(), String> {
+    use base64::Engine;
+    use tauri::Emitter;
+    let png = image.strip_prefix("data:image/png;base64,").unwrap_or(&image);
+    let png = base64::engine::general_purpose::STANDARD.decode(png).map_err(|e| e.to_string())?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let label = window.label().to_string();
+    let win = window.clone();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let done = move |_result: drag::DragResult, _pos: drag::CursorPosition| {
+            let _ = handle.emit_to(label.as_str(), "drag-out-done", ());
+        };
+        let item = drag::DragItem::Files(vec![std::path::PathBuf::from(&path)]);
+        let options = drag::Options::default();
+        #[cfg(target_os = "linux")]
+        let r = match win.gtk_window() {
+            Ok(w) => drag::start_drag(&w, item, drag::Image::Raw(png), done, options).map_err(|e| e.to_string()),
+            Err(e) => Err(e.to_string()),
+        };
+        #[cfg(not(target_os = "linux"))]
+        let r = drag::start_drag(&win, item, drag::Image::Raw(png), done, options).map_err(|e| e.to_string());
+        let _ = tx.send(r);
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv().map_err(|e| e.to_string())?
+}
+
 /// Mail merge: the rows of a CSV file, split into columns.
 #[tauri::command(async)]
 fn merge_read_csv(path: String, sheet: Option<String>) -> Result<Vec<Vec<String>>, String> {
@@ -1228,6 +1276,8 @@ pub fn run() {
             objects_edit,
             objects_info,
             insert_pages,
+            export_pages,
+            drag_out,
             delete_page,
             move_page,
             undo_step,

@@ -211,6 +211,21 @@ pub fn delete_pages(path: &Path, pages: &[u32]) -> Result<u32, String> {
     Ok(left)
 }
 
+/// Writes some pages (1-based, in order) to a new PDF at `out`: what's
+/// dragged out of the Pages panel onto the desktop or another app.
+pub fn extract_pages(path: &Path, pages: &[u32], out: &Path) -> Result<(), String> {
+    let mut doc = load(path)?;
+    let count = doc.get_pages().len() as u32;
+    for &p in pages {
+        pagebox::page_id_for(&doc, p)?;
+    }
+    let others: Vec<u32> = (1..=count).filter(|p| !pages.contains(p)).collect();
+    if !others.is_empty() {
+        doc.delete_pages(&others);
+    }
+    save(doc, out)
+}
+
 // ---------------------------------------------------------------------------
 // Mail merge
 
@@ -835,5 +850,42 @@ mod insert_tests {
         println!("before {before} adding {add} -> {count}, reread {}", crate::pagebox::page_count(&p).unwrap());
         assert_eq!(count, before + add);
         assert_eq!(crate::pagebox::page_count(&p).unwrap(), before + add);
+    }
+}
+
+#[cfg(test)]
+mod extract_tests {
+    use super::*;
+    use lopdf::dictionary;
+
+    /// A PDF with `n` empty pages, page k's MediaBox k pt wide.
+    fn pdf(n: usize, path: &Path) {
+        let mut doc = Document::with_version("1.5");
+        let tree = doc.new_object_id();
+        let kids: Vec<Object> = (1..=n)
+            .map(|k| doc.add_object(dictionary! { "Type" => "Page", "Parent" => tree, "MediaBox" => vec![0.into(), 0.into(), (k as i64 * 100).into(), 500.into()] }).into())
+            .collect();
+        doc.objects.insert(tree, dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => n as i64 }.into());
+        let cat = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => tree });
+        doc.trailer.set("Root", cat);
+        doc.save(path).unwrap();
+    }
+
+    #[test]
+    fn extracts_just_the_chosen_pages() {
+        let dir = std::env::temp_dir().join(format!("mp-extract-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (src, out) = (dir.join("in.pdf"), dir.join("out.pdf"));
+        pdf(4, &src);
+        extract_pages(&src, &[2, 4], &out).unwrap();
+        let doc = Document::load(&out).unwrap();
+        let widths: Vec<i64> = doc
+            .get_pages()
+            .values()
+            .map(|&id| doc.get_dictionary(id).unwrap().get(b"MediaBox").unwrap().as_array().unwrap()[2].as_i64().unwrap())
+            .collect();
+        assert_eq!(widths, vec![200, 400]);
+        assert_eq!(Document::load(&src).unwrap().get_pages().len(), 4, "the open PDF is left alone");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
