@@ -36,6 +36,11 @@
         <button id="printBtn" type="button" disabled title="Print the PDF, with your edits (Ctrl+P)" aria-label="Print">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px"><path d="M6 9V2h12v7" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect width="12" height="8" x="6" y="14" /></svg>
         </button>
+        <select id="unitsSel" class="units-sel" title="Units for the rulers, guides, page boxes and imposition" aria-label="Units">
+          <option value="mm">mm</option>
+          <option value="cm">cm</option>
+          <option value="in">inches</option>
+        </select>
         <button id="rotateLeftBtn" class="rotate-btn" type="button" disabled title="Rotate anticlockwise: this page, or the pages selected in the Pages panel" aria-label="Rotate anticlockwise">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
         </button>
@@ -568,17 +573,17 @@
             </select>
           </span>
           <span id="impCustomLabel" class="hidden">Custom size</span>
-          <span id="impCustom" class="impose__pair hidden"><input type="number" id="impW" min="50" max="2000" step="1" value="320" /> × <input type="number" id="impH" min="50" max="2000" step="1" value="450" /> mm</span>
+          <span id="impCustom" class="impose__pair hidden"><input type="number" id="impW" min="50" max="2000" step="1" value="320" /> × <input type="number" id="impH" min="50" max="2000" step="1" value="450" /> <span class="unit">mm</span></span>
           <label for="impBleed">Bleed</label>
-          <span class="impose__pair"><input type="number" id="impBleed" min="0" max="20" step="0.5" value="3" /> mm</span>
+          <span class="impose__pair"><input type="number" id="impBleed" min="0" max="20" step="0.5" value="3" /> <span class="unit">mm</span></span>
           <label for="impGutterShort" title="The gap between items going across the sheet's short edge (the 320 mm side of SRA3)">Short edge gap</label>
-          <span class="impose__pair"><input type="number" id="impGutterShort" min="0" max="50" step="0.5" value="6" /> mm</span>
+          <span class="impose__pair"><input type="number" id="impGutterShort" min="0" max="50" step="0.5" value="6" /> <span class="unit">mm</span></span>
           <label for="impGutterLong" title="The gap between items going along the sheet's long edge (the 450 mm side of SRA3)">Long edge gap</label>
-          <span class="impose__pair"><input type="number" id="impGutterLong" min="0" max="50" step="0.5" value="6" /> mm</span>
+          <span class="impose__pair"><input type="number" id="impGutterLong" min="0" max="50" step="0.5" value="6" /> <span class="unit">mm</span></span>
           <label for="impMargin">Sheet margin</label>
-          <span class="impose__pair"><input type="number" id="impMargin" min="0" max="50" step="0.5" value="5" /> mm</span>
+          <span class="impose__pair"><input type="number" id="impMargin" min="0" max="50" step="0.5" value="5" /> <span class="unit">mm</span></span>
           <label id="impCreepLabel" for="impCreep" title="Folded sheets nest, so the inner pages stick out at the fore-edge. The innermost sheet's pages move this far in towards the spine, the outside sheet's not at all, the ones between in proportion">Creep</label>
-          <span id="impCreepRow" class="impose__pair"><input type="number" id="impCreep" min="0" max="20" step="0.05" value="0" /> mm, innermost sheet</span>
+          <span id="impCreepRow" class="impose__pair"><input type="number" id="impCreep" min="0" max="20" step="0.05" value="0" /> <span class="unit">mm</span>, innermost sheet</span>
           <label for="impCols" title="Set how many items go across and down. Leave a box empty for as many as fit">Columns × rows</label>
           <span class="impose__pair"><input type="number" id="impCols" min="1" max="99" step="1" placeholder="Auto" /> × <input type="number" id="impRows" min="1" max="99" step="1" placeholder="Auto" /></span>
           <span></span>
@@ -588,11 +593,11 @@
         </div>
         <div class="impose__preview">
           <div class="shift-grid">
-            <label class="shift-field shift-top" title="Image shift: move the whole layout up (mm)">↑ <input type="number" id="impShiftTop" min="0" max="100" step="0.5" value="0" /> mm</label>
-            <label class="shift-field shift-left" title="Image shift: move the whole layout left (mm)">← <input type="number" id="impShiftLeft" min="0" max="100" step="0.5" value="0" /> mm</label>
+            <label class="shift-field shift-top" title="Image shift: move the whole layout up ">↑ <input type="number" id="impShiftTop" min="0" max="100" step="0.5" value="0" /> <span class="unit">mm</span></label>
+            <label class="shift-field shift-left" title="Image shift: move the whole layout left ">← <input type="number" id="impShiftLeft" min="0" max="100" step="0.5" value="0" /> <span class="unit">mm</span></label>
             <div class="sheet-pair"><figure><svg id="impPreview" xmlns="http://www.w3.org/2000/svg"></svg><figcaption>Front</figcaption></figure><figure id="impBackFigure"><svg id="impPreviewBack" xmlns="http://www.w3.org/2000/svg"></svg><figcaption>Back</figcaption></figure></div>
-            <label class="shift-field shift-right" title="Image shift: move the whole layout right (mm)">→ <input type="number" id="impShiftRight" min="0" max="100" step="0.5" value="0" /> mm</label>
-            <label class="shift-field shift-bottom" title="Image shift: move the whole layout down (mm)">↓ <input type="number" id="impShiftBottom" min="0" max="100" step="0.5" value="0" /> mm</label>
+            <label class="shift-field shift-right" title="Image shift: move the whole layout right ">→ <input type="number" id="impShiftRight" min="0" max="100" step="0.5" value="0" /> <span class="unit">mm</span></label>
+            <label class="shift-field shift-bottom" title="Image shift: move the whole layout down ">↓ <input type="number" id="impShiftBottom" min="0" max="100" step="0.5" value="0" /> <span class="unit">mm</span></label>
           </div>
           <div id="impMirrorBox" class="impose__mirror" title="Sheets go in front and back pairs (1 and 2, 3 and 4…). The image shift on a front is mirrored on its back so they line up once the sheet is turned.">
             <label class="sheetwise-only"><input type="checkbox" id="impMirrorX" checked /> Mirror left/right on backs</label>

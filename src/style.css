@@ -2310,6 +2310,7 @@ a:hover > .about__logo {
 }
 
 #printBtn,
+.units-sel,
 .rotate-btn {
   white-space: nowrap;
   flex-shrink: 0;
@@ -2944,6 +2945,11 @@ input::placeholder {
 .impose__preview svg {
   width: 170px;
   height: 240px;
+}
+
+.impose__preview svg.landscape {
+  width: 200px;
+  height: 142px;
 }
 
 .impose__preview-label {

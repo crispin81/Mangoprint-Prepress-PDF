@@ -121,7 +121,25 @@ const MM_PER_PT = 25.4 / 72;
 // The PDF stores geometry in points; everything the user sees or types is mm.
 const toMm = (pt) => pt * MM_PER_PT;
 const fromMm = (mm) => mm / MM_PER_PT;
-const fmtMm = (pt) => toMm(pt).toFixed(2);
+
+// Units shown and typed (toolbar menu, remembered): mm, cm or inches.
+// Geometry still goes to the back end in mm.
+const UNITS = {
+  mm: { mm: 1, dp: 2, step: 0.01, snap: 0.1, label: "mm" },
+  cm: { mm: 10, dp: 3, step: 0.001, snap: 0.01, label: "cm" },
+  in: { mm: 25.4, dp: 3, step: 0.001, snap: 0.01, label: "in" },
+};
+let unitKey = "mm";
+try {
+  const u = localStorage.getItem("units");
+  if (u in UNITS) unitKey = u;
+} catch {}
+const unit = () => UNITS[unitKey];
+const toUnit = (pt) => toMm(pt) / unit().mm;
+const fromUnit = (v) => fromMm(v * unit().mm);
+const fmtUnit = (pt) => toUnit(pt).toFixed(unit().dp);
+// A length in mm, in the current units, without trailing zeros.
+const fmtLen = (mm, dp = unit().dp) => String(Number((mm / unit().mm).toFixed(dp)));
 
 function setLoading(isLoading) {
   els.loadingOverlay.classList.toggle("hidden", !isLoading);
@@ -1200,7 +1218,7 @@ function rectFromInsets(ins) {
 async function applyBox(def, inputs, allPages = false) {
   setBoxError(def.key, "");
   const ins = {};
-  for (const side of INSET_SIDES) ins[side] = fromMm(Number.parseFloat(inputs[side].value));
+  for (const side of INSET_SIDES) ins[side] = fromUnit(Number.parseFloat(inputs[side].value));
   if (Object.values(ins).some((v) => !Number.isFinite(v))) {
     setBoxError(def.key, "Enter a number for all four sides.");
     return;
@@ -1308,16 +1326,17 @@ function renderPageBoxesPanel() {
     const size = document.createElement("div");
     size.className = "box-size";
     // First text node = finished size (updated live while typing).
-    size.append(`${fmtMm(W - ins.left - ins.right)} × ${fmtMm(H - ins.top - ins.bottom)} mm`);
+    size.append(`${fmtUnit(W - ins.left - ins.right)} × ${fmtUnit(H - ins.top - ins.bottom)} ${unit().label}`);
 
     // How far the bleed extends past the trim, per side.
     if (def.key === "bleed" && state.pageBoxes.trim) {
       const t = boxInsets(state.pageBoxes.trim);
-      const amounts = INSET_SIDES.map((s) => toMm(t[s] - ins[s]));
-      const same = amounts.every((a) => Math.abs(a - amounts[0]) < 0.005);
+      const amounts = INSET_SIDES.map((s) => toUnit(t[s] - ins[s]));
+      const same = amounts.every((a) => Math.abs(a - amounts[0]) < 0.005 / unit().mm);
+      const { dp, label: ul } = unit();
       size.append(same
-        ? `  ·  ${amounts[0].toFixed(2)} mm bleed each side`
-        : `  ·  bleed T ${amounts[0].toFixed(2)} / B ${amounts[1].toFixed(2)} / L ${amounts[2].toFixed(2)} / R ${amounts[3].toFixed(2)} mm`);
+        ? `  ·  ${amounts[0].toFixed(dp)} ${ul} bleed each side`
+        : `  ·  bleed T ${amounts[0].toFixed(dp)} / B ${amounts[1].toFixed(dp)} / L ${amounts[2].toFixed(dp)} / R ${amounts[3].toFixed(dp)} ${ul}`);
     }
 
     const fields = document.createElement("div");
@@ -1325,12 +1344,12 @@ function renderPageBoxesPanel() {
     const inputs = {};
     for (const side of INSET_SIDES) {
       const label = document.createElement("label");
-      label.textContent = `${INSET_LABELS[side]} (mm)`;
+      label.textContent = `${INSET_LABELS[side]} (${unit().label})`;
       label.title = `Distance in from the ${side} edge of the page`;
       const input = document.createElement("input");
       input.type = "number";
-      input.step = "0.01";
-      input.value = fmtMm(Math.max(0, ins[side]));
+      input.step = String(unit().step);
+      input.value = fmtUnit(Math.max(0, ins[side]));
       label.appendChild(input);
       fields.appendChild(label);
       inputs[side] = input;
@@ -1340,10 +1359,10 @@ function renderPageBoxesPanel() {
     // until Apply).
     const preview = () => {
       const v = {};
-      for (const side of INSET_SIDES) v[side] = fromMm(Number.parseFloat(inputs[side].value));
+      for (const side of INSET_SIDES) v[side] = fromUnit(Number.parseFloat(inputs[side].value));
       if (Object.values(v).some((x) => !Number.isFinite(x)) || v.left + v.right >= W || v.top + v.bottom >= H) return;
       state.boxPreview[def.key] = [v.left / W, v.top / H, (W - v.left - v.right) / W, (H - v.top - v.bottom) / H];
-      size.firstChild.textContent = `${fmtMm(W - v.left - v.right)} × ${fmtMm(H - v.top - v.bottom)} mm`;
+      size.firstChild.textContent = `${fmtUnit(W - v.left - v.right)} × ${fmtUnit(H - v.top - v.bottom)} ${unit().label}`;
       drawBoxOverlay();
     };
     for (const input of Object.values(inputs)) {
@@ -1403,7 +1422,7 @@ function drawBoxOverlay() {
 
     const titleEl = document.createElementNS(SVG_NS, "title");
     const [bx0, by0, bx1, by1] = info.rect;
-    titleEl.textContent = `${def.label}: ${fmtMm(bx1 - bx0)} × ${fmtMm(by1 - by0)} mm`;
+    titleEl.textContent = `${def.label}: ${fmtUnit(bx1 - bx0)} × ${fmtUnit(by1 - by0)} ${unit().label}`;
     rect.appendChild(titleEl);
 
     svg.appendChild(rect);
@@ -4229,7 +4248,7 @@ function initMerge() {
 }
 
 // --- rulers and guides ---
-// Rulers in mm run along the top and left of the page view, measured from
+// Rulers in the chosen units run along the top and left of the page view, measured from
 // the page's top left corner as shown. Drag from a ruler onto the page to
 // add a guide; drag a guide back onto a ruler to remove it. Guides belong
 // to the tab and show on every page. The corner button clears them.
@@ -4266,17 +4285,24 @@ function drawRuler(canvas, horizontal) {
   ctx.fillStyle = "#1b1c22";
   ctx.fillRect(0, 0, r.width, r.height);
   const wrap = els.imgWrap.getBoundingClientRect();
-  const ppm = pxPerMm();
+  const ppm = pxPerMm() * unit().mm; // px per unit
   const [wPt, hPt] = pageSizePt();
-  const pageMm = toMm(horizontal ? wPt : hPt);
-  const origin = horizontal ? wrap.left - r.left : wrap.top - r.top; // px of 0 mm
+  const pageLen = toUnit(horizontal ? wPt : hPt);
+  const origin = horizontal ? wrap.left - r.left : wrap.top - r.top; // px of 0
   // The page's extent is a shade lighter.
   ctx.fillStyle = "#23242c";
-  if (horizontal) ctx.fillRect(origin, 0, pageMm * ppm, r.height);
-  else ctx.fillRect(0, origin, r.width, pageMm * ppm);
-  // Labelled steps at least 50 px apart, with smaller ticks between.
-  const major = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000].find((s) => s * ppm >= 50) || 5000;
-  const minor = major / (String(major)[0] === "2" ? 4 : 5);
+  if (horizontal) ctx.fillRect(origin, 0, pageLen * ppm, r.height);
+  else ctx.fillRect(0, origin, r.width, pageLen * ppm);
+  // Labelled steps at least 50 px apart, with smaller ticks between
+  // (inches in quarters, mm and cm in fifths or quarters).
+  const steps = {
+    mm: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000],
+    cm: [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500],
+    in: [0.125, 0.25, 0.5, 1, 2, 4, 6, 12, 24, 48, 96, 192],
+  }[unitKey];
+  const major = steps.find((s) => s * ppm >= 50) || steps[steps.length - 1];
+  const lead = String(major).replace(/^0\.0*/, "")[0];
+  const minor = major / (unitKey === "in" || lead === "2" ? 4 : 5);
   const mm0 = -origin / ppm;
   const mm1 = mm0 + len / ppm;
   ctx.strokeStyle = "#6a6b76";
@@ -4297,7 +4323,7 @@ function drawRuler(canvas, horizontal) {
       ctx.lineTo(RULER - t, p);
     }
     if (isMajor) {
-      const label = String(Math.round(v));
+      const label = String(Number(v.toFixed(3)));
       if (horizontal) ctx.fillText(label, p + 3, 9);
       else {
         ctx.save();
@@ -4334,6 +4360,9 @@ function drawRulers() {
 
 let guideLayer = null;
 
+// A guide's distance in the current units, to its snap step.
+const guideText = (g) => `${fmtLen(g.mm, unitKey === "mm" ? 1 : 2)} ${unit().label}`;
+
 function renderGuides() {
   if (!guideLayer) {
     guideLayer = document.createElement("div");
@@ -4348,7 +4377,7 @@ function renderGuides() {
     const el = document.createElement("div");
     el.className = `guide guide--${g.axis}`;
     el.style[g.axis === "h" ? "top" : "left"] = `${(g.mm / size[g.axis]) * 100}%`;
-    el.title = `${g.mm.toFixed(1)} mm from the ${g.axis === "h" ? "top" : "left"} · drag onto a ruler to remove`;
+    el.title = `${guideText(g)} from the ${g.axis === "h" ? "top" : "left"} · drag onto a ruler to remove`;
     el.addEventListener("mousedown", (ev) => startGuideDrag(g, ev));
     guideLayer.appendChild(el);
   }
@@ -4368,9 +4397,11 @@ function moveGuide(ev) {
   const g = guideDrag.guide;
   const wrap = els.imgWrap.getBoundingClientRect();
   const raw = g.axis === "h" ? (ev.clientY - wrap.top) / pxPerMm() : (ev.clientX - wrap.left) / pxPerMm();
-  g.mm = Math.round(raw * 10) / 10;
+  // Snapped to 0.1 mm, or 0.01 cm / in.
+  const snap = unit().snap * unit().mm;
+  g.mm = Math.round(raw / snap) * snap;
   renderGuides();
-  guideLabel.textContent = `${g.mm.toFixed(1)} mm`;
+  guideLabel.textContent = guideText(g);
   guideLabel.style.left = `${ev.clientX + 14}px`;
   guideLabel.style.top = `${ev.clientY + 12}px`;
   guideLabel.classList.remove("hidden");
@@ -5164,28 +5195,37 @@ const imposeDialog = document.getElementById("imposeDialog");
 const impEl = (id) => document.getElementById(id);
 let imposePlanToken = 0;
 
+// Length fields: typed in the chosen units, kept (settings, presets) and
+// sent to impose.rs in mm.
+const IMPOSE_LENGTHS = ["impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impCreep", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight"];
+for (const id of IMPOSE_LENGTHS) {
+  const e = impEl(id);
+  Object.assign(e.dataset, { mmMin: e.min, mmMax: e.max, mmStep: e.step });
+}
+const impMm = (id) => (Number(impEl(id).value) || 0) * unit().mm;
+
 function imposeSpec() {
   const sheet = impEl("impSheet").value;
-  const [w, h] = sheet === "custom" ? [Number(impEl("impW").value), Number(impEl("impH").value)] : sheet.split("x").map(Number);
+  const [w, h] = sheet === "custom" ? [impMm("impW"), impMm("impH")] : sheet.split("x").map(Number);
   return {
     mode: impEl("impMode").value,
     sides: impEl("impSides").value,
     sheetW: w || 320,
     sheetH: h || 450,
-    margin: Math.max(0, Number(impEl("impMargin").value) || 0),
-    gutterShort: Math.max(0, Number(impEl("impGutterShort").value) || 0),
-    gutterLong: Math.max(0, Number(impEl("impGutterLong").value) || 0),
-    bleed: Math.max(0, Number(impEl("impBleed").value) || 0),
+    margin: Math.max(0, impMm("impMargin")),
+    gutterShort: Math.max(0, impMm("impGutterShort")),
+    gutterLong: Math.max(0, impMm("impGutterLong")),
+    bleed: Math.max(0, impMm("impBleed")),
     orientation: impEl("impOrient").value,
     allowRotate: impEl("impRotate").checked,
-    creep: Math.max(0, Number(impEl("impCreep").value) || 0),
+    creep: Math.max(0, impMm("impCreep")),
     // Empty = as many as fit.
     cols: Math.max(0, Math.floor(Number(impEl("impCols").value) || 0)),
     rows: Math.max(0, Math.floor(Number(impEl("impRows").value) || 0)),
     cropMarks: impEl("impMarks").checked,
     // Image shift: right minus left, up minus down.
-    shiftX: (Number(impEl("impShiftRight").value) || 0) - (Number(impEl("impShiftLeft").value) || 0),
-    shiftY: (Number(impEl("impShiftTop").value) || 0) - (Number(impEl("impShiftBottom").value) || 0),
+    shiftX: impMm("impShiftRight") - impMm("impShiftLeft"),
+    shiftY: impMm("impShiftTop") - impMm("impShiftBottom"),
     // Backs (sheets 2, 4…) mirror the shift unless switched off.
     mirrorX: impEl("impMirrorX").checked,
     mirrorY: impEl("impMirrorY").checked,
@@ -5195,9 +5235,57 @@ function imposeSpec() {
 
 const IMPOSE_FIELDS = ["impMode", "impSides", "impSheet", "impOrient", "impW", "impH", "impBleed", "impGutterShort", "impGutterLong", "impMargin", "impCreep", "impCols", "impRows", "impRotate", "impMarks", "impShiftTop", "impShiftBottom", "impShiftLeft", "impShiftRight", "impMirrorX", "impMirrorY", "impRotateBacks"];
 
-function saveImposeSettings() {
+// The dialog's settings, lengths in mm.
+function currentImposeValues() {
   const v = {};
-  for (const id of IMPOSE_FIELDS) v[id] = impEl(id).type === "checkbox" ? impEl(id).checked : impEl(id).value;
+  for (const id of IMPOSE_FIELDS) {
+    const e = impEl(id);
+    if (e.type === "checkbox") v[id] = e.checked;
+    else if (IMPOSE_LENGTHS.includes(id) && e.value !== "") v[id] = String(Number((Number(e.value) * unit().mm).toFixed(4)));
+    else v[id] = e.value;
+  }
+  return v;
+}
+
+function applyImposeValues(v) {
+  for (const id of IMPOSE_FIELDS) {
+    if (!(id in v)) continue;
+    const e = impEl(id);
+    if (e.type === "checkbox") e.checked = !!v[id];
+    else if (IMPOSE_LENGTHS.includes(id) && v[id] !== "" && Number.isFinite(Number(v[id]))) e.value = fmtLen(Number(v[id]));
+    else e.value = v[id];
+  }
+}
+
+// Unit names, field limits and sheet sizes in the chosen units.
+function showImposeUnits() {
+  const { label, mm } = unit();
+  for (const e of imposeDialog.querySelectorAll(".unit")) e.textContent = label;
+  for (const id of IMPOSE_LENGTHS) {
+    const e = impEl(id);
+    const step = Number(e.dataset.mmStep);
+    e.min = fmtLen(Number(e.dataset.mmMin), 4);
+    e.max = fmtLen(Number(e.dataset.mmMax), 4);
+    e.step = unitKey === "mm" ? e.dataset.mmStep : unitKey === "cm" ? String(step / 10) : step >= 1 ? "0.1" : step >= 0.5 ? "0.01" : "0.001";
+  }
+  for (const o of impEl("impSheet").options) {
+    if (!o.dataset.mmText) o.dataset.mmText = o.textContent;
+    const m = /^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)$/.exec(o.value);
+    if (!m) continue;
+    // Named sizes keep their name; sizes given in inches stay as they are in inches.
+    const native = / in$/.test(o.dataset.mmText) ? "in" : "mm";
+    if (unitKey === native) {
+      o.textContent = o.dataset.mmText;
+      continue;
+    }
+    const name = o.dataset.mmText.includes(" · ") ? `${o.dataset.mmText.split(" · ")[0]} · ` : "";
+    const f = (v) => String(Number((Number(v) / mm).toFixed(unitKey === "mm" ? 1 : 2)));
+    o.textContent = `${name}${f(m[1])} × ${f(m[2])} ${label}`;
+  }
+}
+
+function saveImposeSettings() {
+  const v = currentImposeValues();
   try {
     localStorage.setItem("imposeSettings", JSON.stringify(v));
   } catch {}
@@ -5205,33 +5293,46 @@ function saveImposeSettings() {
 
 try {
   const saved = JSON.parse(localStorage.getItem("imposeSettings") || "null");
-  if (saved) {
-    for (const id of IMPOSE_FIELDS) {
-      if (!(id in saved)) continue;
-      if (impEl(id).type === "checkbox") impEl(id).checked = !!saved[id];
-      else impEl(id).value = saved[id];
-    }
-  }
+  if (saved) applyImposeValues(saved);
 } catch {}
+showImposeUnits();
 
 // The summary line: "21 up · 2 sheets", worked out for this PDF.
 async function updateImposeSummary() {
   // Booklets are always printed both sides (sheetwise or work and turn);
   // single sided has no backs to line up.
   const booklet = impEl("impMode").value === "booklet";
-  // Booklets: Duplicate (front and back spreads on separate sides) or
-  // Work and turn. Everything else: double or single sided.
+  const token = ++imposePlanToken;
+  // Booklets: Duplicate (each spread repeated, front and back spreads on
+  // separate sides) and Work and turn are only offered when the sheet has
+  // room for them; one spread a side is plain double sided.
+  let canDup = true;
+  let canWT = true;
+  if (booklet && state.path) {
+    const base = imposeSpec();
+    const fits = async (sides, min) => {
+      try {
+        return (await invoke("impose_plan", { path: state.path, spec: { ...base, sides } })).per_sheet >= min;
+      } catch {
+        return false;
+      }
+    };
+    [canDup, canWT] = await Promise.all([fits("double", 2), fits("workturn", 2)]);
+    if (token !== imposePlanToken) return;
+  }
   const sidesSel = impEl("impSides");
   const wanted = booklet
     ? [
-        ["double", "Duplicate: front spreads on one side, back spreads on the other (sheetwise)"],
-        ["workturn", "Work and turn: front and back spreads side by side, same plate both sides, turned side to side"],
+        canDup
+          ? ["double", "Duplicate: front spreads on one side, back spreads on the other (sheetwise)"]
+          : ["double", "Double sided: front spreads on one side, back spreads on the other"],
+        ...(canWT ? [["workturn", "Work and turn: front and back spreads side by side, same plate both sides, turned side to side"]] : []),
       ]
     : [
         ["double", "Double sided: pages are front and back pairs"],
         ["single", "Single sided: fronts only"],
       ];
-  if ([...sidesSel.options].map((o) => o.value).join() !== wanted.map(([v]) => v).join()) {
+  if ([...sidesSel.options].map((o) => `${o.value}|${o.textContent}`).join() !== wanted.map(([v, t]) => `${v}|${t}`).join()) {
     const keep = sidesSel.value;
     sidesSel.replaceChildren(
       ...wanted.map(([v, t]) => {
@@ -5243,6 +5344,10 @@ async function updateImposeSummary() {
     );
     sidesSel.value = wanted.some(([v]) => v === keep) ? keep : "double";
   }
+  // Nothing to choose: hide the Sides menu.
+  const oneSide = wanted.length < 2;
+  impEl("impSidesLabel").classList.toggle("hidden", oneSide);
+  sidesSel.classList.toggle("hidden", oneSide);
   impEl("impCreepLabel").classList.toggle("hidden", !booklet);
   impEl("impCreepRow").classList.toggle("hidden", !booklet);
   const sides = impEl("impSides").value;
@@ -5255,7 +5360,6 @@ async function updateImposeSummary() {
   impEl("impCustomLabel").classList.toggle("hidden", !custom);
   const out = impEl("impSummary");
   if (!state.path) return;
-  const token = ++imposePlanToken;
   try {
     const spec = imposeSpec();
     const p = await invoke("impose_plan", { path: state.path, spec });
@@ -5268,7 +5372,8 @@ async function updateImposeSummary() {
     }
     if (token !== imposePlanToken) return;
     drawImposePreview(p, spec);
-    const mm = (v) => (Math.round(v * 10) / 10).toString();
+    const mm = (v) => `${fmtLen(v, unitKey === "mm" ? 1 : 2)}`;
+    const ul = unit().label;
     out.className = "impose__summary";
     // Sheets of paper: a double-sided sheet is two imposed pages.
     const paper = p.double ? Math.ceil(p.sheets / 2) : p.sheets;
@@ -5276,8 +5381,8 @@ async function updateImposeSummary() {
     const both = p.work_turn ? ", work and turn" : p.double ? ", printed both sides" : "";
     out.textContent =
       `${p.per_sheet} up (${p.cols} × ${p.rows}${p.rotated ? ", turned" : ""}) · ` +
-      `${paper} sheet${paper === 1 ? "" : "s"}${both} of ${mm(p.sheet_w)} × ${mm(p.sheet_h)} mm · ` +
-      `${booklet ? "spreads" : "items"} ${mm(p.item_w)} × ${mm(p.item_h)} mm` +
+      `${paper} sheet${paper === 1 ? "" : "s"}${both} of ${mm(p.sheet_w)} × ${mm(p.sheet_h)} ${ul} · ` +
+      `${booklet ? "spreads" : "items"} ${mm(p.item_w)} × ${mm(p.item_h)} ${ul}` +
       (p.blanks ? ` · ${p.blanks} blank page${p.blanks === 1 ? "" : "s"} added at the end` : "");
     impEl("impGo").disabled = false;
   } catch (err) {
@@ -5382,11 +5487,10 @@ function drawImposeSheet(svg, p, spec, k) {
   svg.replaceChildren();
   const NS = "http://www.w3.org/2000/svg";
   const { sheet_w: sw, sheet_h: sh, item_w: iw, item_h: ih, cols, rows } = p;
-  // Always shown portrait: a landscape sheet is drawn turned a quarter
-  // clockwise (the PDF itself stays landscape).
-  const turn = sw > sh;
+  // Drawn the way round the sheet is, so turning the sheet to landscape
+  // shows a landscape sheet (as the imposed PDF is).
   const root = document.createElementNS(NS, "g");
-  if (turn) root.setAttribute("transform", `translate(${sh} 0) rotate(90)`);
+  svg.classList.toggle("landscape", sw > sh);
   svg.appendChild(root);
   const el = (name, attrs) => {
     const e = document.createElementNS(NS, name);
@@ -5394,8 +5498,7 @@ function drawImposeSheet(svg, p, spec, k) {
     root.appendChild(e);
     return e;
   };
-  const [vw, vh] = turn ? [sh, sw] : [sw, sh];
-  svg.setAttribute("viewBox", `${-8} ${-8} ${vw + 16} ${vh + 16}`);
+  svg.setAttribute("viewBox", `${-8} ${-8} ${sw + 16} ${sh + 16}`);
   svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
   // The short-edge gap runs across the sheet's short side.
   const [hg, vg] = sw <= sh ? [spec.gutterShort, spec.gutterLong] : [spec.gutterLong, spec.gutterShort];
@@ -5578,12 +5681,6 @@ function fillImposePresets(selected = "") {
   impEl("impPresetDelete").disabled = !sel.value;
 }
 
-function currentImposeValues() {
-  const v = {};
-  for (const id of IMPOSE_FIELDS) v[id] = impEl(id).type === "checkbox" ? impEl(id).checked : impEl(id).value;
-  return v;
-}
-
 let presetChosen = ""; // the preset shown before "New preset…" was picked
 impEl("impPreset").addEventListener("change", () => {
   const name = impEl("impPreset").value;
@@ -5598,11 +5695,7 @@ impEl("impPreset").addEventListener("change", () => {
   impEl("impPresetDelete").disabled = !name;
   const v = imposePresets()[name];
   if (!v) return;
-  for (const id of IMPOSE_FIELDS) {
-    if (!(id in v)) continue;
-    if (impEl(id).type === "checkbox") impEl(id).checked = !!v[id];
-    else impEl(id).value = v[id];
-  }
+  applyImposeValues(v);
   showOrientButtons();
   saveImposeSettings();
   updateImposeSummary();
@@ -5680,3 +5773,25 @@ document.getElementById("compressBtn").addEventListener("click", async () => {
     hideProgress();
   }
 });
+
+// --- units menu (toolbar) ---
+// mm, cm or inches for everything measured: rulers, guides, page boxes and
+// the Impose window. Remembered on this computer.
+{
+  const unitsSel = document.getElementById("unitsSel");
+  unitsSel.value = unitKey;
+  unitsSel.addEventListener("change", () => {
+    const imposeValues = currentImposeValues();
+    unitKey = unitsSel.value in UNITS ? unitsSel.value : "mm";
+    try {
+      localStorage.setItem("units", unitKey);
+    } catch {}
+    applyImposeValues(imposeValues);
+    showImposeUnits();
+    renderPageBoxesPanel();
+    drawBoxOverlay();
+    drawRulers();
+    renderGuides();
+    if (!imposeDialog.classList.contains("hidden")) updateImposeSummary();
+  });
+}
