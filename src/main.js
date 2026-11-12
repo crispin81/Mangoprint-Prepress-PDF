@@ -724,7 +724,6 @@ function buildThumbs() {
   for (let n = 1; n <= doc.numPages; n++) {
     const item = document.createElement("div");
     item.className = "thumb";
-    if (HTML_DRAG_OUT) item.draggable = true;
     item.dataset.page = String(n);
     item.innerHTML =
       '<div class="thumb__img"></div>' +
@@ -1478,6 +1477,7 @@ function releaseWorkingCopies() {
 }
 
 appWindow.onCloseRequested(async (event) => {
+  await dragOutCleanup(); // before the window goes (it crashed otherwise)
   saveTabState();
   if (closeConfirmed || !tabs.some((t) => t.edited)) return releaseWorkingCopies();
   event.preventDefault();
@@ -2939,7 +2939,6 @@ let thumbDrag = null;
 document.getElementById("thumbList").addEventListener("mousedown", (ev) => {
   const item = ev.target.closest(".thumb");
   if (!item || ev.button !== 0 || ev.target.closest(".thumb__rot") || !state.path) return;
-  if (HTML_DRAG_OUT) return; // Linux: the webview's own drag (below) moves pages
   thumbDrag = { from: Number(item.dataset.page), item, x0: ev.clientX, y0: ev.clientY, active: false, target: null };
 });
 
@@ -3041,98 +3040,46 @@ async function startDragOut(d) {
   const path = await d.exported;
   if (!path) return;
   dragOutActive = true;
+  dragOutUsed = true;
+  const done = new window.__TAURI__.core.Channel();
+  done.onmessage = () => {
+    dragOutActive = false;
+    dragOutCleanup();
+  };
   // 1×1 transparent PNG when there's no thumbnail yet.
   const image = d.icon || "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
   try {
-    await invoke("drag_out", { path, image });
+    await invoke("plugin:drag|start_drag", { item: [path], image, onEvent: done });
   } catch (err) {
     dragOutActive = false;
     console.error(err);
   }
 }
 
-window.__TAURI__.event.listen("drag-out-done", () => (dragOutActive = false));
+// Clear what the drag plugin leaves on the window (see drag_out_cleanup in
+// lib.rs) once a drag-out has ended, however that's noticed.
+let dragOutUsed = false;
+async function dragOutCleanup() {
+  if (!dragOutUsed) return;
+  dragOutUsed = false;
+  try {
+    await invoke("drag_out_cleanup");
+  } catch (err) {
+    console.error(err);
+  }
+}
 // Back in the window with the mouse: any drag-out has ended, even if no
 // end was reported, so files dropped in are taken again.
-window.addEventListener("mousedown", () => (dragOutActive = false), true);
-
-// Linux (Wayland): a drag started from the app's own window never gets a
-// drop accepted by the file manager, so thumbnails use the webview's own
-// drag instead. It carries the new PDF's file:// address (the file is
-// written while the drag is under way); dropped back on the Pages panel it
-// moves the page, which the drop handler below spots by that address.
-const HTML_DRAG_OUT = IS_LINUX;
-let dragOutDir = null;
-let htmlDrag = null; // { from, path, internal }
-if (HTML_DRAG_OUT) invoke("drag_out_dir").then((d) => (dragOutDir = d), console.error);
-
-document.getElementById("thumbList").addEventListener("dragstart", (ev) => {
-  const item = ev.target.closest && ev.target.closest(".thumb");
-  if (!HTML_DRAG_OUT || !item || !state.path || !dragOutDir) {
-    ev.preventDefault();
-    return;
-  }
-  const from = Number(item.dataset.page);
-  const { picked, name } = dragOutPlan(from);
-  const token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  const path = `${dragOutDir}/${token}/${name}`;
-  ev.dataTransfer.setData("text/uri-list", `file://${encodeURI(path)}`);
-  ev.dataTransfer.effectAllowed = "copyMove";
-  const canvas = item.querySelector("canvas");
-  if (canvas) ev.dataTransfer.setDragImage(canvas, canvas.clientWidth / 2, canvas.clientHeight / 2);
-  htmlDrag = { from, path, internal: false };
-  invoke("export_pages", { path: state.path, pages: picked, name, token }).catch((err) => console.error(err));
-  item.classList.add("dragging");
-});
-
-document.getElementById("thumbList").addEventListener("dragend", (ev) => {
-  const item = ev.target.closest && ev.target.closest(".thumb");
-  if (item) item.classList.remove("dragging");
-  showPageDropTarget(null);
-  // The drop on the Pages panel can be reported just after this.
-  const d = htmlDrag;
-  setTimeout(() => {
-    if (htmlDrag === d) htmlDrag = null;
-  }, 1500);
-});
-
-// A page dragged within the Pages panel (Linux): move it there.
-async function htmlDragEvent(type, paths, position) {
-  const d = htmlDrag;
-  if (type === "enter") d.internal = (paths || []).includes(d.path);
-  if (!d.internal) return false;
-  const target = pageDropTarget(position);
-  if (type === "enter" || type === "over") {
-    showPageDropTarget(target, true);
-    if (target && position) {
-      const r = thumbsBox.getBoundingClientRect();
-      const y = position.y;
-      if (y < r.top + 50) thumbsBox.scrollTop -= 12;
-      else if (y > r.bottom - 30) thumbsBox.scrollTop += 12;
+window.addEventListener(
+  "mousedown",
+  () => {
+    if (dragOutActive || dragOutUsed) {
+      dragOutActive = false;
+      dragOutCleanup();
     }
-    return true;
-  }
-  showPageDropTarget(null);
-  if (type === "leave") {
-    d.internal = false;
-    return true;
-  }
-  // drop
-  htmlDrag = null;
-  if (!target) return true;
-  const to = target.at >= d.from ? target.at : target.at + 1;
-  if (to === d.from) return true;
-  setProgress(30, `Moving page ${d.from}…`);
-  try {
-    await invoke("move_page", { path: state.path, from: d.from, to });
-    await afterPagesChanged(state.pageCount, to);
-  } catch (err) {
-    alert(`Could not move the page:\n${err}`);
-  } finally {
-    hideProgress();
-  }
-  return true;
-}
+  },
+  true,
+);
 
 // Right-click a thumbnail: save that page (or the selected pages) as a new
 // PDF. The sure way on Linux, where some file managers won't take a drop.
@@ -4676,7 +4623,6 @@ adoptDetachedTab(); // this window was opened for a tab dragged out of another
 const dropHint = document.getElementById("dropHint");
 window.__TAURI__.webview.getCurrentWebview().onDragDropEvent(async (ev) => {
   const { type, paths, position } = ev.payload;
-  if (htmlDrag && (await htmlDragEvent(type, paths, position))) return;
   // Our own page being dragged out passes over the window first: not a drop.
   if (dragOutActive) {
     if (type === "drop" || type === "leave") {

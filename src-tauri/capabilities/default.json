@@ -12,6 +12,7 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "opener:default",
+    "drag:default",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",

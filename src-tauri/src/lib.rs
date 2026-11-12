@@ -1061,57 +1061,49 @@ fn drag_out_dir() -> String {
     drag_out_root().to_string_lossy().into_owned()
 }
 
-/// Starts a system drag of `path` (a file from `export_pages`) out of the
-/// window, with `image` (a PNG data URL) under the pointer. "drag-out-done"
-/// is emitted to the window when it ends. (The drag plugin kept a Channel
-/// in its window signal handlers, and dropping that while the window closed
-/// crashed the app; nothing here sends anything when it's dropped.)
+/// After a page has been dragged out (tauri-plugin-drag): disconnects the
+/// drag handlers the plugin left on the window and stops it being a drag
+/// source. Left there, they hold the plugin's Channel, and dropping that
+/// while the window closed crashed the app; the window also stayed a drag
+/// source, which spoiled later drags. Called when a drag-out ends, on the
+/// next click, and before the window closes.
 #[tauri::command]
-async fn drag_out(app: tauri::AppHandle, window: tauri::WebviewWindow, path: String, image: String) -> Result<(), String> {
-    use base64::Engine;
-    use tauri::Emitter;
-    let png = image.strip_prefix("data:image/png;base64,").unwrap_or(&image);
-    let png = base64::engine::general_purpose::STANDARD.decode(png).map_err(|e| e.to_string())?;
-    let (tx, rx) = std::sync::mpsc::channel();
-    let label = window.label().to_string();
-    let win = window.clone();
-    let handle = app.clone();
-    app.run_on_main_thread(move || {
-        let done = move |_result: drag::DragResult, _pos: drag::CursorPosition| {
-            let _ = handle.emit_to(label.as_str(), "drag-out-done", ());
-        };
-        let item = drag::DragItem::Files(vec![std::path::PathBuf::from(&path)]);
-        let options = drag::Options::default();
-        #[cfg(target_os = "linux")]
-        let r = match win.gtk_window() {
-            Ok(w) => {
-                let r = drag::start_drag(&w, item, drag::Image::Raw(png), done, options).map_err(|e| e.to_string());
-                if r.is_ok() {
-                    // The drag crate makes the whole window a drag source and
-                    // only undoes it on some endings; left on, every later
-                    // mouse drag in the app starts a file drag instead. Undo
-                    // it whenever this drag ends, however it ends.
-                    use gtk::glib::ObjectExt;
-                    use gtk::prelude::WidgetExt;
-                    let id = std::rc::Rc::new(std::cell::Cell::new(None));
-                    let id2 = id.clone();
-                    id.set(Some(w.connect_drag_end(move |w, _| {
-                        w.drag_source_unset();
-                        if let Some(h) = id2.take() {
-                            w.disconnect(h);
+async fn drag_out_cleanup(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.run_on_main_thread(move || {
+            if let Ok(w) = window.gtk_window() {
+                use gtk::glib::gobject_ffi as g;
+                use gtk::glib::object::ObjectType;
+                use gtk::prelude::WidgetExt;
+                for name in [c"drag-failed", c"drag-data-get"] {
+                    // SAFETY: a live GtkWindow, and a signal it has.
+                    unsafe {
+                        let id = g::g_signal_lookup(name.as_ptr(), gtk::ffi::gtk_widget_get_type());
+                        if id != 0 {
+                            g::g_signal_handlers_disconnect_matched(
+                                w.as_ptr() as *mut g::GObject,
+                                g::G_SIGNAL_MATCH_ID,
+                                id,
+                                0,
+                                std::ptr::null_mut(),
+                                std::ptr::null_mut(),
+                                std::ptr::null_mut(),
+                            );
                         }
-                    })));
+                    }
                 }
-                r
+                w.drag_source_unset();
             }
-            Err(e) => Err(e.to_string()),
-        };
-        #[cfg(not(target_os = "linux"))]
-        let r = drag::start_drag(&win, item, drag::Image::Raw(png), done, options).map_err(|e| e.to_string());
-        let _ = tx.send(r);
-    })
-    .map_err(|e| e.to_string())?;
-    rx.recv().map_err(|e| e.to_string())?
+            let _ = tx.send(());
+        })
+        .map_err(|e| e.to_string())?;
+        let _ = rx.recv();
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (app, window);
+    Ok(())
 }
 
 /// Mail merge: the rows of a CSV file, split into columns.
@@ -1301,6 +1293,7 @@ pub fn run() {
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_drag::init())
         .manage(SepCache(Mutex::new(HashMap::new())))
         .manage(WorkingCopy(Mutex::new(HashMap::new())))
         .manage(PlateCache(Mutex::new(None)))
@@ -1320,7 +1313,7 @@ pub fn run() {
             export_pages,
             drag_out_dir,
             save_pages,
-            drag_out,
+            drag_out_cleanup,
             delete_page,
             move_page,
             undo_step,
