@@ -1061,48 +1061,140 @@ fn drag_out_dir() -> String {
     drag_out_root().to_string_lossy().into_owned()
 }
 
-/// After a page has been dragged out (tauri-plugin-drag): disconnects the
-/// drag handlers the plugin left on the window and stops it being a drag
-/// source. Left there, they hold the plugin's Channel, and dropping that
-/// while the window closed crashed the app; the window also stayed a drag
-/// source, which spoiled later drags. Called when a drag-out ends, on the
-/// next click, and before the window closes.
+/// Starts a system drag of `path` (a file from `export_pages`) out of the
+/// window, with `image` (a PNG data URL) under the pointer; "drag-out-done"
+/// is emitted to the window when it ends.
+///
+/// Built by hand on GTK rather than with tauri-plugin-drag / the `drag`
+/// crate: those stop supplying the file the moment the drop happens, but
+/// a Wayland file manager (Nautilus) only asks for it after the drop, so a
+/// drop only worked when Nautilus happened to have read it while hovering.
+/// Here the file stays on offer until the drag has finished (plus a few
+/// seconds). They also kept a Channel in the window's handlers, which
+/// crashed the app when the window closed; nothing here does that.
 #[tauri::command]
-async fn drag_out_cleanup(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
+async fn drag_out(app: tauri::AppHandle, window: tauri::WebviewWindow, path: String, image: String) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        use base64::Engine;
+        let png = image.strip_prefix("data:image/png;base64,").unwrap_or(&image);
+        let png = base64::engine::general_purpose::STANDARD.decode(png).map_err(|e| e.to_string())?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = app.clone();
+        app.run_on_main_thread(move || {
+            let _ = tx.send(linux_drag::start(&handle, &window, &path, &png));
+        })
+        .map_err(|e| e.to_string())?;
+        rx.recv().map_err(|e| e.to_string())?
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (app, window, path, image);
+        Err("Dragging pages out is only built for Linux so far.".into())
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod linux_drag {
+    use gtk::gdk;
+    use gtk::gdk_pixbuf;
+    use gtk::glib::{self, ObjectExt, SignalHandlerId};
+    use gtk::prelude::*;
+    use std::cell::RefCell;
+    use tauri::Emitter;
+
+    thread_local! {
+        /// Undoes the last drag's handlers (run when it has finished, or
+        /// when a new drag starts first).
+        static PENDING: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+    }
+
+    fn finish_pending() {
+        if let Some(f) = PENDING.with(|p| p.borrow_mut().take()) {
+            f();
+        }
+    }
+
+    pub fn start(app: &tauri::AppHandle, window: &tauri::WebviewWindow, path: &str, png: &[u8]) -> Result<(), String> {
+        finish_pending();
+        let w = window.gtk_window().map_err(|e| e.to_string())?;
+        let uri = glib::filename_to_uri(path, None).map_err(|e| e.to_string())?.to_string();
+
+        // Offer the file as text/uri-list for as long as anyone asks.
+        let data_id = w.connect_drag_data_get(move |_, ctx, data, info, _| {
+            let ok = data.set_uris(&[uri.as_str()]);
+            eprintln!("[drag-out] data requested: target {} info {info} -> {ok} ({uri}); actions {:?}", data.target().name(), ctx.selected_action());
+        });
+        // Plain text/uri-list only. GTK's usual "uri targets" also offer the
+        // portal file-transfer formats, which Nautilus asks for first; that
+        // route worked for the first drag and then failed every time after.
+        let targets = gtk::TargetList::new(&[gtk::TargetEntry::new("text/uri-list", gtk::TargetFlags::empty(), 0)]);
+        let event = gtk::current_event();
+        eprintln!("[drag-out] start {path}; current event {:?}", event.as_ref().map(|e| e.event_type()));
+        let Some(ctx) = w.drag_begin_with_coordinates(&targets, gdk::DragAction::COPY, 1, event.as_ref(), -1, -1) else {
+            w.disconnect(data_id);
+            return Err("Could not start the drag.".into());
+        };
+        let loader = gdk_pixbuf::PixbufLoader::new();
+        if loader.write(png).and_then(|_| loader.close()).is_ok() {
+            if let Some(pb) = loader.pixbuf() {
+                ctx.drag_set_icon_pixbuf(&pb, pb.width() / 2, pb.height() / 2);
+            }
+        }
+
+        // When the drag has ended (dropped, finished or cancelled): wait a
+        // few seconds for a slow reader, then stop offering the file.
+        let end_id: std::rc::Rc<RefCell<Option<SignalHandlerId>>> = Default::default();
+        let undo = {
+            let w = w.clone();
+            let end_id = end_id.clone();
+            let data_id = RefCell::new(Some(data_id));
+            move || {
+                if let Some(id) = data_id.borrow_mut().take() {
+                    w.disconnect(id);
+                }
+                if let Some(id) = end_id.borrow_mut().take() {
+                    w.disconnect(id);
+                }
+            }
+        };
+        PENDING.with(|p| *p.borrow_mut() = Some(Box::new(undo)));
+        ctx.connect_drop_performed(|_, t| eprintln!("[drag-out] drop performed at {t}"));
+        ctx.connect_dnd_finished(|c| eprintln!("[drag-out] dnd finished, action {:?}", c.selected_action()));
+        ctx.connect_cancel(|_, r| eprintln!("[drag-out] cancelled: {r:?}"));
+        ctx.connect_action_changed(|_, a| eprintln!("[drag-out] action now {a:?}"));
+        let app = app.clone();
+        let label = window.label().to_string();
+        *end_id.borrow_mut() = Some(w.connect_drag_end(move |_, _| {
+            eprintln!("[drag-out] drag end");
+            let _ = app.emit_to(label.as_str(), "drag-out-done", ());
+            glib::timeout_add_local_once(std::time::Duration::from_secs(5), finish_pending);
+        }));
+        Ok(())
+    }
+
+    /// Before the window closes: drop the handlers now.
+    pub fn cleanup() {
+        finish_pending();
+    }
+}
+
+/// Before a window closes (and any time it's safe): stop offering a
+/// dragged-out file.
+#[tauri::command]
+async fn drag_out_cleanup(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         let (tx, rx) = std::sync::mpsc::channel();
         app.run_on_main_thread(move || {
-            if let Ok(w) = window.gtk_window() {
-                use gtk::glib::gobject_ffi as g;
-                use gtk::glib::object::ObjectType;
-                use gtk::prelude::WidgetExt;
-                for name in [c"drag-failed", c"drag-data-get"] {
-                    // SAFETY: a live GtkWindow, and a signal it has.
-                    unsafe {
-                        let id = g::g_signal_lookup(name.as_ptr(), gtk::ffi::gtk_widget_get_type());
-                        if id != 0 {
-                            g::g_signal_handlers_disconnect_matched(
-                                w.as_ptr() as *mut g::GObject,
-                                g::G_SIGNAL_MATCH_ID,
-                                id,
-                                0,
-                                std::ptr::null_mut(),
-                                std::ptr::null_mut(),
-                                std::ptr::null_mut(),
-                            );
-                        }
-                    }
-                }
-                w.drag_source_unset();
-            }
+            linux_drag::cleanup();
             let _ = tx.send(());
         })
         .map_err(|e| e.to_string())?;
         let _ = rx.recv();
     }
     #[cfg(not(target_os = "linux"))]
-    let _ = (app, window);
+    let _ = app;
     Ok(())
 }
 
@@ -1293,7 +1385,6 @@ pub fn run() {
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_drag::init())
         .manage(SepCache(Mutex::new(HashMap::new())))
         .manage(WorkingCopy(Mutex::new(HashMap::new())))
         .manage(PlateCache(Mutex::new(None)))
@@ -1313,6 +1404,7 @@ pub fn run() {
             export_pages,
             drag_out_dir,
             save_pages,
+            drag_out,
             drag_out_cleanup,
             delete_page,
             move_page,

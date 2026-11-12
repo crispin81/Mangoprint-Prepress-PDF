@@ -3041,23 +3041,20 @@ async function startDragOut(d) {
   if (!path) return;
   dragOutActive = true;
   dragOutUsed = true;
-  const done = new window.__TAURI__.core.Channel();
-  done.onmessage = () => {
-    dragOutActive = false;
-    dragOutCleanup();
-  };
   // 1×1 transparent PNG when there's no thumbnail yet.
   const image = d.icon || "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
   try {
-    await invoke("plugin:drag|start_drag", { item: [path], image, onEvent: done });
+    await invoke("drag_out", { path, image });
   } catch (err) {
     dragOutActive = false;
     console.error(err);
   }
 }
 
-// Clear what the drag plugin leaves on the window (see drag_out_cleanup in
-// lib.rs) once a drag-out has ended, however that's noticed.
+window.__TAURI__.event.listen("drag-out-done", () => (dragOutActive = false));
+
+// Before the window closes, stop offering a dragged-out file (see drag_out
+// in lib.rs).
 let dragOutUsed = false;
 async function dragOutCleanup() {
   if (!dragOutUsed) return;
@@ -3073,10 +3070,7 @@ async function dragOutCleanup() {
 window.addEventListener(
   "mousedown",
   () => {
-    if (dragOutActive || dragOutUsed) {
-      dragOutActive = false;
-      dragOutCleanup();
-    }
+    dragOutActive = false;
   },
   true,
 );
