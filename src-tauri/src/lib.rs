@@ -1062,7 +1062,26 @@ async fn drag_out(app: tauri::AppHandle, window: tauri::WebviewWindow, path: Str
         let options = drag::Options::default();
         #[cfg(target_os = "linux")]
         let r = match win.gtk_window() {
-            Ok(w) => drag::start_drag(&w, item, drag::Image::Raw(png), done, options).map_err(|e| e.to_string()),
+            Ok(w) => {
+                let r = drag::start_drag(&w, item, drag::Image::Raw(png), done, options).map_err(|e| e.to_string());
+                if r.is_ok() {
+                    // The drag crate makes the whole window a drag source and
+                    // only undoes it on some endings; left on, every later
+                    // mouse drag in the app starts a file drag instead. Undo
+                    // it whenever this drag ends, however it ends.
+                    use gtk::glib::ObjectExt;
+                    use gtk::prelude::WidgetExt;
+                    let id = std::rc::Rc::new(std::cell::Cell::new(None));
+                    let id2 = id.clone();
+                    id.set(Some(w.connect_drag_end(move |w, _| {
+                        w.drag_source_unset();
+                        if let Some(h) = id2.take() {
+                            w.disconnect(h);
+                        }
+                    })));
+                }
+                r
+            }
             Err(e) => Err(e.to_string()),
         };
         #[cfg(not(target_os = "linux"))]

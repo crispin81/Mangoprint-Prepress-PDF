@@ -3042,6 +3042,9 @@ async function startDragOut(d) {
 }
 
 window.__TAURI__.event.listen("drag-out-done", () => (dragOutActive = false));
+// Back in the window with the mouse: any drag-out has ended, even if no
+// end was reported, so files dropped in are taken again.
+window.addEventListener("mousedown", () => (dragOutActive = false), true);
 
 // The pointer can leave without a move event outside the window.
 document.documentElement.addEventListener("mouseleave", () => {
