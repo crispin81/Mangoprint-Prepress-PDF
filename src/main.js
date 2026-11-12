@@ -3134,6 +3134,52 @@ async function htmlDragEvent(type, paths, position) {
   return true;
 }
 
+// Right-click a thumbnail: save that page (or the selected pages) as a new
+// PDF. The sure way on Linux, where some file managers won't take a drop.
+const pageMenu = document.createElement("div");
+pageMenu.className = "insert-menu page-menu hidden";
+pageMenu.setAttribute("role", "menu");
+const pageMenuSave = document.createElement("button");
+pageMenuSave.type = "button";
+pageMenuSave.setAttribute("role", "menuitem");
+pageMenu.appendChild(pageMenuSave);
+document.body.appendChild(pageMenu);
+let pageMenuFrom = 0;
+
+document.getElementById("thumbList").addEventListener("contextmenu", (ev) => {
+  const item = ev.target.closest(".thumb");
+  if (!item || !state.path) return;
+  ev.preventDefault();
+  pageMenuFrom = Number(item.dataset.page);
+  const { picked } = dragOutPlan(pageMenuFrom);
+  pageMenuSave.textContent = picked.length === 1 ? `Save page ${picked[0]} as PDF…` : `Save ${picked.length} selected pages as PDF…`;
+  pageMenu.style.left = `${ev.clientX}px`;
+  pageMenu.style.top = `${ev.clientY}px`;
+  pageMenu.classList.remove("hidden");
+});
+
+pageMenuSave.addEventListener("click", async () => {
+  pageMenu.classList.add("hidden");
+  if (!state.path) return;
+  const { picked, name } = dragOutPlan(pageMenuFrom);
+  const source = state.sourcePath || state.path;
+  const dir = source.slice(0, Math.max(source.lastIndexOf("\\"), source.lastIndexOf("/")) + 1);
+  const out = await save({ defaultPath: `${dir}${name}`, filters: PDF_FILTER, title: "Save pages as PDF" });
+  if (!out) return;
+  try {
+    await invoke("save_pages", { path: state.path, pages: picked, out });
+  } catch (err) {
+    alert(`Could not save the pages:\n${err}`);
+  }
+});
+
+document.addEventListener("mousedown", (ev) => {
+  if (!pageMenu.contains(ev.target)) pageMenu.classList.add("hidden");
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") pageMenu.classList.add("hidden");
+});
+
 // The pointer can leave without a move event outside the window.
 document.documentElement.addEventListener("mouseleave", () => {
   if (thumbDrag && thumbDrag.active) startDragOut(thumbDrag);

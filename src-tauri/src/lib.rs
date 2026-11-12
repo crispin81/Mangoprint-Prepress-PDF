@@ -1041,6 +1041,16 @@ fn export_pages(path: String, pages: Vec<u32>, name: String, token: Option<Strin
     Ok(out.to_string_lossy().into_owned())
 }
 
+/// Saves some pages (with the edits so far) as a new PDF at `out`.
+#[tauri::command(async)]
+fn save_pages(path: String, pages: Vec<u32>, out: String, doc: tauri::State<DocLock>) -> Result<(), String> {
+    let _r = read_lock(&doc)?;
+    if Path::new(&out) == Path::new(&path) {
+        return Err("Choose a different file from the one that's open.".into());
+    }
+    pages::extract_pages(Path::new(&path), &pages, Path::new(&out))
+}
+
 fn drag_out_root() -> std::path::PathBuf {
     std::env::temp_dir().join("mangoprint-drag-out")
 }
@@ -1309,6 +1319,7 @@ pub fn run() {
             insert_pages,
             export_pages,
             drag_out_dir,
+            save_pages,
             drag_out,
             delete_page,
             move_page,
