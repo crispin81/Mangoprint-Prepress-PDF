@@ -2869,8 +2869,8 @@ input::placeholder {
 
 /* --- Impose dialog --- */
 .impose {
-  max-width: 1100px;
-  width: min(1100px, 96vw);
+  max-width: 1180px;
+  width: min(1180px, 96vw);
   text-align: left;
 }
 
@@ -2930,7 +2930,7 @@ input::placeholder {
 }
 
 .impose__preview {
-  flex: 0 0 500px;
+  flex: 0 0 600px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2942,14 +2942,11 @@ input::placeholder {
   padding: 10px;
 }
 
+/* A square box either way round, so turning the sheet doesn't resize
+   the window. */
 .impose__preview svg {
-  width: 170px;
-  height: 240px;
-}
-
-.impose__preview svg.landscape {
-  width: 200px;
-  height: 142px;
+  width: 236px;
+  height: 236px;
 }
 
 .impose__preview-label {
