@@ -122,6 +122,8 @@ const MM_PER_PT = 25.4 / 72;
 const toMm = (pt) => pt * MM_PER_PT;
 const fromMm = (mm) => mm / MM_PER_PT;
 
+const IS_LINUX = /Linux/i.test(navigator.platform || navigator.userAgent);
+
 // Units shown and typed (toolbar menu, remembered): mm, cm or inches.
 // Geometry still goes to the back end in mm.
 const UNITS = {
@@ -722,6 +724,7 @@ function buildThumbs() {
   for (let n = 1; n <= doc.numPages; n++) {
     const item = document.createElement("div");
     item.className = "thumb";
+    if (HTML_DRAG_OUT) item.draggable = true;
     item.dataset.page = String(n);
     item.innerHTML =
       '<div class="thumb__img"></div>' +
@@ -2910,7 +2913,7 @@ document.getElementById("deletePageBtn").addEventListener("click", deleteCurrent
 // On Linux the webview reports the point already in CSS pixels (labelled
 // physical, but not scaled), so dividing there put the line on the wrong
 // page on a scaled screen.
-const DROP_POS_SCALED = !/Linux/i.test(navigator.platform || navigator.userAgent);
+const DROP_POS_SCALED = !IS_LINUX;
 function pageDropTarget(position) {
   if (!state.path || !position) return null;
   const dpr = DROP_POS_SCALED ? window.devicePixelRatio || 1 : 1;
@@ -2936,6 +2939,7 @@ let thumbDrag = null;
 document.getElementById("thumbList").addEventListener("mousedown", (ev) => {
   const item = ev.target.closest(".thumb");
   if (!item || ev.button !== 0 || ev.target.closest(".thumb__rot") || !state.path) return;
+  if (HTML_DRAG_OUT) return; // Linux: the webview's own drag (below) moves pages
   thumbDrag = { from: Number(item.dataset.page), item, x0: ev.clientX, y0: ev.clientY, active: false, target: null };
 });
 
@@ -2994,8 +2998,9 @@ window.addEventListener("mouseup", async () => {
 // to a temp folder as soon as a drag starts so it's ready on leaving.
 let dragOutActive = false;
 
-function prepareDragOut(d) {
-  const picked = pages.picked.size > 1 && pages.picked.has(d.from) ? [...pages.picked].sort((a, b) => a - b) : [d.from];
+// The pages a drag from page `from` takes out, and the new PDF's name.
+function dragOutPlan(from) {
+  const picked = pages.picked.size > 1 && pages.picked.has(from) ? [...pages.picked].sort((a, b) => a - b) : [from];
   const stem = baseName(state.sourcePath || state.path).replace(/\.pdf$/i, "");
   const run = picked.every((p, i) => i === 0 || p === picked[i - 1] + 1);
   const name =
@@ -3004,6 +3009,11 @@ function prepareDragOut(d) {
       : run
         ? `${stem}_pages_${picked[0]}-${picked[picked.length - 1]}.pdf`
         : `${stem}_${picked.length}_pages.pdf`;
+  return { picked, name };
+}
+
+function prepareDragOut(d) {
+  const { picked, name } = dragOutPlan(d.from);
   d.exported = invoke("export_pages", { path: state.path, pages: picked, name }).catch((err) => {
     console.error(err);
     return null;
@@ -3045,6 +3055,84 @@ window.__TAURI__.event.listen("drag-out-done", () => (dragOutActive = false));
 // Back in the window with the mouse: any drag-out has ended, even if no
 // end was reported, so files dropped in are taken again.
 window.addEventListener("mousedown", () => (dragOutActive = false), true);
+
+// Linux (Wayland): a drag started from the app's own window never gets a
+// drop accepted by the file manager, so thumbnails use the webview's own
+// drag instead. It carries the new PDF's file:// address (the file is
+// written while the drag is under way); dropped back on the Pages panel it
+// moves the page, which the drop handler below spots by that address.
+const HTML_DRAG_OUT = IS_LINUX;
+let dragOutDir = null;
+let htmlDrag = null; // { from, path, internal }
+if (HTML_DRAG_OUT) invoke("drag_out_dir").then((d) => (dragOutDir = d), console.error);
+
+document.getElementById("thumbList").addEventListener("dragstart", (ev) => {
+  const item = ev.target.closest && ev.target.closest(".thumb");
+  if (!HTML_DRAG_OUT || !item || !state.path || !dragOutDir) {
+    ev.preventDefault();
+    return;
+  }
+  const from = Number(item.dataset.page);
+  const { picked, name } = dragOutPlan(from);
+  const token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const path = `${dragOutDir}/${token}/${name}`;
+  ev.dataTransfer.setData("text/uri-list", `file://${encodeURI(path)}`);
+  ev.dataTransfer.effectAllowed = "copyMove";
+  const canvas = item.querySelector("canvas");
+  if (canvas) ev.dataTransfer.setDragImage(canvas, canvas.clientWidth / 2, canvas.clientHeight / 2);
+  htmlDrag = { from, path, internal: false };
+  invoke("export_pages", { path: state.path, pages: picked, name, token }).catch((err) => console.error(err));
+  item.classList.add("dragging");
+});
+
+document.getElementById("thumbList").addEventListener("dragend", (ev) => {
+  const item = ev.target.closest && ev.target.closest(".thumb");
+  if (item) item.classList.remove("dragging");
+  showPageDropTarget(null);
+  // The drop on the Pages panel can be reported just after this.
+  const d = htmlDrag;
+  setTimeout(() => {
+    if (htmlDrag === d) htmlDrag = null;
+  }, 1500);
+});
+
+// A page dragged within the Pages panel (Linux): move it there.
+async function htmlDragEvent(type, paths, position) {
+  const d = htmlDrag;
+  if (type === "enter") d.internal = (paths || []).includes(d.path);
+  if (!d.internal) return false;
+  const target = pageDropTarget(position);
+  if (type === "enter" || type === "over") {
+    showPageDropTarget(target, true);
+    if (target && position) {
+      const r = thumbsBox.getBoundingClientRect();
+      const y = position.y;
+      if (y < r.top + 50) thumbsBox.scrollTop -= 12;
+      else if (y > r.bottom - 30) thumbsBox.scrollTop += 12;
+    }
+    return true;
+  }
+  showPageDropTarget(null);
+  if (type === "leave") {
+    d.internal = false;
+    return true;
+  }
+  // drop
+  htmlDrag = null;
+  if (!target) return true;
+  const to = target.at >= d.from ? target.at : target.at + 1;
+  if (to === d.from) return true;
+  setProgress(30, `Moving page ${d.from}…`);
+  try {
+    await invoke("move_page", { path: state.path, from: d.from, to });
+    await afterPagesChanged(state.pageCount, to);
+  } catch (err) {
+    alert(`Could not move the page:\n${err}`);
+  } finally {
+    hideProgress();
+  }
+  return true;
+}
 
 // The pointer can leave without a move event outside the window.
 document.documentElement.addEventListener("mouseleave", () => {
@@ -4542,6 +4630,7 @@ adoptDetachedTab(); // this window was opened for a tab dragged out of another
 const dropHint = document.getElementById("dropHint");
 window.__TAURI__.webview.getCurrentWebview().onDragDropEvent(async (ev) => {
   const { type, paths, position } = ev.payload;
+  if (htmlDrag && (await htmlDragEvent(type, paths, position))) return;
   // Our own page being dragged out passes over the window first: not a drop.
   if (dragOutActive) {
     if (type === "drop" || type === "leave") {

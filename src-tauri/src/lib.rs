@@ -1028,15 +1028,27 @@ fn delete_page(
 /// Pages dragged out of the app: written (with the edits so far) to a new
 /// PDF called `name` in a fresh temp folder; returns its path.
 #[tauri::command(async)]
-fn export_pages(path: String, pages: Vec<u32>, name: String, doc: tauri::State<DocLock>) -> Result<String, String> {
+fn export_pages(path: String, pages: Vec<u32>, name: String, token: Option<String>, doc: tauri::State<DocLock>) -> Result<String, String> {
     let _r = read_lock(&doc)?;
+    // `token`: the folder name the page already promised in a drag (Linux).
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-    let dir = std::env::temp_dir().join("mangoprint-drag-out").join(stamp.to_string());
+    let token = token.filter(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_alphanumeric())).unwrap_or_else(|| stamp.to_string());
+    let dir = drag_out_root().join(token);
     std::fs::create_dir_all(&dir).map_err(|e| format!("Could not make a temp folder: {e}"))?;
     let name = Path::new(&name).file_name().map(|n| n.to_owned()).unwrap_or_else(|| "pages.pdf".into());
     let out = dir.join(name);
     pages::extract_pages(Path::new(&path), &pages, &out)?;
     Ok(out.to_string_lossy().into_owned())
+}
+
+fn drag_out_root() -> std::path::PathBuf {
+    std::env::temp_dir().join("mangoprint-drag-out")
+}
+
+/// Where pages dragged out are written (a folder per drag inside it).
+#[tauri::command]
+fn drag_out_dir() -> String {
+    drag_out_root().to_string_lossy().into_owned()
 }
 
 /// Starts a system drag of `path` (a file from `export_pages`) out of the
@@ -1296,6 +1308,7 @@ pub fn run() {
             objects_info,
             insert_pages,
             export_pages,
+            drag_out_dir,
             drag_out,
             delete_page,
             move_page,
