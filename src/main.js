@@ -4715,6 +4715,16 @@ async function checkForUpdate() {
   }
 }
 
+// The version shown in the title bar and About box comes from the app
+// itself, so it can't be left behind when the version changes.
+window.__TAURI__.app
+  .getVersion()
+  .then((v) => {
+    for (const el of document.querySelectorAll(".titlebar__version")) el.textContent = `v${v}`;
+    for (const el of document.querySelectorAll(".about__version")) el.textContent = `Version ${v}`;
+  })
+  .catch(() => {});
+
 // Only the main window checks (not windows a tab was dragged out to).
 if (appWindow.label === "main") checkForUpdate();
 
