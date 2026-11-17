@@ -537,10 +537,23 @@ const view = {
 // Vector view unless overprint is being simulated or a plate is switched off.
 const isVectorMode = () => !state.simulateOverprint && allPlatesOn() && !proofOn();
 
+// pdf.js uses class `static { }` blocks, which older web engines (Safari
+// before 16.4, e.g. a Mac on Monterey that hasn't updated Safari) can't
+// read. Only when it fails to load for that reason, use the copy in
+// vendor/pdfjs/legacy: pdf.js's legacy build converted for Safari 15.
 async function loadPdfjs() {
   if (!view.lib) {
-    view.lib = await import("./vendor/pdfjs/pdf.min.mjs");
-    view.lib.GlobalWorkerOptions.workerSrc = new URL("vendor/pdfjs/pdf.worker.min.mjs", location.href).href;
+    let dir = "vendor/pdfjs/";
+    let lib;
+    try {
+      lib = await import("./vendor/pdfjs/pdf.min.mjs");
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) throw err;
+      dir = "vendor/pdfjs/legacy/";
+      lib = await import("./vendor/pdfjs/legacy/pdf.min.mjs");
+    }
+    lib.GlobalWorkerOptions.workerSrc = new URL(`${dir}pdf.worker.min.mjs`, location.href).href;
+    view.lib = lib;
   }
   return view.lib;
 }
@@ -4646,6 +4659,64 @@ window.__TAURI__.webview.getCurrentWebview().onDragDropEvent(async (ev) => {
     else for (const p of pdfs) await loadPdf(p);
   }
 });
+
+// --- new version available ---
+// At start-up, asks GitHub for the latest release; if it's newer than this
+// copy, a small pop-up offers the download page. "×" hides it until a
+// newer release than that one comes out. Offline or any error: nothing.
+const RELEASES_API = "https://api.github.com/repos/crispin81/Mangoprint-Prepress-PDF/releases/latest";
+const UPDATE_DISMISSED_KEY = "mangoprint.updateDismissed"; // holds the dismissed version
+
+// "v1.10.0" vs "1.9.2": >0 when a is newer.
+function compareVersions(a, b) {
+  const pa = String(a).replace(/^v/i, "").split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).replace(/^v/i, "").split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+async function checkForUpdate() {
+  const toast = document.getElementById("updateToast");
+  let dismissed = null;
+  try {
+    dismissed = localStorage.getItem(UPDATE_DISMISSED_KEY);
+  } catch {}
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const current = await window.__TAURI__.app.getVersion();
+    const res = await fetch(RELEASES_API, { cache: "no-store", signal: ctrl.signal, headers: { Accept: "application/vnd.github+json" } });
+    if (!res.ok) return;
+    const rel = await res.json();
+    if (!rel || rel.draft || rel.prerelease || typeof rel.tag_name !== "string") return;
+    const latest = rel.tag_name.replace(/^v/i, "");
+    if (compareVersions(latest, current) <= 0) return;
+    if (dismissed && compareVersions(latest, dismissed) <= 0) return;
+    const page = typeof rel.html_url === "string" && /^https:\/\/github\.com\//.test(rel.html_url) ? rel.html_url : "https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest";
+    document.getElementById("updateText").textContent = `Version ${latest} is available (you have ${current}).`;
+    document.getElementById("updateGet").onclick = (ev) => {
+      ev.preventDefault();
+      openExternal(page);
+    };
+    document.getElementById("updateClose").onclick = () => {
+      toast.classList.add("hidden");
+      try {
+        localStorage.setItem(UPDATE_DISMISSED_KEY, latest);
+      } catch {}
+    };
+    toast.classList.remove("hidden");
+  } catch {
+    // offline or GitHub unavailable: say nothing
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Only the main window checks (not windows a tab was dragged out to).
+if (appWindow.label === "main") checkForUpdate();
 
 // --- tutorial link & footer (same as RapidCulling) ---
 

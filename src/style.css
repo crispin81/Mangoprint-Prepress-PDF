@@ -296,6 +296,56 @@ body.mac .titlebar {
   opacity: 1;
 }
 
+.update-toast {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 12px 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.update-toast.hidden {
+  display: none;
+}
+
+.update-toast__get {
+  padding: 4px 10px;
+  background: var(--accent);
+  border-radius: 4px;
+  color: #1b1c22;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.update-toast__get:hover {
+  background: var(--accent-text);
+}
+
+.update-toast__close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+
+.update-toast__close:hover {
+  color: var(--text);
+}
+
 .app-footer {
   flex-shrink: 0;
   display: flex;

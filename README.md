@@ -16,6 +16,7 @@ install on Windows.
 
 **[⬇ Download the latest version](https://github.com/crispin81/Mangoprint-Prepress-PDF/releases/latest)**
 
+- **2026-11-17 (v1.3.1):** Drag pages out of the Pages panel onto the desktop or a folder to make a new PDF of them (Windows and Linux), or right-click a thumbnail to save them; a small notice when a new version is out; units menu (mm, cm, inches) for rulers, guides, page boxes and Impose; and a fix for PDFs not opening on Macs running macOS Monterey ("Unexpected token '{'")
 - **2026-11-04 (v1.3.0):** Free imposition: Impose lays the PDF out on press sheets with crop marks (step and repeat, unique, cut and stack, and saddle-stitched booklets in printer spreads with creep and fold marks), single or double sided or work and turn, set columns × rows, image shift, presets and a live preview. Also Compress images, rotate buttons in the toolbar, a right-click menu with zoom in/out tools and a hand tool (H or hold Space) to pan, drag a tab out to its own window, Cmd zoom keys on Mac, native window buttons on macOS, saving to network drives on Linux, and a zoom cursor that stays the right size
 - **2026-10-28 (v1.2.3):** A Colour Profiles panel listing the ICC profiles in the PDF (output intent and image profiles, each can be saved as .icc), Preview with to soft-proof the page through a CMYK press profile (with paper colour), and Output intent: set one, or change it and the colours are converted to the new press with 100% black kept
 - **2026-10-16 (v1.2.2):** Insert pages above or below the selected page, every page of an inserted PDF comes in, a Pages panel you can drag wider for bigger thumbnails, yellow scrollbars that are easy to see, and a mail merge preview that matches the merged text exactly (hyphens and apostrophes print as typed)
@@ -116,7 +117,10 @@ Windows 10 and 11 already include the WebView2 runtime the app needs.
 4. **Pages panel** — <kbd>+</kbd> (above or below the selected page) or drag
    PDFs in to insert pages, drag its right edge to resize the thumbnails, drag
    thumbnails to reorder, Ctrl/Shift-click to select several and the red ×
-   (or <kbd>Delete</kbd>) to delete them, ↺ ↻ to rotate. The rotate buttons
+   (or <kbd>Delete</kbd>) to delete them, ↺ ↻ to rotate. Drag a thumbnail
+   out of the window onto the desktop or a folder to get a new PDF of that
+   page (or of the selected pages) with your edits (Windows and Linux), or
+   right-click it and save them as a new PDF. The rotate buttons
    after Print in the toolbar turn the selected pages, or all pages / this
    page as *Apply edits to* says.
 5. **Fix the whole document.** Everything in the gold *Apply edits to* box
@@ -207,7 +211,13 @@ copy `bin/gswin64c.exe`, `bin/gsdll64.dll` and `doc/COPYING` (as
 `COPYING.txt`) from a Ghostscript 10.x install; on Linux and macOS run
 `.github/scripts/build-ghostscript-linux.sh` or `-macos.sh`, which compile a
 self-contained Ghostscript from source. The GitHub Actions workflows do this
-automatically.
+automatically. (`tauri dev` keeps its own copy in `src-tauri/target/debug/ghostscript/`
+and doesn't refresh it, so copy new files there too.)
+
+`src/vendor/pdfjs/legacy/` is pdf.js's legacy build converted for Safari 15
+(older Macs), loaded only when the normal build can't be read. To redo it
+after updating pdfjs-dist, run for both `pdf.min.mjs` and `pdf.worker.min.mjs`:
+`npx esbuild node_modules/pdfjs-dist/legacy/build/<file> --target=safari15 --minify --legal-comments=inline --format=esm --outfile=src/vendor/pdfjs/legacy/<file>`.
 
 `tauri build` produces a `.msi`/`.exe` on Windows, `.dmg`/`.app` on macOS
 and `.AppImage`/`.deb`/`.rpm` on Linux — run it on each target OS (or via

@@ -1087,10 +1087,32 @@ async fn drag_out(app: tauri::AppHandle, window: tauri::WebviewWindow, path: Str
         .map_err(|e| e.to_string())?;
         rx.recv().map_err(|e| e.to_string())?
     }
-    #[cfg(not(target_os = "linux"))]
+    // Windows: the `drag` crate (an OLE drag of the file). The drop is
+    // read before the drag returns, so nothing has to stay on offer.
+    #[cfg(target_os = "windows")]
+    {
+        use base64::Engine;
+        use tauri::Emitter;
+        let png = image.strip_prefix("data:image/png;base64,").unwrap_or(&image);
+        let png = base64::engine::general_purpose::STANDARD.decode(png).map_err(|e| e.to_string())?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let label = window.label().to_string();
+        let handle = app.clone();
+        app.run_on_main_thread(move || {
+            let done = move |_result: drag::DragResult, _pos: drag::CursorPosition| {
+                let _ = handle.emit_to(label.as_str(), "drag-out-done", ());
+            };
+            let item = drag::DragItem::Files(vec![std::path::PathBuf::from(&path)]);
+            let r = drag::start_drag(&window, item, drag::Image::Raw(png), done, drag::Options::default()).map_err(|e| e.to_string());
+            let _ = tx.send(r);
+        })
+        .map_err(|e| e.to_string())?;
+        rx.recv().map_err(|e| e.to_string())?
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, window, path, image);
-        Err("Dragging pages out is only built for Linux so far.".into())
+        Err("Dragging pages out isn't built for this system yet.".into())
     }
 }
 
